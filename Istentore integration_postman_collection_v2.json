@@ -1,0 +1,569 @@
+{
+  "info": {
+    "_postman_id": "b6c8c1d8-b30d-4971-969e-e46d028a43c1",
+    "name": "Istentore integration",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "505507"
+  },
+  "item": [
+    {
+      "name": "Forecasts",
+      "item": [
+        {
+          "name": "renewable",
+          "item": [
+            {
+              "name": "Post renewable forecasts",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\r\n    \"forecast_source_id\": 1,\r\n    \"timestamp\": \"2024-01-31T14:33:00Z\",\r\n    \"measurements\": [\r\n        [\"2024-01-31T14:33:00Z\", 5.63],\r\n        [\"2024-01-31T14:34:00Z\", 5.73],\r\n        [\"2024-01-31T14:35:00Z\", 5.53],\r\n        [\"2024-01-31T14:36:00Z\", 5.63],\r\n        [\"2024-01-31T14:37:00Z\", 5.73],\r\n        [\"2024-01-31T14:38:00Z\", 5.83],\r\n        [\"2024-01-31T14:39:00Z\", 5.93],\r\n        [\"2024-01-31T14:40:00Z\", 5.03],\r\n        [\"2024-01-31T14:41:00Z\", 5.13],\r\n        [\"2024-01-31T14:42:00Z\", 5.23],\r\n        [\"2024-01-31T14:43:00Z\", 5.33]\r\n    ]\r\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/forecasts/renewables",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "forecasts",
+                    "renewables"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Get renewable forecasts",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "method": "GET",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/forecasts/renewables",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "forecasts",
+                    "renewables"
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "day_ahead",
+          "item": [
+            {
+              "name": "Post day-ahead forecasts",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\r\n    \"forecast_source_id\": 1,\r\n    \"timestamp\": \"2024-01-31T14:33:00Z\",\r\n    \"measurements\": [\r\n        [\"2024-01-31T14:33:00Z\", 5.63],\r\n        [\"2024-01-31T14:34:00Z\", 5.73],\r\n        [\"2024-01-31T14:35:00Z\", 5.53],\r\n        [\"2024-01-31T14:36:00Z\", 5.63],\r\n        [\"2024-01-31T14:37:00Z\", 5.73],\r\n        [\"2024-01-31T14:38:00Z\", 5.83],\r\n        [\"2024-01-31T14:39:00Z\", 5.93],\r\n        [\"2024-01-31T14:40:00Z\", 5.03],\r\n        [\"2024-01-31T14:41:00Z\", 5.13],\r\n        [\"2024-01-31T14:42:00Z\", 5.23],\r\n        [\"2024-01-31T14:43:00Z\", 5.33]\r\n    ]\r\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/forecasts/dayahead",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "forecasts",
+                    "dayahead"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Get day-ahead forecasts",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "method": "GET",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/forecasts/dayahead",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "forecasts",
+                    "dayahead"
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "mfrr",
+          "item": [
+            {
+              "name": "Post mfrr forecasts",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\r\n    \"forecast_source_id\": 1,\r\n    \"timestamp\": \"2024-01-31T14:33:00Z\",\r\n    \"measurements\": [\r\n        [\"2024-01-31T14:33:00Z\", 5.63],\r\n        [\"2024-01-31T14:34:00Z\", 5.73],\r\n        [\"2024-01-31T14:35:00Z\", 5.53],\r\n        [\"2024-01-31T14:36:00Z\", 5.63],\r\n        [\"2024-01-31T14:37:00Z\", 5.73],\r\n        [\"2024-01-31T14:38:00Z\", 5.83],\r\n        [\"2024-01-31T14:39:00Z\", 5.93],\r\n        [\"2024-01-31T14:40:00Z\", 5.03],\r\n        [\"2024-01-31T14:41:00Z\", 5.13],\r\n        [\"2024-01-31T14:42:00Z\", 5.23],\r\n        [\"2024-01-31T14:43:00Z\", 5.33]\r\n    ]\r\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/forecasts/mfrr",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "forecasts",
+                    "mfrr"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Get mfrr forecasts",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "method": "GET",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/forecasts/mfrr",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "forecasts",
+                    "mfrr"
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "soc",
+      "item": [
+        {
+          "name": "Post soc",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"measurement_series\": 1,\r\n    \"measurements\": [\r\n        {\"timestamp\": \"2026-01-08T10:34:22.987658+00:00\",\r\n    \"measurement\": 5.3},\r\n        {\"timestamp\": \"2026-01-09T10:34:22.987658+00:00\",\r\n    \"measurement\": 5.4}\r\n    ]\r\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/measurements",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "measurements"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get soc",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/soc?measurement_series=1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "soc"
+              ],
+              "query": [
+                {
+                  "key": "measurement_series",
+                  "value": "1"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Market Products",
+      "item": [
+        {
+          "name": "Get market products",
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          },
+          "request": {
+            "method": "GET",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"forecast_source_id\": 7,\r\n    \"timestamp\": \"2024-01-31T14:33:00Z\",\r\n    \"measurements\": [\r\n        [\"2024-01-31T14:33:00Z\", 5.63],\r\n        [\"2024-01-31T14:34:00Z\", 5.73],\r\n        [\"2024-01-31T14:35:00Z\", 5.53],\r\n        [\"2024-01-31T14:36:00Z\", 5.63],\r\n        [\"2024-01-31T14:37:00Z\", 5.73],\r\n        [\"2024-01-31T14:38:00Z\", 5.83],\r\n        [\"2024-01-31T14:39:00Z\", 5.93],\r\n        [\"2024-01-31T14:40:00Z\", 5.03],\r\n        [\"2024-01-31T14:41:00Z\", 5.13],\r\n        [\"2024-01-31T14:42:00Z\", 5.23],\r\n        [\"2024-01-31T14:43:00Z\", 5.33]\r\n    ]\r\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/market_products",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "market_products"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get market products with delivery periods",
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          },
+          "request": {
+            "method": "GET",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": ""
+            },
+            "url": {
+              "raw": "{{base_url}}/market_products?delivery_period_gte=\"2026-01-20T00:00:00Z\"&id=4",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "market_products"
+              ],
+              "query": [
+                {
+                  "key": "delivery_period_gte",
+                  "value": "\"2026-01-20T00:00:00Z\""
+                },
+                {
+                  "key": "delivery_period_lte",
+                  "value": "\"2025-12-31T14:33:00Z\"",
+                  "disabled": true
+                },
+                {
+                  "key": "id",
+                  "value": "4"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Measurement series",
+      "item": [
+        {
+          "name": "Post measurement serie",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"asset_id\": \"5\",\r\n    \"variable\": \"generation\",\r\n    \"unit\": \"kWh\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/measurement_series",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "measurement_series"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get measurement series",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/measurement_series",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "measurement_series"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Measurements",
+      "item": [
+        {
+          "name": "Post measurement",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"measurement_series\": -1,\r\n    \"measurements\": [\r\n        {\"timestamp\": \"2026-01-08T10:34:22.987658+00:00\",\r\n    \"measurement\": 5.3},\r\n        {\"timestamp\": \"2026-01-09T10:34:22.987658+00:00\",\r\n    \"measurement\": 5.4}\r\n    ]\r\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/measurements",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "measurements"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get measurements",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/measurements?measurement_series=1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "measurements"
+              ],
+              "query": [
+                {
+                  "key": "measurement_series",
+                  "value": "1",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Market Activations",
+      "item": [
+        {
+          "name": "Post market activations",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"market_product_id\": 1,\r\n    \"activations\": [\r\n        {\r\n            \"delivery_period\": \"2025-12-16 13:10:30.380\",\r\n            \"charging_downward_kw\": 1,\r\n            \"discharging_downward_kw\": 2,\r\n            \"charging_upward_kw\": 3,\r\n            \"discharging_upward_kw\": 4,\r\n            \"total_upward_kw\": 3,\r\n            \"total_downward_kw\": 4\r\n        }\r\n    ]\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/market_activations",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "market_activations"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Login",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "// Pre-request Script en Postman\r",
+              "const fullUrl = pm.request.url.toString();\r",
+              "console.log(\"Full request URL:\", fullUrl);\r",
+              "// Parsear la respuesta JSON\r",
+              "const responseJson = pm.response.json();\r",
+              "\r",
+              "// Guardar el token en una variable de colección\r",
+              "pm.collectionVariables.set(\"auth_token\", responseJson.token);\r",
+              "\r",
+              "// Opcional: Verificar que el login fue exitoso\r",
+              "pm.test(\"Login exitoso\", function() {\r",
+              "    pm.response.to.have.status(200);\r",
+              "});\r",
+              "\r",
+              "// Opcional: Verificar que el token existe\r",
+              "pm.test(\"Token recibido\", function() {\r",
+              "    pm.expect(responseJson.token).to.exist;\r",
+              "});\r",
+              "\r",
+              "// Opcional: Imprimir el token en la consola\r",
+              "console.log(\"Token guardado:\", responseJson.token);"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        },
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// Pre-request Script en Postman\r",
+              "const fullUrl = pm.request.url.toString();\r",
+              "console.log(\"Full request URL:\", fullUrl);"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"email\": \"i-STENTORE\",\r\n    \"password\": \"bvS7bumKj86uKNt\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://lo2cti8ill.execute-api.eu-south-2.amazonaws.com/default/login",
+          "protocol": "https",
+          "host": [
+            "lo2cti8ill",
+            "execute-api",
+            "eu-south-2",
+            "amazonaws",
+            "com"
+          ],
+          "path": [
+            "default",
+            "login"
+          ]
+        }
+      },
+      "response": []
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{auth_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": ""
+    },
+    {
+      "key": "auth_token",
+      "value": ""
+    }
+  ]
+}
