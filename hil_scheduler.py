@@ -13,7 +13,7 @@ from measurement_agent import measurement_agent
 from dashboard_agent import dashboard_agent
 
 # --- CONFIGURATION ---
-REMOTE_PLANT = True # False assumes external ppc & battery, True activates local ppc & battery emulation
+REMOTE_PLANT = False # False assumes external ppc & battery, True activates local ppc & battery emulation
 REMOTE_DATA = False # False fetches the data from a local file, true fetches data from remote server
 
 def main():
