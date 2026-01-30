@@ -1,68 +1,88 @@
 # Active Context: HIL Scheduler
 
 ## Current Focus
-Application tested and working in local mode. System is fully operational.
+Application has been refactored with merged Plant Agent and plant model simulation. PPC and Battery agents have been merged into a single Plant Agent.
 
-## Recent Changes
-- Analyzed all source code files to understand system architecture
-- Created comprehensive Memory Bank structure with 7 documentation files
-- Documented agent patterns, data flows, and configuration system
-- Set up Python virtual environment (venv/)
-- Installed all dependencies from requirements.txt (dash, numpy, pandas, plotly, pyModbusTCP)
-- Removed legacy documentation (instructions.md, specs.md, get-pip.py)
-- Created detailed project plan with phased improvements
-- Changed hil_scheduler.py to run in LOCAL mode (REMOTE_PLANT = False)
-- Successfully tested application - all agents working correctly
+## Recent Changes (2026-01-30)
+
+### Major Refactoring
+1. **Agent Merge**: Merged `ppc_agent.py` and `battery_agent.py` into `plant_agent.py`
+   - Single Modbus server interface (PPC interface)
+   - Internal battery simulation (no separate Modbus server)
+   - Simplified architecture with fewer moving parts
+
+2. **Plant Model**: Added impedance model between battery and POI
+   - Configurable impedance parameters (R=0.01Ω, X=0.1Ω)
+   - Calculates P_poi, Q_poi, and V_poi
+   - Unity power factor (configurable)
+
+3. **YAML Configuration**: Moved simulated plant config to YAML
+   - Created `config.yaml` with plant model parameters
+   - Created `config_loader.py` to parse YAML
+   - Retained `config.py` for HIL plant (remote mode)
+
+4. **New Measurements**: Added POI values to data logging
+   - `p_poi_kw` - Active power at POI
+   - `q_poi_kvar` - Reactive power at POI
+   - `v_poi_pu` - Voltage at POI
+
+5. **Dashboard Updates**: Extended to show POI measurements
+   - Added P_poi trace to power graph
+   - Added Q_poi subplot
+   - Shows voltage at POI
+
+6. **Code Cleanup**: Deleted deprecated files
+   - Deleted `ppc_agent.py`
+   - Deleted `battery_agent.py`
+   - Retained `config.py` for HIL plant configuration
 
 ## Next Steps
-Based on the project plan, recommended implementation order:
-1. Add .gitignore file
-2. Improve README.md with quick start guide
-3. Configuration Management - External config files + CLI args
-4. Code Quality Tools - black, flake8, mypy, pre-commit
-5. Unit Tests - pytest coverage for core functionality
-6. Error Handling - Retry logic and resilience improvements
-7. Enhanced Dashboard - Additional UI features
+1. Functional testing of the refactored system
+2. Consider unified configuration approach for both plant modes
+3. Update README.md with new architecture documentation
 
-## Quick Wins Available
-- Add .gitignore file
-- Improve README.md with quick start guide
-- Add requirements-dev.txt for development dependencies
-- Config validation in config.py
+## Architecture Changes
 
-## Active Decisions
+### Before
+- PPC Agent → Modbus → Battery Agent → Modbus
+- Two separate servers (ports 5020 and 5021)
+- Two clients in measurement agent
 
-### Memory Bank Strategy
-- Converting all project knowledge from ad-hoc markdown files to structured Memory Bank format
-- Will delete `instructions.md` and `specs.md` once Memory Bank is complete
-- README.md can remain as high-level project overview
+### After
+- Scheduler → Modbus → Plant Agent (single server)
+- Internal battery simulation
+- Single client in measurement agent
+- POI calculations computed inside Plant Agent
 
-### Environment Setup
-- Using standard Python venv for isolation
-- All dependencies already specified in requirements.txt
-- Project is cross-platform compatible (Windows/Linux/macOS)
+## Configuration Files
+
+### config.yaml (Simulated Plant)
+Used by `hil_scheduler.py` for local simulation mode.
+Contains plant model parameters and Modbus register map.
+
+### config.py (HIL Plant)
+Retained for future remote/HIL mode implementation.
+Contains real hardware configuration.
+
+## New Register Map (Plant Agent)
+
+| Address | Size | Name | Description |
+|---------|------|------|-------------|
+| 0-1 | 2 words | SETPOINT_IN | Power setpoint from scheduler (hW, signed 32-bit) |
+| 2-3 | 2 words | SETPOINT_ACTUAL | Actual power after SoC limiting (hW, signed 32-bit) |
+| 10 | 1 word | ENABLE | Enable flag (0=disabled, 1=enabled) |
+| 12 | 1 word | SOC | State of Charge (per-unit x10000) |
+| 14-15 | 2 words | P_POI | Active power at POI (hW, signed 32-bit) |
+| 16-17 | 2 words | Q_POI | Reactive power at POI (hW, signed 32-bit) |
+| 18 | 1 word | V_POI | Voltage at POI (per-unit x100) |
 
 ## Important Patterns
 
 ### Code Organization
 - Each agent is in its own file with clear naming convention: `{agent_name}_agent.py`
 - Shared utilities in `utils.py`
-- Configuration centralized in `config.py`
+- Configuration: `config.yaml` for simulation, `config_loader.py` for parsing
 - Main entry point: `hil_scheduler.py` (Director agent)
-
-### Modbus Addressing
-Different register addresses for local vs remote modes:
-- Local mode uses simple sequential addresses (0, 2, 10)
-- Remote mode uses actual hardware addresses (86, 1, 281)
-- This is controlled entirely by config.py
-
-### Data Resolution Chain
-1. **5-minute**: Initial random schedule generation
-2. **1-minute**: Interpolated and stored in CSV
-3. **1-second**: Forward-filled for execution
-4. **As executed**: Logged to measurements.csv
-
-## Known Considerations
 
 ### Thread Safety
 All agents share `shared_data` dict with:
@@ -74,5 +94,6 @@ All agents share `shared_data` dict with:
 ### Modbus Conversions
 Critical to handle unit conversions at Modbus boundaries:
 - Power: kW (Python) ↔ hW (Modbus, signed)
-- SoC: kWh (Python) ↔ hWh (Modbus, unsigned)
+- SoC: pu (Python) ×10000 ↔ register (unsigned)
+- Voltage: pu (Python) ×100 ↔ register (unsigned)
 - Use `get_2comp` and `word_list_to_long` for 32-bit values

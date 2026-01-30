@@ -1,0 +1,51 @@
+# HIL Scheduler Configuration
+# This file contains all configuration parameters for the HIL Scheduler application
+
+# General Settings
+general:
+  log_level: INFO
+  schedule_source_csv: "schedule_source.csv"
+  schedule_duration_h: 0.5
+  schedule_power_min_kw: -1000
+  schedule_power_max_kw: 1000
+
+# Timing Configuration
+timing:
+  data_fetcher_period_s: 1
+  scheduler_period_s: 1
+  plant_period_s: 5
+  measurement_period_s: 2
+  measurements_write_period_s: 2
+
+# Plant Configuration
+plant:
+  capacity_kwh: 50.0
+  initial_soc_pu: 0.5
+  
+  # Plant Model Parameters (impedance between battery and POI)
+  impedance:
+    r_ohm: 0.01      # Resistance in ohms
+    x_ohm: 0.1       # Reactance in ohms
+  
+  nominal_voltage_v: 400.0   # Nominal line-to-line voltage (V)
+  base_power_kva: 1000.0     # Base power for per-unit calculations (kVA)
+  power_factor: 1.0          # Battery power factor (1.0 = unity)
+
+# Modbus Configuration
+modbus:
+  host: "localhost"
+  port: 5020
+  
+  # Register Map
+  registers:
+    setpoint_in: 0        # 32-bit signed: Power setpoint from scheduler (hW)
+    setpoint_actual: 2    # 32-bit signed: Actual power after SoC limiting (hW)
+    enable: 10            # 16-bit: Enable flag (0=disabled, 1=enabled)
+    soc: 12               # 16-bit unsigned: State of Charge (per-unit x10000)
+    p_poi: 14             # 32-bit signed: Active power at POI (hW)
+    q_poi: 16             # 32-bit signed: Reactive power at POI (hW)
+    v_poi: 18             # 16-bit unsigned: Voltage at POI (per-unit x100)
+
+# Output Configuration
+output:
+  measurements_csv: "measurements.csv"

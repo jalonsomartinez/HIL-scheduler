@@ -37,11 +37,10 @@ def agent_name(config, shared_data):
 |-------|--------|------|-----------|
 | **Director** | Main | Orchestrates lifecycle | Starts/stops all agents |
 | **Data Fetcher** | Separate | Schedule provider | schedule_source.csv → schedule_final_df |
-| **Scheduler** | Separate | Setpoint dispatcher | schedule_final_df → PPC Modbus |
-| **PPC** | Separate (local) | Setpoint forwarder | PPC server → Battery server |
-| **Battery** | Separate (local) | SoC simulator | Applies power, tracks SoC |
-| **Measurement** | Separate | Data logger | Reads all Modbus → measurements.csv |
-| **Dashboard** | Separate | UI server | Renders UI, controls PPC enable |
+| **Scheduler** | Separate | Setpoint dispatcher | schedule_final_df → Plant Modbus |
+| **Plant** | Separate | Merged PPC + Battery simulation | Single Modbus server, internal battery sim |
+| **Measurement** | Separate | Data logger | Reads Plant Modbus → measurements.csv |
+| **Dashboard** | Separate | UI server | Renders UI, controls Plant enable |
 
 ## Data Flow Patterns
 
@@ -55,37 +54,39 @@ def agent_name(config, shared_data):
                            ↓
               [Scheduler reads with asof]
                            ↓
-              PPC Modbus Server
+              Plant Modbus Server (setpoint register)
 ```
 
 ### Control Flow
 ```
 Dashboard (User clicks Start)
            ↓
-    Writes ENABLE=1 to PPC
+    Writes ENABLE=1 to Plant
            ↓
-    PPC reads ENABLE flag
+    Plant agent reads ENABLE flag
            ↓
-    IF enabled: forwards setpoint
+    IF enabled: applies setpoint to battery
     IF disabled: sends 0kW
            ↓
-    Battery receives setpoint
+    Battery simulation with SoC tracking
            ↓
-    Applies with SoC limiting
+    Plant model computes P/Q at POI
+           ↓
+    All values exposed via Modbus
 ```
 
 ### Measurement Flow
 ```
 Measurement Agent (periodic)
-    ├── Read PPC: original_setpoint
-    ├── Read Battery: actual_setpoint, SoC
+    ├── Read Plant: original_setpoint, actual_setpoint, SoC
+    ├── Read Plant: P_poi, Q_poi, V_poi
     ├── Append to measurements_df
     └── Write to measurements.csv (periodic)
 ```
 
 ## Modbus Communication Patterns
 
-### Client Pattern (Scheduler, PPC, Measurement)
+### Client Pattern (Scheduler, Measurement, Dashboard)
 ```python
 client = ModbusClient(host=host, port=port)
 
@@ -102,7 +103,7 @@ client.write_multiple_registers(address, values)
 client.close()
 ```
 
-### Server Pattern (PPC, Battery in local mode)
+### Server Pattern (Plant Agent)
 ```python
 server = ModbusServer(host=host, port=port, no_block=True)
 server.start()
@@ -190,3 +191,89 @@ if is_limited and (was_not_limited or power_changed):
 elif was_limited and not is_limited:
     logging.info("Power limitation removed")
 ```
+
+## Plant Model (Impedance Calculation)
+
+The plant model calculates power and voltage at the Point of Interconnection (POI) based on impedance between battery and grid.
+
+### Given Parameters
+- R: Resistance (ohms)
+- X: Reactance (ohms)
+- V_nom: Nominal line-to-line voltage (V)
+- PF: Power factor
+- P_batt: Battery active power (kW)
+
+### Calculation Steps
+
+```python
+# 1. Calculate apparent and reactive power at battery
+S_batt_kva = abs(P_batt_kw) / PF
+Q_batt_kvar = sign(P_batt) * sqrt(S_batt^2 - P_batt^2)
+
+# 2. Calculate per-phase values
+V_ph_kv = V_nom / (1000 * sqrt(3))
+S_ph_kva = S_batt_kva / 3
+
+# 3. Calculate current
+I_ka = S_ph_kva / V_ph_kv
+phi = arccos(PF)
+if P_batt < 0:
+    phi = -phi  # Charging
+I_complex = I_ka * exp(-j * phi)
+
+# 4. Voltage drop across impedance
+Z_ohm = R + jX
+V_drop_kv = I_complex * Z_ohm / 1000
+
+# 5. POI voltage
+V_poi_kv = V_ph_kv - V_drop_kv
+V_poi_pu = abs(V_poi_kv) / V_ph_kv
+
+# 6. Power at POI
+S_poi_ph = V_poi_kv * conj(I_complex)
+S_poi_kva = 3 * S_poi_ph
+P_poi_kw = real(S_poi_kva)
+Q_poi_kvar = imag(S_poi_kva)
+```
+
+## Configuration Patterns
+
+### YAML Configuration (Simulated Plant)
+```yaml
+plant:
+  capacity_kwh: 50.0
+  initial_soc_pu: 0.5
+  impedance:
+    r_ohm: 0.01
+    x_ohm: 0.1
+  nominal_voltage_v: 400.0
+  power_factor: 1.0
+```
+
+### Config Loader
+Converts nested YAML to flat dictionary for backward compatibility:
+```python
+def load_config(path="config.yaml"):
+    with open(path) as f:
+        yaml_config = yaml.safe_load(f)
+    
+    config = {}
+    config["PLANT_CAPACITY_KWH"] = yaml_config["plant"]["capacity_kwh"]
+    config["PLANT_R_OHM"] = yaml_config["plant"]["impedance"]["r_ohm"]
+    # ... etc
+    return config
+```
+
+## Register Map Pattern
+
+New unified register map for Plant Agent:
+
+| Address | Size | Register Name | Config Key |
+|---------|------|---------------|------------|
+| 0-1 | 2 words | SETPOINT_IN | PLANT_SETPOINT_REGISTER |
+| 2-3 | 2 words | SETPOINT_ACTUAL | PLANT_SETPOINT_ACTUAL_REGISTER |
+| 10 | 1 word | ENABLE | PLANT_ENABLE_REGISTER |
+| 12 | 1 word | SOC | PLANT_SOC_REGISTER |
+| 14-15 | 2 words | P_POI | PLANT_P_POI_REGISTER |
+| 16-17 | 2 words | Q_POI | PLANT_Q_POI_REGISTER |
+| 18 | 1 word | V_POI | PLANT_V_POI_REGISTER |

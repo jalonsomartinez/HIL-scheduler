@@ -9,96 +9,159 @@ from utils import hw_to_kw
 
 def measurement_agent(config, shared_data):
     """
-    Reads data from the battery agent and logs it to a DataFrame and CSV file.
+    Reads data from the plant agent and logs it to a DataFrame and CSV file.
+    The plant agent now provides all values including battery state and POI measurements.
     """
     logging.info("Measurement agent started.")
-
-    ppc_client = ModbusClient(host=config["PPC_MODBUS_HOST"], port=config["PPC_MODBUS_PORT"])
-    battery_client = ModbusClient(host=config["BATTERY_MODBUS_HOST"], port=config["BATTERY_MODBUS_PORT"])
-
+    
+    # Single client to connect to the plant agent (which is the PPC interface)
+    plant_client = ModbusClient(
+        host=config["PLANT_MODBUS_HOST"],
+        port=config["PLANT_MODBUS_PORT"]
+    )
+    
     last_write_time = time.time()
-
+    
     def write_measurements_to_csv():
         with shared_data['lock']:
             measurements_df = shared_data['measurements_df']
             if not measurements_df.empty:
-                logging.debug(f"Writing {len(measurements_df)} measurements to {config['MEASUREMENTS_CSV']}")
+                logging.debug(
+                    f"Writing {len(measurements_df)} measurements to "
+                    f"{config['MEASUREMENTS_CSV']}"
+                )
                 measurements_df.to_csv(config['MEASUREMENTS_CSV'], index=False)
-
+    
     while not shared_data['shutdown_event'].is_set():
         start_loop_time = time.time()
-
-        if not ppc_client.is_open:
-            logging.info("Measurement agent trying to connect to PPC Modbus server...")
-            if not ppc_client.open():
-                logging.warning("Measurement agent could not connect to PPC. Retrying...")
+        
+        if not plant_client.is_open:
+            logging.info("Measurement agent trying to connect to Plant Modbus server...")
+            if not plant_client.open():
+                logging.warning(
+                    "Measurement agent could not connect to Plant. Retrying..."
+                )
                 time.sleep(2)
                 continue
-            logging.info("Measurement agent connected to PPC Modbus server.")
-
-        if not battery_client.is_open:
-            logging.info("Measurement agent trying to connect to Battery Modbus server...")
-            if not battery_client.open():
-                logging.warning("Measurement agent could not connect to Battery. Retrying...")
-                time.sleep(2)
-                continue
-            logging.info("Measurement agent connected to Battery Modbus server.")
+            logging.info("Measurement agent connected to Plant Modbus server.")
         
         try:
-
-            # 1. Read from PPC for original setpoint
-            ppc_regs = ppc_client.read_holding_registers(config["PPC_SETPOINT_REGISTER"], 2)
-            if not ppc_regs:
-                logging.warning("Measurement agent could not read from PPC.")
+            # Read all values from plant agent
+            # 1. Original setpoint (what scheduler sent)
+            regs_setpoint = plant_client.read_holding_registers(
+                config["PLANT_SETPOINT_REGISTER"], 2
+            )
+            if not regs_setpoint:
+                logging.warning("Measurement agent could not read setpoint from Plant.")
                 time.sleep(2)
-                continue  # Skip this iteration if PPC reading fails
-
-            original_setpoint_kw = hw_to_kw(get_2comp(word_list_to_long(ppc_regs, big_endian=False)[0],32))
-
-            # 2. Read from Battery for actual setpoint and SoC
-            battery_regs_setpoint = battery_client.read_holding_registers(config["BATTERY_SETPOINT_ACTUAL_REGISTER"], 2) # Read 2 registers
-            if not battery_regs_setpoint:
-                logging.warning("Measurement agent could not read from Battery.")
-                time.sleep(2)
-                continue  # Skip this iteration if Battery reading fails
-            battery_regs_soc = battery_client.read_holding_registers(config["BATTERY_SOC_REGISTER"], 1) # Read 1 register
-            if not battery_regs_soc:
-                logging.warning("Measurement agent could not read from Battery.")
-                time.sleep(2)
-                continue  # Skip this iteration if Battery reading fails
+                continue
             
-            actual_setpoint_kw = hw_to_kw(get_2comp(word_list_to_long(battery_regs_setpoint, big_endian=False)[0],32))
-            soc_pu = battery_regs_soc[0] / 10000.0
-
-            logging.debug(f"Measurement: SP_orig={original_setpoint_kw:.2f}, SP_act={actual_setpoint_kw:.2f}, SoC={soc_pu:.2f}")
-
-            # 3. Append to shared dataframe
+            original_setpoint_kw = hw_to_kw(
+                get_2comp(word_list_to_long(regs_setpoint, big_endian=False)[0], 32)
+            )
+            
+            # 2. Actual setpoint (after SoC limiting)
+            regs_actual = plant_client.read_holding_registers(
+                config["PLANT_SETPOINT_ACTUAL_REGISTER"], 2
+            )
+            if not regs_actual:
+                logging.warning(
+                    "Measurement agent could not read actual setpoint from Plant."
+                )
+                time.sleep(2)
+                continue
+            
+            actual_setpoint_kw = hw_to_kw(
+                get_2comp(word_list_to_long(regs_actual, big_endian=False)[0], 32)
+            )
+            
+            # 3. State of Charge
+            regs_soc = plant_client.read_holding_registers(
+                config["PLANT_SOC_REGISTER"], 1
+            )
+            if not regs_soc:
+                logging.warning("Measurement agent could not read SoC from Plant.")
+                time.sleep(2)
+                continue
+            
+            soc_pu = regs_soc[0] / 10000.0
+            
+            # 4. Active power at POI
+            regs_p_poi = plant_client.read_holding_registers(
+                config["PLANT_P_POI_REGISTER"], 2
+            )
+            if not regs_p_poi:
+                logging.warning("Measurement agent could not read P_poi from Plant.")
+                time.sleep(2)
+                continue
+            
+            p_poi_kw = hw_to_kw(
+                get_2comp(word_list_to_long(regs_p_poi, big_endian=False)[0], 32)
+            )
+            
+            # 5. Reactive power at POI
+            regs_q_poi = plant_client.read_holding_registers(
+                config["PLANT_Q_POI_REGISTER"], 2
+            )
+            if not regs_q_poi:
+                logging.warning("Measurement agent could not read Q_poi from Plant.")
+                time.sleep(2)
+                continue
+            
+            q_poi_kvar = hw_to_kw(
+                get_2comp(word_list_to_long(regs_q_poi, big_endian=False)[0], 32)
+            )
+            
+            # 6. Voltage at POI
+            regs_v_poi = plant_client.read_holding_registers(
+                config["PLANT_V_POI_REGISTER"], 1
+            )
+            if not regs_v_poi:
+                logging.warning("Measurement agent could not read V_poi from Plant.")
+                time.sleep(2)
+                continue
+            
+            v_poi_pu = regs_v_poi[0] / 100.0
+            
+            logging.debug(
+                f"Measurement: SP_orig={original_setpoint_kw:.2f}, "
+                f"SP_act={actual_setpoint_kw:.2f}, SoC={soc_pu:.4f}, "
+                f"P_poi={p_poi_kw:.2f}, Q_poi={q_poi_kvar:.2f}, "
+                f"V_poi={v_poi_pu:.4f}"
+            )
+            
+            # Append to shared dataframe
             new_row = pd.DataFrame([{
                 "timestamp": datetime.now(),
                 "original_setpoint_kw": original_setpoint_kw,
                 "actual_setpoint_kw": actual_setpoint_kw,
-                "soc_pu": soc_pu
+                "soc_pu": soc_pu,
+                "p_poi_kw": p_poi_kw,
+                "q_poi_kvar": q_poi_kvar,
+                "v_poi_pu": v_poi_pu
             }])
             
             with shared_data['lock']:
                 if shared_data['measurements_df'].empty:
                     shared_data['measurements_df'] = new_row
                 else:
-                    shared_data['measurements_df'] = pd.concat([shared_data['measurements_df'], new_row], ignore_index=True)
+                    shared_data['measurements_df'] = pd.concat(
+                        [shared_data['measurements_df'], new_row],
+                        ignore_index=True
+                    )
             
             # Periodically write to CSV
             if time.time() - last_write_time >= config["MEASUREMENTS_WRITE_PERIOD_S"]:
                 write_measurements_to_csv()
                 last_write_time = time.time()
-
+            
         except Exception as e:
             logging.error(f"Error in measurement agent: {e}")
         
         time.sleep(max(0, config["MEASUREMENT_PERIOD_S"] - (time.time() - start_loop_time)))
     
-    logging.info("Measurement agent stopping. Performing final write to CSV..")
-
+    # Cleanup
+    logging.info("Measurement agent stopping. Performing final write to CSV...")
     write_measurements_to_csv()
-    ppc_client.close()
-    battery_client.close()
+    plant_client.close()
     logging.info("Measurement agent stopped.")
