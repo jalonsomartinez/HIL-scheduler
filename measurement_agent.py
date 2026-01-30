@@ -47,35 +47,63 @@ def measurement_agent(config, shared_data):
         
         try:
             # Read all values from plant agent
-            # 1. Original setpoint (what scheduler sent)
-            regs_setpoint = plant_client.read_holding_registers(
-                config["PLANT_SETPOINT_REGISTER"], 2
+            # 1. Active power setpoint (what scheduler sent)
+            regs_p_setpoint = plant_client.read_holding_registers(
+                config["PLANT_P_SETPOINT_REGISTER"], 2
             )
-            if not regs_setpoint:
-                logging.warning("Measurement agent could not read setpoint from Plant.")
+            if not regs_p_setpoint:
+                logging.warning("Measurement agent could not read P setpoint from Plant.")
                 time.sleep(2)
                 continue
             
-            original_setpoint_kw = hw_to_kw(
-                get_2comp(word_list_to_long(regs_setpoint, big_endian=False)[0], 32)
+            p_setpoint_kw = hw_to_kw(
+                get_2comp(word_list_to_long(regs_p_setpoint, big_endian=False)[0], 32)
             )
             
-            # 2. Actual setpoint (after SoC limiting)
-            regs_actual = plant_client.read_holding_registers(
-                config["PLANT_SETPOINT_ACTUAL_REGISTER"], 2
+            # 2. Actual active power (after SoC limiting)
+            regs_p_actual = plant_client.read_holding_registers(
+                config["PLANT_P_BATTERY_ACTUAL_REGISTER"], 2
             )
-            if not regs_actual:
+            if not regs_p_actual:
                 logging.warning(
-                    "Measurement agent could not read actual setpoint from Plant."
+                    "Measurement agent could not read actual P from Plant."
                 )
                 time.sleep(2)
                 continue
             
-            actual_setpoint_kw = hw_to_kw(
-                get_2comp(word_list_to_long(regs_actual, big_endian=False)[0], 32)
+            battery_active_power_kw = hw_to_kw(
+                get_2comp(word_list_to_long(regs_p_actual, big_endian=False)[0], 32)
             )
             
-            # 3. State of Charge
+            # 3. Reactive power setpoint (what scheduler sent)
+            regs_q_setpoint = plant_client.read_holding_registers(
+                config["PLANT_Q_SETPOINT_REGISTER"], 2
+            )
+            if not regs_q_setpoint:
+                logging.warning("Measurement agent could not read Q setpoint from Plant.")
+                time.sleep(2)
+                continue
+            
+            q_setpoint_kvar = hw_to_kw(
+                get_2comp(word_list_to_long(regs_q_setpoint, big_endian=False)[0], 32)
+            )
+            
+            # 4. Actual reactive power (after limit clamping)
+            regs_q_actual = plant_client.read_holding_registers(
+                config["PLANT_Q_BATTERY_ACTUAL_REGISTER"], 2
+            )
+            if not regs_q_actual:
+                logging.warning(
+                    "Measurement agent could not read actual Q from Plant."
+                )
+                time.sleep(2)
+                continue
+            
+            battery_reactive_power_kvar = hw_to_kw(
+                get_2comp(word_list_to_long(regs_q_actual, big_endian=False)[0], 32)
+            )
+            
+            # 5. State of Charge
             regs_soc = plant_client.read_holding_registers(
                 config["PLANT_SOC_REGISTER"], 1
             )
@@ -86,7 +114,7 @@ def measurement_agent(config, shared_data):
             
             soc_pu = regs_soc[0] / 10000.0
             
-            # 4. Active power at POI
+            # 6. Active power at POI
             regs_p_poi = plant_client.read_holding_registers(
                 config["PLANT_P_POI_REGISTER"], 2
             )
@@ -99,7 +127,7 @@ def measurement_agent(config, shared_data):
                 get_2comp(word_list_to_long(regs_p_poi, big_endian=False)[0], 32)
             )
             
-            # 5. Reactive power at POI
+            # 7. Reactive power at POI
             regs_q_poi = plant_client.read_holding_registers(
                 config["PLANT_Q_POI_REGISTER"], 2
             )
@@ -112,7 +140,7 @@ def measurement_agent(config, shared_data):
                 get_2comp(word_list_to_long(regs_q_poi, big_endian=False)[0], 32)
             )
             
-            # 6. Voltage at POI
+            # 8. Voltage at POI
             regs_v_poi = plant_client.read_holding_registers(
                 config["PLANT_V_POI_REGISTER"], 1
             )
@@ -124,17 +152,19 @@ def measurement_agent(config, shared_data):
             v_poi_pu = regs_v_poi[0] / 100.0
             
             logging.debug(
-                f"Measurement: SP_orig={original_setpoint_kw:.2f}, "
-                f"SP_act={actual_setpoint_kw:.2f}, SoC={soc_pu:.4f}, "
-                f"P_poi={p_poi_kw:.2f}, Q_poi={q_poi_kvar:.2f}, "
-                f"V_poi={v_poi_pu:.4f}"
+                f"Measurement: P_sp={p_setpoint_kw:.2f}kW, P_act={battery_active_power_kw:.2f}kW, "
+                f"Q_sp={q_setpoint_kvar:.2f}kvar, Q_act={battery_reactive_power_kvar:.2f}kvar, "
+                f"SoC={soc_pu:.4f}, P_poi={p_poi_kw:.2f}kW, Q_poi={q_poi_kvar:.2f}kvar, "
+                f"V_poi={v_poi_pu:.4f}pu"
             )
             
             # Append to shared dataframe
             new_row = pd.DataFrame([{
                 "timestamp": datetime.now(),
-                "original_setpoint_kw": original_setpoint_kw,
-                "actual_setpoint_kw": actual_setpoint_kw,
+                "p_setpoint_kw": p_setpoint_kw,
+                "battery_active_power_kw": battery_active_power_kw,
+                "q_setpoint_kvar": q_setpoint_kvar,
+                "battery_reactive_power_kvar": battery_reactive_power_kvar,
                 "soc_pu": soc_pu,
                 "p_poi_kw": p_poi_kw,
                 "q_poi_kvar": q_poi_kvar,

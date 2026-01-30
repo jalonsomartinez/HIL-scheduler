@@ -1,7 +1,7 @@
 # Active Context: HIL Scheduler
 
 ## Current Focus
-Application has been refactored with merged Plant Agent and plant model simulation. PPC and Battery agents have been merged into a single Plant Agent.
+Application has been refactored with merged Plant Agent and plant model simulation. PPC and Battery agents have been merged into a single Plant Agent. Setpoint naming has been cleaned up and reactive power setpoint support has been added.
 
 ## Recent Changes (2026-01-30)
 
@@ -21,17 +21,36 @@ Application has been refactored with merged Plant Agent and plant model simulati
    - Created `config_loader.py` to parse YAML
    - Retained `config.py` for HIL plant (remote mode)
 
-4. **New Measurements**: Added POI values to data logging
+4. **Setpoint Naming Cleanup** (2026-01-30)
+   - Renamed `setpoint_in` → `p_setpoint_in` (active power setpoint from scheduler)
+   - Renamed `setpoint_actual` → `p_setpoint_actual` (actual battery active power)
+   - Removed redundant `original_setpoint_kw` from measurements (was just echoing Modbus register)
+   - Renamed `actual_setpoint_kw` → `battery_active_power_kw` for clarity
+   - Added `q_setpoint_in` and `q_setpoint_actual` registers for reactive power
+
+5. **Reactive Power Support** (2026-01-30)
+   - Added reactive power schedule generation (independent of active power)
+   - Added Q setpoint registers to Modbus map
+   - Reactive power is limited by plant limits (NOT by SoC)
+   - Battery follows Q setpoint always within its limits
+   - Added power limits configuration (p_max_kw, p_min_kw, q_max_kvar, q_min_kvar)
+
+6. **New Measurements**: Added POI values to data logging
    - `p_poi_kw` - Active power at POI
    - `q_poi_kvar` - Reactive power at POI
    - `v_poi_pu` - Voltage at POI
+   - `p_setpoint_kw` - Active power setpoint from scheduler
+   - `battery_active_power_kw` - Actual battery active power (after SoC limiting)
+   - `q_setpoint_kvar` - Reactive power setpoint from scheduler
+   - `battery_reactive_power_kvar` - Actual battery reactive power (after limit clamping)
 
-5. **Dashboard Updates**: Extended to show POI measurements
+7. **Dashboard Updates**: Extended to show POI measurements
    - Added P_poi trace to power graph
    - Added Q_poi subplot
    - Shows voltage at POI
+   - Added Q setpoint and Q battery actual traces
 
-6. **Code Cleanup**: Deleted deprecated files
+8. **Code Cleanup**: Deleted deprecated files
    - Deleted `ppc_agent.py`
    - Deleted `battery_agent.py`
    - Retained `config.py` for HIL plant configuration
@@ -58,18 +77,20 @@ Application has been refactored with merged Plant Agent and plant model simulati
 
 ### config.yaml (Simulated Plant)
 Used by `hil_scheduler.py` for local simulation mode.
-Contains plant model parameters and Modbus register map.
+Contains plant model parameters, power limits, and Modbus register map.
 
 ### config.py (HIL Plant)
 Retained for future remote/HIL mode implementation.
 Contains real hardware configuration.
 
-## New Register Map (Plant Agent)
+## Register Map (Plant Agent)
 
 | Address | Size | Name | Description |
 |---------|------|------|-------------|
-| 0-1 | 2 words | SETPOINT_IN | Power setpoint from scheduler (hW, signed 32-bit) |
-| 2-3 | 2 words | SETPOINT_ACTUAL | Actual power after SoC limiting (hW, signed 32-bit) |
+| 0-1 | 2 words | P_SETPOINT_IN | Active power setpoint from scheduler (hW, signed 32-bit) |
+| 2-3 | 2 words | P_BATTERY_ACTUAL | Actual battery active power after SoC limiting (hW, signed 32-bit) |
+| 4-5 | 2 words | Q_SETPOINT_IN | Reactive power setpoint from scheduler (hW, signed 32-bit) |
+| 6-7 | 2 words | Q_BATTERY_ACTUAL | Actual battery reactive power after limit clamping (hW, signed 32-bit) |
 | 10 | 1 word | ENABLE | Enable flag (0=disabled, 1=enabled) |
 | 12 | 1 word | SOC | State of Charge (per-unit x10000) |
 | 14-15 | 2 words | P_POI | Active power at POI (hW, signed 32-bit) |
@@ -97,3 +118,11 @@ Critical to handle unit conversions at Modbus boundaries:
 - SoC: pu (Python) ×10000 ↔ register (unsigned)
 - Voltage: pu (Python) ×100 ↔ register (unsigned)
 - Use `get_2comp` and `word_list_to_long` for 32-bit values
+
+### Power Limiting Behavior
+- **Active Power (P)**: Limited by SoC boundaries AND plant power limits
+  - SoC limiting: Battery cannot charge beyond capacity or discharge below 0
+  - Power limits: Battery cannot exceed p_max_kw or go below p_min_kw
+- **Reactive Power (Q)**: Limited ONLY by plant power limits
+  - NOT limited by SoC (battery can provide reactive power regardless of charge level)
+  - Limited by q_max_kvar and q_min_kvar

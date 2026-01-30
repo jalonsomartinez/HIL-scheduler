@@ -40,6 +40,8 @@ def load_config(config_path="config.yaml"):
     config['SCHEDULE_DURATION_H'] = general.get('schedule_duration_h', 0.5)
     config['SCHEDULE_POWER_MIN_KW'] = general.get('schedule_power_min_kw', -1000)
     config['SCHEDULE_POWER_MAX_KW'] = general.get('schedule_power_max_kw', 1000)
+    config['SCHEDULE_Q_MIN_KVAR'] = general.get('schedule_q_min_kvar', -600)
+    config['SCHEDULE_Q_MAX_KVAR'] = general.get('schedule_q_max_kvar', 600)
     
     # Timing settings
     timing = yaml_config.get('timing', {})
@@ -53,6 +55,13 @@ def load_config(config_path="config.yaml"):
     plant = yaml_config.get('plant', {})
     config['PLANT_CAPACITY_KWH'] = plant.get('capacity_kwh', 50.0)
     config['PLANT_INITIAL_SOC_PU'] = plant.get('initial_soc_pu', 0.5)
+    
+    # Plant power limits
+    power_limits = plant.get('power_limits', {})
+    config['PLANT_P_MAX_KW'] = power_limits.get('p_max_kw', 1000.0)
+    config['PLANT_P_MIN_KW'] = power_limits.get('p_min_kw', -1000.0)
+    config['PLANT_Q_MAX_KVAR'] = power_limits.get('q_max_kvar', 600.0)
+    config['PLANT_Q_MIN_KVAR'] = power_limits.get('q_min_kvar', -600.0)
     
     # Plant model parameters
     impedance = plant.get('impedance', {})
@@ -69,8 +78,10 @@ def load_config(config_path="config.yaml"):
     
     # Modbus registers
     registers = modbus.get('registers', {})
-    config['PLANT_SETPOINT_REGISTER'] = registers.get('setpoint_in', 0)
-    config['PLANT_SETPOINT_ACTUAL_REGISTER'] = registers.get('setpoint_actual', 2)
+    config['PLANT_P_SETPOINT_REGISTER'] = registers.get('p_setpoint_in', 0)
+    config['PLANT_P_BATTERY_ACTUAL_REGISTER'] = registers.get('p_battery_actual', 2)
+    config['PLANT_Q_SETPOINT_REGISTER'] = registers.get('q_setpoint_in', 4)
+    config['PLANT_Q_BATTERY_ACTUAL_REGISTER'] = registers.get('q_battery_actual', 6)
     config['PLANT_ENABLE_REGISTER'] = registers.get('enable', 10)
     config['PLANT_SOC_REGISTER'] = registers.get('soc', 12)
     config['PLANT_P_POI_REGISTER'] = registers.get('p_poi', 14)

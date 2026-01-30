@@ -41,6 +41,12 @@ def plant_agent(config, shared_data):
     base_power_kva = config["PLANT_BASE_POWER_KVA"]
     power_factor = config["PLANT_POWER_FACTOR"]
     
+    # Power limits
+    p_max_kw = config["PLANT_P_MAX_KW"]
+    p_min_kw = config["PLANT_P_MIN_KW"]
+    q_max_kvar = config["PLANT_Q_MAX_KVAR"]
+    q_min_kvar = config["PLANT_Q_MIN_KVAR"]
+    
     # Limitation tracking
     was_limited_previously = False
     previous_limited_power_kw = None
@@ -48,14 +54,28 @@ def plant_agent(config, shared_data):
     # Initialize Modbus registers with default values
     plant_server.data_bank.set_holding_registers(config["PLANT_ENABLE_REGISTER"], [0])  # Disabled by default
     plant_server.data_bank.set_holding_registers(config["PLANT_SOC_REGISTER"], [int(soc_pu * 10000)])
+    
+    # Active power setpoint registers
     plant_server.data_bank.set_holding_registers(
-        config["PLANT_SETPOINT_REGISTER"],
+        config["PLANT_P_SETPOINT_REGISTER"],
         long_list_to_word([0], big_endian=False)
     )
     plant_server.data_bank.set_holding_registers(
-        config["PLANT_SETPOINT_ACTUAL_REGISTER"],
+        config["PLANT_P_BATTERY_ACTUAL_REGISTER"],
         long_list_to_word([0], big_endian=False)
     )
+    
+    # Reactive power setpoint registers
+    plant_server.data_bank.set_holding_registers(
+        config["PLANT_Q_SETPOINT_REGISTER"],
+        long_list_to_word([0], big_endian=False)
+    )
+    plant_server.data_bank.set_holding_registers(
+        config["PLANT_Q_BATTERY_ACTUAL_REGISTER"],
+        long_list_to_word([0], big_endian=False)
+    )
+    
+    # POI measurement registers
     plant_server.data_bank.set_holding_registers(
         config["PLANT_P_POI_REGISTER"],
         long_list_to_word([0], big_endian=False)
@@ -128,33 +148,42 @@ def plant_agent(config, shared_data):
         
         try:
             # --- Read inputs from Modbus ---
-            regs_setpoint = plant_server.data_bank.get_holding_registers(
-                config["PLANT_SETPOINT_REGISTER"], 2
+            regs_p_setpoint = plant_server.data_bank.get_holding_registers(
+                config["PLANT_P_SETPOINT_REGISTER"], 2
+            )
+            regs_q_setpoint = plant_server.data_bank.get_holding_registers(
+                config["PLANT_Q_SETPOINT_REGISTER"], 2
             )
             regs_enable = plant_server.data_bank.get_holding_registers(
                 config["PLANT_ENABLE_REGISTER"], 1
             )
             
-            if not regs_setpoint or not regs_enable:
+            if not regs_p_setpoint or not regs_q_setpoint or not regs_enable:
                 logging.warning("Plant agent could not read registers from Modbus server.")
                 time.sleep(max(0, dt_s - (time.time() - start_loop_time)))
                 continue
             
-            # Decode setpoint
-            original_power_kw = hw_to_kw(
-                get_2comp(word_list_to_long(regs_setpoint, big_endian=False)[0], 32)
+            # Decode active power setpoint
+            original_p_kw = hw_to_kw(
+                get_2comp(word_list_to_long(regs_p_setpoint, big_endian=False)[0], 32)
+            )
+            
+            # Decode reactive power setpoint
+            original_q_kvar = hw_to_kw(
+                get_2comp(word_list_to_long(regs_q_setpoint, big_endian=False)[0], 32)
             )
             
             # Check enable flag
             is_enabled = regs_enable[0] == 1
             
             if not is_enabled:
-                # When disabled, force setpoint to 0
-                original_power_kw = 0.0
+                # When disabled, force setpoints to 0
+                original_p_kw = 0.0
+                original_q_kvar = 0.0
             
-            # --- Battery Simulation with SoC Limiting ---
-            actual_power_kw = original_power_kw
-            future_soc_kwh = soc_kwh - (original_power_kw * dt_h)
+            # --- Active Power: Battery Simulation with SoC Limiting ---
+            actual_p_kw = original_p_kw
+            future_soc_kwh = soc_kwh - (original_p_kw * dt_h)
             is_limited_now = False
             limit_reason = ""
             
@@ -164,47 +193,65 @@ def plant_agent(config, shared_data):
                 limit_reason = "SoC would exceed capacity"
                 # Would overcharge - limit charging power
                 p_lim_kw = (soc_kwh - capacity_kwh) / dt_h
-                actual_power_kw = max(original_power_kw, p_lim_kw)
+                actual_p_kw = max(original_p_kw, p_lim_kw)
             elif future_soc_kwh < 0:
                 is_limited_now = True
                 limit_reason = "SoC would fall below zero"
                 # Would over-discharge - limit discharging power
                 p_lim_kw = soc_kwh / dt_h
-                actual_power_kw = min(original_power_kw, p_lim_kw)
+                actual_p_kw = min(original_p_kw, p_lim_kw)
             
             # Handle logging based on limitation state changes
             if is_limited_now:
                 if not was_limited_previously or not np.isclose(
-                    actual_power_kw, previous_limited_power_kw
+                    actual_p_kw, previous_limited_power_kw
                 ):
                     logging.warning(
-                        f"{limit_reason}. Limiting power from "
-                        f"{original_power_kw:.2f}kW to {actual_power_kw:.2f}kW"
+                        f"{limit_reason}. Limiting active power from "
+                        f"{original_p_kw:.2f}kW to {actual_p_kw:.2f}kW"
                     )
-                previous_limited_power_kw = actual_power_kw
+                previous_limited_power_kw = actual_p_kw
             elif was_limited_previously:
-                logging.info("Power limitation removed. Battery operating normally.")
+                logging.info("Active power limitation removed. Battery operating normally.")
                 previous_limited_power_kw = None
             
             was_limited_previously = is_limited_now
             
-            # Apply the actual (limited) setpoint and update SoC
-            soc_kwh -= actual_power_kw * dt_h
+            # Apply the actual (limited) active power setpoint and update SoC
+            soc_kwh -= actual_p_kw * dt_h
             soc_kwh = max(0, min(capacity_kwh, soc_kwh))  # Clamp to be safe
             soc_pu = soc_kwh / capacity_kwh
             
+            # --- Reactive Power: Apply limits (NOT SoC limited) ---
+            actual_q_kvar = original_q_kvar
+            # Clamp reactive power to limits
+            if actual_q_kvar > q_max_kvar:
+                actual_q_kvar = q_max_kvar
+                logging.warning(f"Reactive power limited to {q_max_kvar:.2f}kvar (max)")
+            elif actual_q_kvar < q_min_kvar:
+                actual_q_kvar = q_min_kvar
+                logging.warning(f"Reactive power limited to {q_min_kvar:.2f}kvar (min)")
+            
             # --- Plant Model Calculation ---
             p_poi_kw, q_poi_kvar, v_poi_pu = calculate_poi_power(
-                actual_power_kw, v_nom_v, r_ohm, x_ohm, power_factor
+                actual_p_kw, v_nom_v, r_ohm, x_ohm, power_factor
             )
             
             # --- Update Modbus Registers ---
-            # Setpoint actual
-            actual_setpoint_reg = long_list_to_word(
-                [kw_to_hw(actual_power_kw)], big_endian=False
+            # Active power battery actual
+            p_actual_reg = long_list_to_word(
+                [kw_to_hw(actual_p_kw)], big_endian=False
             )
             plant_server.data_bank.set_holding_registers(
-                config["PLANT_SETPOINT_ACTUAL_REGISTER"], actual_setpoint_reg
+                config["PLANT_P_BATTERY_ACTUAL_REGISTER"], p_actual_reg
+            )
+            
+            # Reactive power battery actual
+            q_actual_reg = long_list_to_word(
+                [kw_to_hw(actual_q_kvar)], big_endian=False
+            )
+            plant_server.data_bank.set_holding_registers(
+                config["PLANT_Q_BATTERY_ACTUAL_REGISTER"], q_actual_reg
             )
             
             # SoC
@@ -232,9 +279,9 @@ def plant_agent(config, shared_data):
             )
             
             logging.debug(
-                f"Plant: SP_orig={original_power_kw:.2f}kW, "
-                f"SP_act={actual_power_kw:.2f}kW, SoC={soc_pu:.4f}, "
-                f"P_poi={p_poi_kw:.2f}kW, Q_poi={q_poi_kvar:.2f}kvar, "
+                f"Plant: P_sp={original_p_kw:.2f}kW, P_act={actual_p_kw:.2f}kW, "
+                f"Q_sp={original_q_kvar:.2f}kvar, Q_act={actual_q_kvar:.2f}kvar, "
+                f"SoC={soc_pu:.4f}, P_poi={p_poi_kw:.2f}kW, Q_poi={q_poi_kvar:.2f}kvar, "
                 f"V_poi={v_poi_pu:.4f}pu"
             )
             

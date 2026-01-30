@@ -270,8 +270,10 @@ New unified register map for Plant Agent:
 
 | Address | Size | Register Name | Config Key |
 |---------|------|---------------|------------|
-| 0-1 | 2 words | SETPOINT_IN | PLANT_SETPOINT_REGISTER |
-| 2-3 | 2 words | SETPOINT_ACTUAL | PLANT_SETPOINT_ACTUAL_REGISTER |
+| 0-1 | 2 words | P_SETPOINT_IN | PLANT_P_SETPOINT_REGISTER |
+| 2-3 | 2 words | P_BATTERY_ACTUAL | PLANT_P_BATTERY_ACTUAL_REGISTER |
+| 4-5 | 2 words | Q_SETPOINT_IN | PLANT_Q_SETPOINT_REGISTER |
+| 6-7 | 2 words | Q_BATTERY_ACTUAL | PLANT_Q_BATTERY_ACTUAL_REGISTER |
 | 10 | 1 word | ENABLE | PLANT_ENABLE_REGISTER |
 | 12 | 1 word | SOC | PLANT_SOC_REGISTER |
 | 14-15 | 2 words | P_POI | PLANT_P_POI_REGISTER |

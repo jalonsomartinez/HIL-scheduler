@@ -84,15 +84,39 @@ Application has been refactored with merged Plant Agent and plant model simulati
 - Created `config_loader.py` to load YAML configuration
 - Retained `config.py` for HIL plant (remote mode) configuration
 
+### Setpoint Naming Cleanup (2026-01-30)
+- Renamed Modbus registers for clarity:
+  - `setpoint_in` → `p_setpoint_in` (active power setpoint)
+  - `setpoint_actual` → `p_setpoint_actual` (actual battery active power)
+- Added reactive power registers:
+  - `q_setpoint_in` (reactive power setpoint)
+  - `q_setpoint_actual` (actual battery reactive power)
+- Removed redundant `original_setpoint_kw` from measurements
+- Renamed `actual_setpoint_kw` → `battery_active_power_kw`
+- Added power limits configuration (p_max_kw, p_min_kw, q_max_kvar, q_min_kvar)
+
+### Reactive Power Support (2026-01-30)
+- Added reactive power schedule generation (independent of active power)
+- Scheduler now sends both P and Q setpoints to plant
+- Reactive power is limited by plant limits (NOT by SoC)
+- Battery follows Q setpoint always within its limits
+- Added Q setpoint and Q battery actual to measurements
+- Dashboard now shows Q setpoint, Q battery actual, and Q at POI
+
 ### New Measurements
 - Added `p_poi_kw` to measurements.csv
 - Added `q_poi_kvar` to measurements.csv
 - Added `v_poi_pu` to measurements.csv
+- Added `p_setpoint_kw` to measurements.csv
+- Added `battery_active_power_kw` to measurements.csv
+- Added `q_setpoint_kvar` to measurements.csv
+- Added `battery_reactive_power_kvar` to measurements.csv
 
 ### Dashboard Updates
 - Added P_poi trace to power graph
 - Added Q_poi subplot
 - All POI values displayed in real-time
+- Added Q setpoint and Q battery actual traces
 
 ### Deleted Files
 - `ppc_agent.py` (functionality merged)

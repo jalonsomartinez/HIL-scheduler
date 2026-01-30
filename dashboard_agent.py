@@ -85,6 +85,10 @@ def dashboard_agent(config, shared_data):
             if 'datetime' not in measurements_df.columns:
                 measurements_df['datetime'] = measurements_df['timestamp']
             
+            # Ensure reactive power column exists in schedule_df (for backward compatibility)
+            if 'reactive_power_setpoint_kvar' not in schedule_df.columns:
+                schedule_df['reactive_power_setpoint_kvar'] = 0.0
+            
             # Find the end time for filtering measurements
             end_time = schedule_df['datetime'].max() + timedelta(minutes=15)
             
@@ -189,29 +193,29 @@ def dashboard_agent(config, shared_data):
             return go.Figure(), status_text, status_style
         
         # Create a figure with 3 subplots that share the x-axis
-        # Row 1: Power (original, actual, P_poi)
+        # Row 1: Active Power (setpoint, battery actual, P_poi)
         # Row 2: SoC
-        # Row 3: Reactive Power at POI
+        # Row 3: Reactive Power (setpoint, battery actual, Q_poi)
         fig = make_subplots(
             rows=3,
             cols=1,
             shared_xaxes=True,
             vertical_spacing=0.1,
             subplot_titles=(
-                'Power (kW)',
+                'Active Power (kW)',
                 'State of Charge (pu)',
-                'Reactive Power at POI (kvar)'
+                'Reactive Power (kvar)'
             )
         )
         
-        # Power Graph traces (row 1)
+        # Active Power Graph traces (row 1)
         fig.add_trace(
             go.Scatter(
                 x=schedule_df['datetime'],
                 y=schedule_df['power_setpoint_kw'],
                 mode='lines',
                 line_shape='hv',
-                name='Source Setpoint',
+                name='P Setpoint (Schedule)',
                 line=dict(color='blue')
             ),
             row=1, col=1
@@ -219,21 +223,10 @@ def dashboard_agent(config, shared_data):
         fig.add_trace(
             go.Scatter(
                 x=measurements_df['datetime'],
-                y=measurements_df['original_setpoint_kw'],
+                y=measurements_df['battery_active_power_kw'],
                 mode='lines',
                 line_shape='hv',
-                name='Desired Setpoint',
-                line=dict(color='orange')
-            ),
-            row=1, col=1
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=measurements_df['datetime'],
-                y=measurements_df['actual_setpoint_kw'],
-                mode='lines',
-                line_shape='hv',
-                name='Actual Setpoint (Battery)',
+                name='P Battery Actual',
                 line=dict(color='green')
             ),
             row=1, col=1
@@ -262,7 +255,31 @@ def dashboard_agent(config, shared_data):
             row=2, col=1
         )
         
-        # Reactive Power at POI (row 3)
+        # Reactive Power traces (row 3)
+        if 'reactive_power_setpoint_kvar' in schedule_df.columns:
+            fig.add_trace(
+                go.Scatter(
+                    x=schedule_df['datetime'],
+                    y=schedule_df['reactive_power_setpoint_kvar'],
+                    mode='lines',
+                    line_shape='hv',
+                    name='Q Setpoint (Schedule)',
+                    line=dict(color='orange')
+                ),
+                row=3, col=1
+            )
+        if 'battery_reactive_power_kvar' in measurements_df.columns:
+            fig.add_trace(
+                go.Scatter(
+                    x=measurements_df['datetime'],
+                    y=measurements_df['battery_reactive_power_kvar'],
+                    mode='lines',
+                    line_shape='hv',
+                    name='Q Battery Actual',
+                    line=dict(color='green')
+                ),
+                row=3, col=1
+            )
         if 'q_poi_kvar' in measurements_df.columns:
             fig.add_trace(
                 go.Scatter(
@@ -271,7 +288,7 @@ def dashboard_agent(config, shared_data):
                     mode='lines',
                     line_shape='hv',
                     name='Q at POI',
-                    line=dict(color='brown')
+                    line=dict(color='brown', dash='dash')
                 ),
                 row=3, col=1
             )
@@ -285,9 +302,9 @@ def dashboard_agent(config, shared_data):
         )
         
         # Update y-axis titles
-        fig.update_yaxes(title_text="Power (kW)", row=1, col=1)
+        fig.update_yaxes(title_text="Active Power (kW)", row=1, col=1)
         fig.update_yaxes(title_text="SoC (pu)", row=2, col=1)
-        fig.update_yaxes(title_text="Q (kvar)", row=3, col=1)
+        fig.update_yaxes(title_text="Reactive Power (kvar)", row=3, col=1)
         fig.update_xaxes(title_text="Time", row=3, col=1)
         
         return fig, status_text, status_style

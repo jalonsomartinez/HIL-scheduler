@@ -9,7 +9,7 @@ from utils import kw_to_hw
 def scheduler_agent(config, shared_data):
     """
     Checks the schedule every second and sends setpoint updates to the plant agent
-    via Modbus.
+    via Modbus. Sends both active power (P) and reactive power (Q) setpoints.
     """
     logging.info("Scheduler agent started.")
     
@@ -17,8 +17,10 @@ def scheduler_agent(config, shared_data):
         host=config["PLANT_MODBUS_HOST"],
         port=config["PLANT_MODBUS_PORT"]
     )
-    current_setpoint = None
-    previous_setpoint = None
+    current_p_setpoint = None
+    current_q_setpoint = None
+    previous_p_setpoint = None
+    previous_q_setpoint = None
     
     while not shared_data['shutdown_event'].is_set():
         start_loop_time = time.time()
@@ -38,26 +40,45 @@ def scheduler_agent(config, shared_data):
                     time.sleep(config["SCHEDULER_PERIOD_S"])
                     continue
                 # Use asof for robust lookup
-                current_setpoint = schedule_final_df.asof(
-                    datetime.now()
-                )['power_setpoint_kw']
+                current_row = schedule_final_df.asof(datetime.now())
+                current_p_setpoint = current_row['power_setpoint_kw']
+                current_q_setpoint = current_row.get('reactive_power_setpoint_kvar', 0.0)
             
-            if current_setpoint != previous_setpoint:
+            # Send active power setpoint if changed
+            if current_p_setpoint != previous_p_setpoint:
                 logging.info(
-                    f"New setpoint: {current_setpoint:.2f} kW. Sending to Plant."
+                    f"New active power setpoint: {current_p_setpoint:.2f} kW. Sending to Plant."
                 )
                 
                 # Convert to hW and then to 32-bit signed integer for Modbus
-                reg_val = long_list_to_word(
-                    [kw_to_hw(current_setpoint)],
+                p_reg_val = long_list_to_word(
+                    [kw_to_hw(current_p_setpoint)],
                     big_endian=False
                 )
                 
                 client.write_multiple_registers(
-                    config["PLANT_SETPOINT_REGISTER"],
-                    reg_val
+                    config["PLANT_P_SETPOINT_REGISTER"],
+                    p_reg_val
                 )
-                previous_setpoint = current_setpoint
+                previous_p_setpoint = current_p_setpoint
+            
+            # Send reactive power setpoint if changed
+            if current_q_setpoint != previous_q_setpoint:
+                logging.info(
+                    f"New reactive power setpoint: {current_q_setpoint:.2f} kvar. Sending to Plant."
+                )
+                
+                # Convert to hW and then to 32-bit signed integer for Modbus
+                q_reg_val = long_list_to_word(
+                    [kw_to_hw(current_q_setpoint)],
+                    big_endian=False
+                )
+                
+                client.write_multiple_registers(
+                    config["PLANT_Q_SETPOINT_REGISTER"],
+                    q_reg_val
+                )
+                previous_q_setpoint = current_q_setpoint
         
         except Exception as e:
             logging.error(f"Error in scheduler agent: {e}")

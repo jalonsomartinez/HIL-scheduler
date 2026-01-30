@@ -8,7 +8,8 @@ from datetime import timedelta
 def create_schedule_csv(config):
     """
     Creates a power schedule by generating random 5-minute setpoints and
-    interpolating them to a 1-minute resolution.
+    interpolating them to a 1-minute resolution. Generates both active power (P)
+    and reactive power (Q) schedules.
     """
     logging.info(f"Creating schedule file: {config['SCHEDULE_SOURCE_CSV']}")
 
@@ -28,9 +29,20 @@ def create_schedule_csv(config):
         size=len(timestamps_5min)
     )
 
+    # Generate reactive power setpoints (independent of active power)
+    # Use smaller range for reactive power (typically 60% of active power capacity)
+    q_min = config.get('SCHEDULE_Q_MIN_KVAR', -600.0)
+    q_max = config.get('SCHEDULE_Q_MAX_KVAR', 600.0)
+    reactive_setpoints_5min = np.random.uniform(
+        q_min,
+        q_max,
+        size=len(timestamps_5min)
+    )
+
     coarse_schedule_df = pd.DataFrame({
         'datetime': timestamps_5min,
-        'power_setpoint_kw': power_setpoints_5min
+        'power_setpoint_kw': power_setpoints_5min,
+        'reactive_power_setpoint_kvar': reactive_setpoints_5min
     }).set_index('datetime')
 
     # 2. Create a fine-grained 1-minute index for the exact duration.
