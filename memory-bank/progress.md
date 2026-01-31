@@ -19,186 +19,60 @@
 - [x] **Smart Data Replacement**: New data replaces only overlapping periods, preserving non-overlapping data
 - [x] **asof() Lookup**: Scheduler uses pandas asof() to find value just before current time
 
-### Communication Layer
-- [x] Modbus TCP client/server implementation using pyModbusTCP
-- [x] 32-bit signed integer encoding/decoding for power values
-- [x] Unit conversions (kW↔hW, kWh↔hWh) in utils.py
-
-### Configuration
-- [x] YAML configuration file (`config.yaml`) for the simulated plant
-- [x] Config loader module (`config_loader.py`) to parse YAML into flat dictionary
-- [x] Configuration includes plant model parameters (R, X, V_nominal, power factor)
-- [x] Legacy config.py retained for HIL plant configuration (remote mode)
-
-### Data Files
-- [x] `schedule_source.csv`: Generated schedule (flexible resolution)
-- [x] `measurements.csv`: Logged measurements with timestamps and POI values
-- [x] `istentore_api.py`: Istentore API wrapper with session-based password handling
-
-### Threading
-- [x] Proper threading.Lock for shared DataFrame access
-- [x] threading.Event for graceful shutdown signaling
-- [x] Thread.join() for clean termination
-
-### Plant Model
-- [x] Impedance model between battery and POI (R + jX)
-- [x] Calculates P_poi and Q_poi based on impedance and power flow
-- [x] Computes V_poi (voltage at point of interconnection)
-- [x] Exposes POI measurements via Modbus registers
+### Dashboard UI
+- [x] Modern professional light theme with clean white surfaces
+- [x] Tabbed interface (Schedule Configuration / Status & Plots)
+- [x] Schedule preview with diff visualization (existing vs preview)
+- [x] Preview workflow: Configure → Preview → Accept/Clear
+- [x] Responsive design with CSS media queries
+- [x] Color-coded status indicator (running/stopped/unknown)
+- [x] Uniform styling across all components
 
 ## What's Left to Build
 
 ### Potential Improvements (Not Yet Planned)
 - [ ] Command-line argument parsing for runtime configuration
 - [ ] More sophisticated schedule generation (not just random)
-- [ ] Schedule validation and preview before execution
 - [ ] Historical data analysis tools
 - [ ] Better error recovery and retry mechanisms
 - [ ] Unit tests for individual agents
 - [ ] Integration tests for full workflow
 - [ ] Docker containerization for easy deployment
 - [ ] API endpoint for external schedule submission
-- [ ] Unified configuration for both local and remote plant modes
 
 ## Current Status
 
 ### Project Phase
-Application has been refactored with merged Plant Agent and plant model simulation.
+Dashboard UI improvements completed. All 3 schedule modes functional with preview workflow.
 
 ### Code Quality
-- Code is functional but lacks comprehensive error handling
-- No unit tests present
-- Logging is in place but could be more structured
-- No input validation on configuration values
+- Dashboard callbacks verified, no duplicate output errors
+- Preview workflow tested and working
+- Responsive CSS media queries for mobile support
 
 ### Documentation Status
 - [x] Memory Bank initialized with core files
-- [x] Legacy docs removed (instructions.md, specs.md, get-pip.py)
-- [x] Plan document created for agent merge (`plans/agent_merge_and_plant_model.md`)
-- [ ] README.md could be enhanced with quick start guide
+- [x] Legacy docs removed
+- [x] Plan documents created for major features
+- [x] activeContext.md updated with current focus
 
 ## Recent Changes (2026-01-31)
 
-### Extended Setpoint Modes Implementation
-- Added 3 schedule modes selectable from dashboard:
-  1. **Random Mode**: Generate random schedules (5-min resolution by default)
-  2. **CSV Mode**: Upload CSV files with selectable start time
-  3. **API Mode**: Fetch schedules from Istentore API with polling
-- Created `istentore_api.py` wrapper class:
-  - Session-based password handling
-  - Day-ahead schedule fetching
-  - Automatic token refresh
-- Created `schedule_manager.py` central module:
-  - Handles all 3 schedule modes
-  - Supports flexible time resolution
-  - Smart data replacement (only overlapping periods)
-  - Automatic polling for next-day API schedules
-- Modified `data_fetcher_agent.py`:
-  - Uses ScheduleManager instead of direct CSV generation
-  - Handles mode changes from dashboard
-- Modified `dashboard_agent.py`:
-  - Added mode selection radio buttons
-  - Added controls for each mode
-  - Added schedule preview graph
-- Modified `config.yaml`:
-  - Added Istentore API settings
-  - Added schedule default settings
-- Modified `config_loader.py`:
-  - Added loading of new configuration sections
-- Modified `hil_scheduler.py`:
-  - Runs indefinitely (no fixed end time)
-  - Uses new shared data structure with schedule_manager
-- Merged `ppc_agent.py` and `battery_agent.py` into single `plant_agent.py`
-- Plant agent provides single Modbus server interface
-- Battery simulation is now internal (no separate Modbus server)
-
-### Plant Model
-- Added impedance model between battery and POI
-- Configurable R=0.01Ω, X=0.1Ω in YAML
-- Calculates P_poi, Q_poi, and V_poi
-
-### Configuration
-- Created `config.yaml` for simulated plant configuration
-- Created `config_loader.py` to load YAML configuration
-- Retained `config.py` for HIL plant (remote mode) configuration
-
-### Setpoint Naming Cleanup (2026-01-30)
-- Renamed Modbus registers for clarity:
-  - `setpoint_in` → `p_setpoint_in` (active power setpoint)
-  - `setpoint_actual` → `p_setpoint_actual` (actual battery active power)
-- Added reactive power registers:
-  - `q_setpoint_in` (reactive power setpoint)
-  - `q_setpoint_actual` (actual battery reactive power)
-- Removed redundant `original_setpoint_kw` from measurements
-- Renamed `actual_setpoint_kw` → `battery_active_power_kw`
-- Added power limits configuration (p_max_kw, p_min_kw, q_max_kvar, q_min_kvar)
-
-### Reactive Power Support (2026-01-30)
-- Added reactive power schedule generation (independent of active power)
-- Scheduler now sends both P and Q setpoints to plant
-- Reactive power is limited by plant limits (NOT by SoC)
-- Battery follows Q setpoint always within its limits
-- Added Q setpoint and Q battery actual to measurements
-- Dashboard now shows Q setpoint, Q battery actual, and Q at POI
-
-### New Measurements
-- Added `p_poi_kw` to measurements.csv
-- Added `q_poi_kvar` to measurements.csv
-- Added `v_poi_pu` to measurements.csv
-- Added `p_setpoint_kw` to measurements.csv
-- Added `battery_active_power_kw` to measurements.csv
-- Added `q_setpoint_kvar` to measurements.csv
-- Added `battery_reactive_power_kvar` to measurements.csv
-
-### Dashboard Updates
-- Added P_poi trace to power graph
-- Added Q_poi subplot
-- All POI values displayed in real-time
-- Added Q setpoint and Q battery actual traces
-
-### Deleted Files
-- `ppc_agent.py` (functionality merged)
-- `battery_agent.py` (functionality merged)
-
-## Known Issues
-
-### None
-Application has been tested for syntax correctness. Functional testing pending.
-
-## Evolution of Decisions
-
-### Original Design (from specs.md)
-- All agents specified with clear responsibilities
-- Modbus communication pattern defined
-- Unit conversion requirements specified
-
-### Current Implementation
-- Matches specifications closely
-- Added local/remote dual mode support
-- Dashboard provides more features than originally specified (better status indicator)
-
-### Recent Refactoring (2026-01-30)
-- Merged PPC and Battery agents into Plant Agent for simplified architecture
-- Added plant impedance model for more realistic simulation
-- Migrated simulated plant configuration to YAML format
-- Single Modbus server for plant interface (no battery server needed in simulation)
-
-### Dashboard UI Redesign (2026-01-31)
+### Dashboard UI Redesign
 - Complete UI overhaul with modern professional light theme
-- Added tabbed interface:
-  - **Tab 1: Schedule Configuration** - Mode selection, controls, and schedule preview
-  - **Tab 2: Status & Plots** - Real-time status, control buttons, and live graphs
-- Design system with consistent styling:
-  - Color palette: Professional blue (#2563eb), success green (#16a34a), error red (#dc2626)
-  - Clean white surfaces with subtle borders and shadows
-  - Uniform spacing scale (4px, 8px, 12px, 16px, 24px)
-  - Standardized border radius (6px-8px)
-- Compact card-based layout for mode controls
-- Visual mode selector with card-based radio buttons
-- Collapsible mode control sections (hidden when not selected)
-- Responsive design with CSS media queries for mobile
-- Improved graph styling with clean white backgrounds
-- Status indicator with color-coded states (running/stopped/unknown)
-- Enhanced form controls with consistent styling
-- File upload with drag-and-drop styled area
-- Added last update timestamp display
+- Two tabs: Schedule Configuration and Status & Plots
+- Preview workflow with diff visualization
+- Accept/Clear buttons for schedule changes
+- Fixed duplicate callback outputs error
+
+### Preview Workflow Implementation
+- Random Mode: Configure start/end/step → Preview → Accept
+- CSV Mode: Upload file → Adjust start date/time → Preview updates → Accept
+- API Mode: Enter password → Connect & Fetch
+- Diff visualization: Existing (dashed gray) vs Preview (solid blue fill)
+
+### CSS Styling
+- Color palette: Blue (#2563eb), Green (#16a34a), Red (#dc2626)
+- Uniform spacing scale (4px, 8px, 12px, 16px, 24px)
+- Standardized border radius (6px-8px)
+- Responsive breakpoints for mobile devices
