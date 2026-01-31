@@ -2,7 +2,9 @@ import logging
 import threading
 import time
 import pandas as pd
+import numpy as np
 from datetime import timedelta, datetime
+from io import StringIO
 import dash
 from dash import Dash, dcc, html, Input, Output, State, callback_context
 from dash.exceptions import PreventUpdate
@@ -120,17 +122,58 @@ def dashboard_agent(config, shared_data):
                                 html.H3(className='card-title', children="Random Schedule Settings"),
                             ]),
                             html.Div(className='form-row', children=[
-                                html.Div(className='form-group', children=[
-                                    html.Label("Duration (hours)"),
-                                    dcc.Input(
-                                        id='random-duration',
-                                        type='number',
-                                        value=1.0,
-                                        min=0.1,
-                                        step=0.1,
+                                html.Div(className='form-group', style={'width': '80px'}, children=[
+                                    html.Label("Start Hour"),
+                                    dcc.Dropdown(
+                                        id='random-start-hour',
+                                        options=[{'label': f'{h:02d}', 'value': h} for h in range(24)],
+                                        value=datetime.now().hour,
+                                        clearable=False,
                                         className='form-control'
                                     ),
                                 ]),
+                                html.Div(className='form-group', style={'width': '70px'}, children=[
+                                    html.Label("Min"),
+                                    dcc.Dropdown(
+                                        id='random-start-minute',
+                                        options=[{'label': f'{m:02d}', 'value': m} for m in range(0, 60, 5)],
+                                        value=0,
+                                        clearable=False,
+                                        className='form-control'
+                                    ),
+                                ]),
+                                html.Div(className='form-group', style={'width': '80px'}, children=[
+                                    html.Label("End Hour"),
+                                    dcc.Dropdown(
+                                        id='random-end-hour',
+                                        options=[{'label': f'{h:02d}', 'value': h} for h in range(24)],
+                                        value=(datetime.now().hour + 1) % 24,
+                                        clearable=False,
+                                        className='form-control'
+                                    ),
+                                ]),
+                                html.Div(className='form-group', style={'width': '70px'}, children=[
+                                    html.Label("Min"),
+                                    dcc.Dropdown(
+                                        id='random-end-minute',
+                                        options=[{'label': f'{m:02d}', 'value': m} for m in range(0, 60, 5)],
+                                        value=0,
+                                        clearable=False,
+                                        className='form-control'
+                                    ),
+                                ]),
+                                html.Div(className='form-group', style={'width': '90px'}, children=[
+                                    html.Label("Step (min)"),
+                                    dcc.Dropdown(
+                                        id='random-step',
+                                        options=[{'label': f'{m}', 'value': m} for m in [5, 10, 15, 30, 60]],
+                                        value=5,
+                                        clearable=False,
+                                        className='form-control'
+                                    ),
+                                ]),
+                            ]),
+                            html.Div(className='form-row', children=[
                                 html.Div(className='form-group', children=[
                                     html.Label("Min Power (kW)"),
                                     dcc.Input(
@@ -154,7 +197,7 @@ def dashboard_agent(config, shared_data):
                                 html.Div(className='form-group', children=[
                                     html.Label(""),
                                     html.Button(
-                                        'Generate Schedule',
+                                        'Preview',
                                         id='random-generate-btn',
                                         n_clicks=0,
                                         className='btn btn-primary btn-block'
@@ -270,13 +313,19 @@ def dashboard_agent(config, shared_data):
                             ]),
                             html.Div(className='form-row', children=[
                                 html.Button(
-                                    'Clear Schedule',
+                                    'Clear Preview',
                                     id='clear-schedule-btn',
                                     n_clicks=0,
                                     className='btn btn-secondary'
                                 ),
+                                html.Button(
+                                    'Accept Changes',
+                                    id='accept-schedule-btn',
+                                    n_clicks=0,
+                                    className='btn btn-success'
+                                ),
                             ]),
-                            dcc.Graph(id='schedule-preview', style={'height': '200px'}),
+                            dcc.Graph(id='schedule-preview', style={'height': '250px'}),
                         ]),
                         
                     ]),  # End config tab
@@ -326,6 +375,7 @@ def dashboard_agent(config, shared_data):
             
             # Hidden stores
             dcc.Store(id='uploaded-file-content'),
+            dcc.Store(id='preview-schedule'),
             dcc.Store(id='active-tab', data='config'),
             
             # Refresh interval
@@ -433,49 +483,133 @@ def dashboard_agent(config, shared_data):
         return {'contents': contents, 'filename': filename}, f"Selected: {filename}"
     
     # ============================================================
-    # SCHEDULE PREVIEW UPDATE
+    # SCHEDULE PREVIEW UPDATE (with diff visualization)
     # ============================================================
     @app.callback(
         Output('schedule-preview', 'figure'),
-        Input('interval-component', 'n_intervals'),
+        [Input('interval-component', 'n_intervals'),
+         Input('preview-schedule', 'data'),
+         Input('random-generate-btn', 'n_clicks'),
+         Input('clear-schedule-btn', 'n_clicks'),
+         Input('accept-schedule-btn', 'n_clicks')],
         prevent_initial_call=False
     )
-    def update_schedule_preview(n):
+    def update_schedule_preview(n, preview_data, random_clicks, clear_clicks, accept_clicks):
+        # Get existing schedule
+        existing_df = pd.DataFrame()
         if 'schedule_manager' in shared_data:
             sm = shared_data['schedule_manager']
             if not sm.is_empty:
-                return create_schedule_preview_fig(sm.schedule_df)
-        return create_empty_fig("No schedule loaded")
+                existing_df = sm.schedule_df.copy()
+        
+        # Get preview schedule
+        preview_df = pd.DataFrame()
+        if preview_data:
+            try:
+                preview_df = pd.read_json(StringIO(preview_data), orient='split')
+            except Exception as e:
+                logging.error(f"Error reading preview data: {e}")
+        
+        return create_schedule_preview_diff_fig(existing_df, preview_df)
     
     # ============================================================
-    # RANDOM MODE GENERATE
+    # RANDOM MODE PREVIEW
     # ============================================================
     @app.callback(
-        Output('csv-filename-display', 'children', allow_duplicate=True),
+        [Output('preview-schedule', 'data'),
+         Output('csv-filename-display', 'children', allow_duplicate=True)],
         Input('random-generate-btn', 'n_clicks'),
-        State('random-duration', 'value'),
-        State('random-min-power', 'value'),
-        State('random-max-power', 'value'),
+        [State('random-start-hour', 'value'),
+         State('random-start-minute', 'value'),
+         State('random-end-hour', 'value'),
+         State('random-end-minute', 'value'),
+         State('random-step', 'value'),
+         State('random-min-power', 'value'),
+         State('random-max-power', 'value')],
         prevent_initial_call=True
     )
-    def generate_random_schedule(n_clicks, duration, min_power, max_power):
+    def preview_random_schedule(n_clicks, start_hour, start_minute, end_hour, end_minute, step, min_power, max_power):
         if n_clicks == 0:
             raise PreventUpdate
         
-        logging.info(f"Dashboard: Generating random schedule (duration={duration}h, min={min_power}kW, max={max_power}kW)")
+        logging.info(f"Dashboard: Previewing random schedule (start={start_hour:02d}:{start_minute:02d}, end={end_hour:02d}:{end_minute:02d}, step={step}min, min={min_power}kW, max={max_power}kW)")
+        
+        # Calculate duration from start/end times
+        today = datetime.now().date()
+        start_dt = datetime.combine(today, datetime.min.time().replace(hour=start_hour, minute=start_minute))
+        end_dt = datetime.combine(today, datetime.min.time().replace(hour=end_hour, minute=end_minute))
+        
+        # Handle overnight schedules
+        if end_dt <= start_dt:
+            end_dt += timedelta(days=1)
+        
+        duration_h = (end_dt - start_dt).total_seconds() / 3600
+        
+        # Generate random schedule data without committing
+        num_points = int(duration_h * 60 / step) + 1
+        times = [start_dt + timedelta(minutes=i * step) for i in range(num_points)]
+        power_values = np.random.uniform(min_power, max_power, num_points)
+        
+        preview_df = pd.DataFrame({
+            'datetime': times,
+            'power_setpoint_kw': power_values
+        })
+        
+        preview_json = preview_df.to_json(orient='split', date_format='iso')
+        
+        return preview_json, f"Preview: {num_points} points generated"
+    
+    # ============================================================
+    # ACCEPT SCHEDULE
+    # ============================================================
+    @app.callback(
+        [Output('preview-schedule', 'data', allow_duplicate=True),
+         Output('csv-filename-display', 'children', allow_duplicate=True)],
+        Input('accept-schedule-btn', 'n_clicks'),
+        State('preview-schedule', 'data'),
+        prevent_initial_call=True
+    )
+    def accept_schedule(n_clicks, preview_data):
+        if n_clicks == 0:
+            raise PreventUpdate
+        
+        if not preview_data:
+            return None, "No preview to accept"
+        
+        try:
+            preview_df = pd.read_json(StringIO(preview_data), orient='split')
+        except Exception as e:
+            return None, f"Error: Invalid preview data: {str(e)}"
+        
+        logging.info(f"Dashboard: Accepting preview schedule ({len(preview_df)} points)")
         
         if 'schedule_manager' in shared_data:
             sm = shared_data['schedule_manager']
-            sm._generate_random_schedule(
-                start_time=datetime.now(),
-                duration_h=duration,
-                min_power=min_power,
-                max_power=max_power,
-                q_power=0.0,
-                resolution_min=config.get('SCHEDULE_DEFAULT_RESOLUTION_MIN', 5)
+            sm.append_schedule_from_dict(
+                dict(zip(preview_df['datetime'].dt.strftime('%Y-%m-%dT%H:%M:%S'), preview_df['power_setpoint_kw'])),
+                default_q_kvar=0.0
             )
         
-        return f"Random schedule generated ({duration}h duration)"
+        return None, f"Schedule accepted ({len(preview_df)} points)"
+    
+    # ============================================================
+    # CLEAR PREVIEW
+    # ============================================================
+    @app.callback(
+        [Output('preview-schedule', 'data', allow_duplicate=True),
+         Output('csv-filename-display', 'children', allow_duplicate=True)],
+        Input('clear-schedule-btn', 'n_clicks'),
+        State('preview-schedule', 'data'),
+        prevent_initial_call=True
+    )
+    def clear_preview(n_clicks, preview_data):
+        if n_clicks == 0:
+            raise PreventUpdate
+        
+        logging.info("Dashboard: Clearing preview")
+        
+        # Clear preview only, not the existing schedule
+        return None, "Preview cleared"
     
     # ============================================================
     # CSV LOAD
@@ -560,28 +694,6 @@ def dashboard_agent(config, shared_data):
         return "Not connected", "Error: Schedule manager not initialized"
     
     # ============================================================
-    # CLEAR SCHEDULE
-    # ============================================================
-    @app.callback(
-        Output('csv-filename-display', 'children', allow_duplicate=True),
-        Input('clear-schedule-btn', 'n_clicks'),
-        prevent_initial_call=True
-    )
-    def clear_schedule(n_clicks):
-        if n_clicks == 0:
-            raise PreventUpdate
-        
-        logging.info("Dashboard: Clearing schedule")
-        
-        if 'schedule_manager' in shared_data:
-            shared_data['schedule_manager'].clear_schedule()
-        
-        shared_data.pop('schedule_mode', None)
-        shared_data.pop('schedule_mode_params', None)
-        
-        return "Schedule cleared"
-    
-    # ============================================================
     # START/STOP BUTTONS
     # ============================================================
     @app.callback(
@@ -645,10 +757,10 @@ def dashboard_agent(config, shared_data):
          Input('random-generate-btn', 'n_clicks'),
          Input('csv-load-btn', 'n_clicks'),
          Input('api-connect-btn', 'n_clicks'),
-         Input('clear-schedule-btn', 'n_clicks')],
+         Input('accept-schedule-btn', 'n_clicks')],
         prevent_initial_call=False
     )
-    def update_graphs_and_status(n, random_clicks, csv_clicks, api_clicks, clear_clicks):
+    def update_graphs_and_status(n, random_clicks, csv_clicks, api_clicks, accept_clicks):
         # Status indicator
         status_text = "Unknown"
         status_class = "status-indicator status-unknown"
@@ -855,36 +967,72 @@ def dashboard_agent(config, shared_data):
             logging.error(f"Error loading data for dashboard: {e}")
             return pd.DataFrame(), pd.DataFrame()
     
-    def create_schedule_preview_fig(schedule_df):
-        """Create a preview figure for the schedule."""
+    def create_schedule_preview_diff_fig(existing_df, preview_df):
+        """Create a preview figure showing existing vs new schedule."""
         fig = go.Figure()
         
-        if not schedule_df.empty:
-            # Get datetime column
-            if 'datetime' in schedule_df.columns:
-                x_data = schedule_df['datetime']
-            elif hasattr(schedule_df.index, 'name') and schedule_df.index.name == 'datetime':
-                x_data = schedule_df.index
+        # Show existing schedule in lighter color (dashed)
+        if not existing_df.empty:
+            if 'datetime' in existing_df.columns:
+                x_existing = existing_df['datetime']
+            elif hasattr(existing_df.index, 'name') and existing_df.index.name == 'datetime':
+                x_existing = existing_df.index
             else:
-                x_data = schedule_df.index
+                x_existing = existing_df.index
             
             fig.add_trace(
                 go.Scatter(
-                    x=x_data,
-                    y=schedule_df['power_setpoint_kw'],
+                    x=x_existing,
+                    y=existing_df['power_setpoint_kw'],
                     mode='lines',
                     line_shape='hv',
-                    name='P Setpoint',
-                    fill='tozeroy',
-                    fillcolor='rgba(37, 99, 235, 0.1)',
-                    line=dict(color='#2563eb', width=2)
+                    name='Existing',
+                    line=dict(color='#94a3b8', width=2, dash='dash'),
+                    opacity=0.7
                 )
+            )
+        
+        # Show preview schedule in stronger color (solid)
+        if not preview_df.empty:
+            if 'datetime' in preview_df.columns:
+                x_preview = preview_df['datetime']
+            else:
+                x_preview = preview_df.index
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=x_preview,
+                    y=preview_df['power_setpoint_kw'],
+                    mode='lines',
+                    line_shape='hv',
+                    name='Preview',
+                    fill='tozeroy',
+                    fillcolor='rgba(37, 99, 235, 0.15)',
+                    line=dict(color='#2563eb', width=2.5)
+                )
+            )
+        
+        # Show message if both empty
+        if existing_df.empty and preview_df.empty:
+            fig.add_annotation(
+                text="No schedule loaded. Generate a preview or load a schedule.",
+                xref="paper", yref="paper",
+                x=0.5, y=0.5,
+                showarrow=False,
+                font=dict(size=14, color='#64748b')
             )
         
         fig.update_layout(
             margin=dict(l=50, r=20, t=30, b=30),
             uirevision='constant',
-            showlegend=False,
+            showlegend=True,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            ),
             plot_bgcolor='#ffffff',
             paper_bgcolor='#ffffff',
         )
