@@ -370,6 +370,7 @@ def dashboard_agent(config, shared_data):
             dcc.Store(id='preview-schedule'),
             dcc.Store(id='active-tab', data='config'),
             dcc.Store(id='system-status', data='stopped'),
+            dcc.Store(id='api-fetch-status', data={'today': 'idle', 'tomorrow': 'idle', 'last_attempt': None}),
             
             # Refresh interval
             dcc.Interval(
@@ -479,7 +480,10 @@ def dashboard_agent(config, shared_data):
     # SCHEDULE PREVIEW UPDATE (with diff visualization)
     # ============================================================
     @app.callback(
-        Output('schedule-preview', 'figure'),
+        [Output('schedule-preview', 'figure'),
+         Output('schedule-preview', 'className'),
+         Output('clear-schedule-btn', 'className'),
+         Output('accept-schedule-btn', 'className')],
         [Input('interval-component', 'n_intervals'),
          Input('preview-schedule', 'data'),
          Input('random-generate-btn', 'n_clicks'),
@@ -488,6 +492,12 @@ def dashboard_agent(config, shared_data):
         prevent_initial_call=False
     )
     def update_schedule_preview(n, preview_data, random_clicks, clear_clicks, accept_clicks):
+        # Check if we're in API mode - hide preview if so
+        if 'schedule_manager' in shared_data:
+            sm = shared_data['schedule_manager']
+            if sm.mode == ScheduleMode.API:
+                return create_empty_fig("API mode: Data loaded directly from API"), "hidden", "hidden", "hidden"
+        
         # Get existing schedule
         existing_df = pd.DataFrame()
         if 'schedule_manager' in shared_data:
@@ -503,7 +513,7 @@ def dashboard_agent(config, shared_data):
             except Exception as e:
                 logging.error(f"Error reading preview data: {e}")
         
-        return create_schedule_preview_diff_fig(existing_df, preview_df)
+        return create_schedule_preview_diff_fig(existing_df, preview_df), "", "", ""
     
     # ============================================================
     # RANDOM MODE PREVIEW
@@ -671,17 +681,19 @@ def dashboard_agent(config, shared_data):
     # ============================================================
     @app.callback(
         [Output('api-status', 'children'),
-         Output('csv-filename-display', 'children', allow_duplicate=True)],
+         Output('csv-filename-display', 'children', allow_duplicate=True),
+         Output('api-fetch-status', 'data', allow_duplicate=True)],
         Input('api-connect-btn', 'n_clicks'),
         State('api-password', 'value'),
+        State('api-fetch-status', 'data'),
         prevent_initial_call=True
     )
-    def connect_api(n_clicks, password):
+    def connect_api(n_clicks, password, current_api_status):
         if n_clicks == 0:
             raise PreventUpdate
         
         if not password:
-            return "Error: Password required", "Error: Password required"
+            return "Error: Password required", "Error: Password required", current_api_status
         
         api_password_memory['password'] = password
         logging.info("Dashboard: Connecting to Istentore API")
@@ -694,13 +706,76 @@ def dashboard_agent(config, shared_data):
                     from istentore_api import IstentoreAPI
                     sm._api = IstentoreAPI()
                 sm._api.set_password(password)
-                sm._fetch_current_day_schedule()
-                return "Connected and schedule fetched", "API mode activated"
+                
+                # Fetch current day schedule
+                now = datetime.now()
+                today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                today_end = today_start + timedelta(days=1) - timedelta(minutes=15)
+                
+                schedule = sm._api.get_day_ahead_schedule(today_start, today_end)
+                
+                # Build status message
+                status_parts = []
+                today_points = len(schedule) if schedule else 0
+                
+                if schedule:
+                    df = sm._api.schedule_to_dataframe(schedule)
+                    with shared_data['lock']:
+                        shared_data['schedule_final_df'] = df
+                    status_parts.append(f"Today: {today_points} points")
+                    today_status = 'success'
+                else:
+                    status_parts.append("Today: No data available")
+                    today_status = 'no_data'
+                
+                # Try to fetch tomorrow's schedule too
+                tomorrow_start = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+                tomorrow_end = tomorrow_start + timedelta(days=1) - timedelta(minutes=15)
+                
+                tomorrow_schedule = sm._api.get_day_ahead_schedule(tomorrow_start, tomorrow_end)
+                tomorrow_points = len(tomorrow_schedule) if tomorrow_schedule else 0
+                
+                if tomorrow_schedule:
+                    df = sm._api.schedule_to_dataframe(tomorrow_schedule)
+                    with shared_data['lock']:
+                        if not shared_data['schedule_final_df'].empty:
+                            # Append tomorrow's data
+                            shared_data['schedule_final_df'] = pd.concat([shared_data['schedule_final_df'], df]).sort_index()
+                        else:
+                            shared_data['schedule_final_df'] = df
+                    status_parts.append(f"Tomorrow: {tomorrow_points} points")
+                    tomorrow_status = 'success'
+                else:
+                    status_parts.append("Tomorrow: Not yet available")
+                    tomorrow_status = 'pending'
+                
+                # Update mode
+                sm._mode = ScheduleMode.API
+                
+                new_status = {
+                    'today': today_status,
+                    'tomorrow': tomorrow_status,
+                    'last_attempt': now.isoformat(),
+                    'today_points': today_points,
+                    'tomorrow_points': tomorrow_points
+                }
+                
+                # Store in shared_data for status bar display
+                shared_data['api_fetch_status'] = new_status
+                
+                return "; ".join(status_parts), f"API mode: {', '.join(status_parts)}", new_status
             except Exception as e:
                 logging.error(f"API connection failed: {e}")
-                return f"Error: {str(e)}", f"API error: {str(e)}"
+                new_status = {
+                    'today': 'error',
+                    'tomorrow': 'idle',
+                    'last_attempt': datetime.now().isoformat(),
+                    'error': str(e)
+                }
+                shared_data['api_fetch_status'] = new_status
+                return f"Error: {str(e)}", f"API error: {str(e)}", new_status
         
-        return "Not connected", "Error: Schedule manager not initialized"
+        return "Not connected", "Error: Schedule manager not initialized", current_api_status
     
     # ============================================================
     # START/STOP BUTTONS - Set transition status
@@ -820,12 +895,32 @@ def dashboard_agent(config, shared_data):
         # Mode status
         mode_status = "Mode: None"
         mode_status_bar = "Mode: None"
+        api_fetch_info = ""
         if 'schedule_manager' in shared_data:
             sm = shared_data['schedule_manager']
             if sm.mode:
                 mode_status = f"Mode: {sm.mode.value}"
                 mode_status_bar = f"Mode: {sm.mode.value}"
-                if not sm.is_empty:
+                if sm.mode == ScheduleMode.API:
+                    # Show API fetch status
+                    api_status = shared_data.get('api_fetch_status', {})
+                    today_status = api_status.get('today', 'idle')
+                    tomorrow_status = api_status.get('tomorrow', 'idle')
+                    today_pts = api_status.get('today_points', 0)
+                    tomorrow_pts = api_status.get('tomorrow_points', 0)
+                    
+                    if today_status == 'success':
+                        mode_status += f" | Today: {today_pts} pts"
+                    elif today_status == 'no_data':
+                        mode_status += f" | Today: No data"
+                    
+                    if tomorrow_status == 'success':
+                        mode_status += f" | Tomorrow: {tomorrow_pts} pts"
+                    elif tomorrow_status == 'pending':
+                        mode_status += " | Tomorrow: Pending"
+                    
+                    mode_status_bar = mode_status
+                elif not sm.is_empty:
                     mode_status += f" ({len(sm.schedule_df)} points)"
                     mode_status_bar += f" | {len(sm.schedule_df)} points"
         
