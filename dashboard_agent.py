@@ -257,15 +257,6 @@ def dashboard_agent(config, shared_data):
                                         className='form-control'
                                     ),
                                 ]),
-                                html.Div(className='form-group', style={'width': '100px'}, children=[
-                                    html.Label(""),
-                                    html.Button(
-                                        'Load',
-                                        id='csv-load-btn',
-                                        n_clicks=0,
-                                        className='btn btn-primary btn-block'
-                                    ),
-                                ]),
                             ]),
                             html.Div(id='csv-filename-display', style={'fontSize': '13px', 'color': '#64748b'}),
                         ]),
@@ -468,19 +459,19 @@ def dashboard_agent(config, shared_data):
         return 'random'
     
     # ============================================================
-    # CSV UPLOAD CALLBACK
+    # CSV UPLOAD CALLBACK - Simplified, just stores the file content
     # ============================================================
     @app.callback(
-        [Output('uploaded-file-content', 'data'),
-         Output('csv-filename-display', 'children')],
+        Output('uploaded-file-content', 'data'),
         Input('csv-upload', 'contents'),
-        State('csv-upload', 'filename')
+        State('csv-upload', 'filename'),
+        prevent_initial_call=True
     )
     def handle_csv_upload(contents, filename):
         if contents is None:
-            return None, ""
+            return None
         
-        return {'contents': contents, 'filename': filename}, f"Selected: {filename}"
+        return {'contents': contents, 'filename': filename}
     
     # ============================================================
     # SCHEDULE PREVIEW UPDATE (with diff visualization)
@@ -516,7 +507,7 @@ def dashboard_agent(config, shared_data):
     # RANDOM MODE PREVIEW
     # ============================================================
     @app.callback(
-        [Output('preview-schedule', 'data'),
+        [Output('preview-schedule', 'data', allow_duplicate=True),
          Output('csv-filename-display', 'children', allow_duplicate=True)],
         Input('random-generate-btn', 'n_clicks'),
         [State('random-start-hour', 'value'),
@@ -612,54 +603,66 @@ def dashboard_agent(config, shared_data):
         return None, "Preview cleared"
     
     # ============================================================
-    # CSV LOAD
+    # CSV PREVIEW (instead of immediate load)
     # ============================================================
     @app.callback(
-        Output('csv-filename-display', 'children', allow_duplicate=True),
-        Input('csv-load-btn', 'n_clicks'),
-        State('uploaded-file-content', 'data'),
-        State('csv-start-date', 'date'),
-        State('csv-start-hour', 'value'),
-        State('csv-start-minute', 'value'),
+        [Output('preview-schedule', 'data', allow_duplicate=True),
+         Output('csv-filename-display', 'children', allow_duplicate=True)],
+        [Input('csv-upload', 'contents'),
+         Input('csv-start-date', 'date'),
+         Input('csv-start-hour', 'value'),
+         Input('csv-start-minute', 'value')],
+        [State('csv-upload', 'filename')],
         prevent_initial_call=True
     )
-    def load_csv_schedule(n_clicks, file_data, start_date, start_hour, start_minute):
-        if n_clicks == 0 or file_data is None:
+    def preview_csv_schedule(contents, start_date, start_hour, start_minute, filename):
+        if contents is None:
+            raise PreventUpdate
+        
+        if not filename:
             raise PreventUpdate
         
         import base64
         
-        content = file_data['contents']
-        filename = file_data['filename']
-        
-        content_type, content_string = content.split(',')
-        decoded = base64.b64decode(content_string)
+        try:
+            content_type, content_string = contents.split(',')
+            decoded = base64.b64decode(content_string)
+        except Exception as e:
+            logging.error(f"Error decoding CSV: {e}")
+            raise PreventUpdate
         
         temp_csv_path = f"temp_{filename}"
-        with open(temp_csv_path, 'wb') as f:
-            f.write(decoded)
+        try:
+            with open(temp_csv_path, 'wb') as f:
+                f.write(decoded)
+        except Exception as e:
+            logging.error(f"Error writing temp file: {e}")
+            raise PreventUpdate
         
-        start_datetime = datetime.strptime(f"{start_date}", "%Y-%m-%d")
-        start_datetime = start_datetime.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
+        try:
+            start_datetime = datetime.strptime(f"{start_date}", "%Y-%m-%d")
+            start_datetime = start_datetime.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
+        except Exception as e:
+            logging.error(f"Error parsing date: {e}")
+            raise PreventUpdate
         
-        logging.info(f"Dashboard: Loading CSV schedule from {filename} starting at {start_datetime}")
+        logging.info(f"Dashboard: Previewing CSV schedule from {filename} starting at {start_datetime}")
         
-        csv_df = pd.read_csv(temp_csv_path, parse_dates=['datetime'])
+        try:
+            csv_df = pd.read_csv(temp_csv_path, parse_dates=['datetime'])
+        except Exception as e:
+            logging.error(f"Error reading CSV: {e}")
+            raise PreventUpdate
         
         first_ts = csv_df['datetime'].iloc[0]
         offset = start_datetime - first_ts
         
         csv_df['datetime'] = csv_df['datetime'] + offset
-        csv_df = csv_df.set_index('datetime')
         
-        if 'schedule_manager' in shared_data:
-            sm = shared_data['schedule_manager']
-            sm.append_schedule_from_dict(
-                dict(zip(csv_df.index.strftime('%Y-%m-%dT%H:%M:%S'), csv_df['power_setpoint_kw'])),
-                default_q_kvar=csv_df.get('reactive_power_setpoint_kvar', 0).iloc[0] if 'reactive_power_setpoint_kvar' in csv_df.columns else config.get('SCHEDULE_DEFAULT_Q_POWER_KVAR', 0)
-            )
+        preview_df = csv_df[['datetime', 'power_setpoint_kw']].copy()
+        preview_json = preview_df.to_json(orient='split', date_format='iso')
         
-        return f"CSV schedule loaded from {filename}"
+        return preview_json, f"Preview: {len(preview_df)} points from {filename}"
     
     # ============================================================
     # API CONNECT
@@ -755,12 +758,11 @@ def dashboard_agent(config, shared_data):
          Output('last-update', 'children')],
         [Input('interval-component', 'n_intervals'),
          Input('random-generate-btn', 'n_clicks'),
-         Input('csv-load-btn', 'n_clicks'),
          Input('api-connect-btn', 'n_clicks'),
          Input('accept-schedule-btn', 'n_clicks')],
         prevent_initial_call=False
     )
-    def update_graphs_and_status(n, random_clicks, csv_clicks, api_clicks, accept_clicks):
+    def update_graphs_and_status(n, random_clicks, api_clicks, accept_clicks):
         # Status indicator
         status_text = "Unknown"
         status_class = "status-indicator status-unknown"
