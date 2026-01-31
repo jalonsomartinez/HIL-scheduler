@@ -343,7 +343,8 @@ def dashboard_agent(config, shared_data):
                                     children=[html.Span("▶"), " Start"],
                                     id='start-button',
                                     n_clicks=0,
-                                    className='btn btn-success'
+                                    className='btn btn-success',
+                                    disabled=True
                                 ),
                                 html.Button(
                                     children=[html.Span("■"), " Stop"],
@@ -368,6 +369,7 @@ def dashboard_agent(config, shared_data):
             dcc.Store(id='uploaded-file-content'),
             dcc.Store(id='preview-schedule'),
             dcc.Store(id='active-tab', data='config'),
+            dcc.Store(id='system-status', data='stopped'),
             
             # Refresh interval
             dcc.Interval(
@@ -687,6 +689,10 @@ def dashboard_agent(config, shared_data):
         if 'schedule_manager' in shared_data:
             sm = shared_data['schedule_manager']
             try:
+                # Initialize API if not already initialized
+                if sm._api is None:
+                    from istentore_api import IstentoreAPI
+                    sm._api = IstentoreAPI()
                 sm._api.set_password(password)
                 sm._fetch_current_day_schedule()
                 return "Connected and schedule fetched", "API mode activated"
@@ -697,10 +703,11 @@ def dashboard_agent(config, shared_data):
         return "Not connected", "Error: Schedule manager not initialized"
     
     # ============================================================
-    # START/STOP BUTTONS
+    # START/STOP BUTTONS - Set transition status
     # ============================================================
     @app.callback(
-        Output('csv-filename-display', 'children', allow_duplicate=True),
+        [Output('system-status', 'data', allow_duplicate=True),
+         Output('csv-filename-display', 'children', allow_duplicate=True)],
         Input('start-button', 'n_clicks'),
         Input('stop-button', 'n_clicks'),
         prevent_initial_call=True
@@ -711,40 +718,41 @@ def dashboard_agent(config, shared_data):
             raise PreventUpdate
         
         button_id = ctx.triggered[0]['prop_id'].split('.')[0]
-        value_to_write = -1
         
+        # Set transition status
         if button_id == 'start-button':
+            new_status = 'starting'
             value_to_write = 1
             logging.info("Dashboard: Start button clicked.")
         elif button_id == 'stop-button':
+            new_status = 'stopping'
             value_to_write = 0
             logging.info("Dashboard: Stop button clicked.")
+        else:
+            raise PreventUpdate
         
-        if value_to_write in [0, 1]:
-            client = ModbusClient(
-                host=config["PLANT_MODBUS_HOST"],
-                port=config["PLANT_MODBUS_PORT"]
-            )
-            if not client.open():
-                logging.error("Dashboard: Could not connect to Plant.")
-                return "Error: Connection to Plant failed."
-            
-            is_ok = client.write_single_register(
-                config["PLANT_ENABLE_REGISTER"],
-                value_to_write
-            )
-            client.close()
-            
-            if is_ok:
-                msg = f"Command sent: {button_id.replace('-button', '')}"
-                logging.info(f"Dashboard: {msg}")
-                return msg
-            else:
-                msg = f"Failed to send command"
-                logging.error(f"Dashboard: {msg}")
-                return f"Error: {msg}"
+        client = ModbusClient(
+            host=config["PLANT_MODBUS_HOST"],
+            port=config["PLANT_MODBUS_PORT"]
+        )
+        if not client.open():
+            logging.error("Dashboard: Could not connect to Plant.")
+            return None, "Error: Connection to Plant failed."
         
-        raise PreventUpdate
+        is_ok = client.write_single_register(
+            config["PLANT_ENABLE_REGISTER"],
+            value_to_write
+        )
+        client.close()
+        
+        if is_ok:
+            msg = f"Command sent: {button_id.replace('-button', '')}"
+            logging.info(f"Dashboard: {msg}")
+            return new_status, msg
+        else:
+            msg = f"Failed to send command"
+            logging.error(f"Dashboard: {msg}")
+            return None, f"Error: {msg}"
     
     # ============================================================
     # UPDATE GRAPHS AND STATUS
@@ -755,18 +763,20 @@ def dashboard_agent(config, shared_data):
          Output('status-indicator', 'children'),
          Output('mode-status', 'children'),
          Output('mode-status-bar', 'children'),
-         Output('last-update', 'children')],
+         Output('last-update', 'children'),
+         Output('system-status', 'data', allow_duplicate=True),
+         Output('start-button', 'disabled'),
+         Output('stop-button', 'disabled')],
         [Input('interval-component', 'n_intervals'),
          Input('random-generate-btn', 'n_clicks'),
          Input('api-connect-btn', 'n_clicks'),
-         Input('accept-schedule-btn', 'n_clicks')],
-        prevent_initial_call=False
+         Input('accept-schedule-btn', 'n_clicks'),
+         Input('system-status', 'data')],
+        prevent_initial_call=True
     )
-    def update_graphs_and_status(n, random_clicks, api_clicks, accept_clicks):
-        # Status indicator
-        status_text = "Unknown"
-        status_class = "status-indicator status-unknown"
-        
+    def update_graphs_and_status(n, random_clicks, api_clicks, accept_clicks, current_status):
+        # Read actual status from Modbus (always read, ignore transition state)
+        actual_status = None
         client = ModbusClient(
             host=config["PLANT_MODBUS_HOST"],
             port=config["PLANT_MODBUS_PORT"]
@@ -777,15 +787,35 @@ def dashboard_agent(config, shared_data):
             )
             client.close()
             if regs:
-                if regs[0] == 1:
-                    status_text = "Running"
-                    status_class = "status-indicator status-running"
-                else:
-                    status_text = "Stopped"
-                    status_class = "status-indicator status-stopped"
-            else:
-                status_text = "Read Error"
-                status_class = "status-indicator status-unknown"
+                actual_status = regs[0]  # 1 = running, 0 = stopped
+        
+        # Determine status text and class from actual Modbus read
+        if actual_status == 1:
+            status_text = "Running"
+            status_class = "status-indicator status-running"
+            new_status = 'running'
+        elif actual_status == 0:
+            status_text = "Stopped"
+            status_class = "status-indicator status-stopped"
+            new_status = 'stopped'
+        else:
+            status_text = "Read Error"
+            status_class = "status-indicator status-unknown"
+            new_status = 'unknown'
+        
+        # Determine button disabled states based on actual status
+        if actual_status == 1:
+            # Running - disable start, enable stop
+            start_disabled = True
+            stop_disabled = False
+        elif actual_status == 0:
+            # Stopped - enable start, disable stop
+            start_disabled = False
+            stop_disabled = True
+        else:
+            # Error state - enable both buttons
+            start_disabled = False
+            stop_disabled = False
         
         # Mode status
         mode_status = "Mode: None"
@@ -806,7 +836,7 @@ def dashboard_agent(config, shared_data):
         measurements_df, schedule_df = load_and_process_data()
         
         if measurements_df.empty or schedule_df.empty:
-            return create_empty_fig("No data available"), status_class, status_text, mode_status, mode_status_bar, last_update
+            return create_empty_fig("No data available"), status_class, status_text, mode_status, mode_status_bar, last_update, new_status, start_disabled, stop_disabled
         
         # Create figure with 3 subplots
         fig = make_subplots(
@@ -923,7 +953,7 @@ def dashboard_agent(config, shared_data):
         fig.update_yaxes(title_text="Power (kvar)", row=3, col=1, gridcolor='#e2e8f0')
         fig.update_xaxes(title_text="Time", row=3, col=1, gridcolor='#e2e8f0')
         
-        return fig, status_class, status_text, mode_status, mode_status_bar, last_update
+        return fig, status_class, status_text, mode_status, mode_status_bar, last_update, new_status, start_disabled, stop_disabled
     
     # ============================================================
     # HELPER FUNCTIONS
