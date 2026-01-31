@@ -192,48 +192,24 @@ elif was_limited and not is_limited:
     logging.info("Power limitation removed")
 ```
 
-## Plant Model (Impedance Calculation)
+## Plant Model (Simplified - No Impedance)
 
-The plant model calculates power and voltage at the Point of Interconnection (POI) based on impedance between battery and grid.
+The plant model has been simplified to eliminate impedance calculations. With no impedance between battery and POI, plant power equals battery power.
 
 ### Given Parameters
-- R: Resistance (ohms)
-- X: Reactance (ohms)
-- V_nom: Nominal line-to-line voltage (V)
-- PF: Power factor
 - P_batt: Battery active power (kW)
+- Q_batt: Battery reactive power (kvar)
+- V_poi: POI voltage (V, fixed from config)
 
 ### Calculation Steps
 
 ```python
-# 1. Calculate apparent and reactive power at battery
-S_batt_kva = abs(P_batt_kw) / PF
-Q_batt_kvar = sign(P_batt) * sqrt(S_batt^2 - P_batt^2)
+# Plant power equals battery power (no losses)
+P_poi_kw = P_batt_kw
+Q_poi_kvar = Q_batt_kvar
 
-# 2. Calculate per-phase values
-V_ph_kv = V_nom / (1000 * sqrt(3))
-S_ph_kva = S_batt_kva / 3
-
-# 3. Calculate current
-I_ka = S_ph_kva / V_ph_kv
-phi = arccos(PF)
-if P_batt < 0:
-    phi = -phi  # Charging
-I_complex = I_ka * exp(-j * phi)
-
-# 4. Voltage drop across impedance
-Z_ohm = R + jX
-V_drop_kv = I_complex * Z_ohm / 1000
-
-# 5. POI voltage
-V_poi_kv = V_ph_kv - V_drop_kv
-V_poi_pu = abs(V_poi_kv) / V_ph_kv
-
-# 6. Power at POI
-S_poi_ph = V_poi_kv * conj(I_complex)
-S_poi_kva = 3 * S_poi_ph
-P_poi_kw = real(S_poi_kva)
-Q_poi_kvar = imag(S_poi_kva)
+# POI voltage is fixed from config (20 kV nominal)
+V_poi_pu = V_poi_v / 20000.0
 ```
 
 ## Configuration Patterns
@@ -243,11 +219,12 @@ Q_poi_kvar = imag(S_poi_kva)
 plant:
   capacity_kwh: 50.0
   initial_soc_pu: 0.5
-  impedance:
-    r_ohm: 0.01
-    x_ohm: 0.1
-  nominal_voltage_v: 400.0
-  power_factor: 1.0
+  power_limits:
+    p_max_kw: 1000.0
+    p_min_kw: -1000.0
+    q_max_kvar: 600.0
+    q_min_kvar: -600.0
+  poi_voltage_v: 20000.0  # POI voltage in Volts (20 kV)
 ```
 
 ### Config Loader
@@ -259,7 +236,7 @@ def load_config(path="config.yaml"):
     
     config = {}
     config["PLANT_CAPACITY_KWH"] = yaml_config["plant"]["capacity_kwh"]
-    config["PLANT_R_OHM"] = yaml_config["plant"]["impedance"]["r_ohm"]
+    config["PLANT_POI_VOLTAGE_V"] = yaml_config["plant"]["poi_voltage_v"]
     # ... etc
     return config
 ```

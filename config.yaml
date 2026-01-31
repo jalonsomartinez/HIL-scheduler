@@ -31,14 +31,8 @@ plant:
     q_max_kvar: 600.0   # Maximum reactive power (kvar)
     q_min_kvar: -600.0  # Minimum reactive power (kvar)
   
-  # Plant Model Parameters (impedance between battery and POI)
-  impedance:
-    r_ohm: 0.01      # Resistance in ohms
-    x_ohm: 0.1       # Reactance in ohms
-  
-  nominal_voltage_v: 400.0   # Nominal line-to-line voltage (V)
-  base_power_kva: 1000.0     # Base power for per-unit calculations (kVA)
-  power_factor: 1.0          # Battery power factor (1.0 = unity)
+  # POI voltage (fixed value, no impedance model)
+  poi_voltage_v: 20000.0  # POI voltage in Volts (20 kV)
 
 # Modbus Configuration
 modbus:

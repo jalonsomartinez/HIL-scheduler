@@ -11,10 +11,11 @@ Application has been refactored with merged Plant Agent and plant model simulati
    - Internal battery simulation (no separate Modbus server)
    - Simplified architecture with fewer moving parts
 
-2. **Plant Model**: Added impedance model between battery and POI
-   - Configurable impedance parameters (R=0.01Ω, X=0.1Ω)
-   - Calculates P_poi, Q_poi, and V_poi
-   - Unity power factor (configurable)
+2. **Plant Model Simplification** (2026-01-31): Removed impedance model
+   - Eliminated complex impedance calculations
+   - Plant power equals battery power (no losses)
+   - POI voltage is fixed from config (20 kV)
+   - Simplified code by ~60 lines
 
 3. **YAML Configuration**: Moved simulated plant config to YAML
    - Created `config.yaml` with plant model parameters
@@ -71,13 +72,13 @@ Application has been refactored with merged Plant Agent and plant model simulati
 - Scheduler → Modbus → Plant Agent (single server)
 - Internal battery simulation
 - Single client in measurement agent
-- POI calculations computed inside Plant Agent
+- POI values: P_poi = P_battery, Q_poi = Q_battery, V_poi = fixed (20 kV)
 
 ## Configuration Files
 
 ### config.yaml (Simulated Plant)
 Used by `hil_scheduler.py` for local simulation mode.
-Contains plant model parameters, power limits, and Modbus register map.
+Contains plant power limits, POI voltage (fixed 20 kV), and Modbus register map.
 
 ### config.py (HIL Plant)
 Retained for future remote/HIL mode implementation.

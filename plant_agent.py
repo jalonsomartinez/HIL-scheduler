@@ -1,7 +1,6 @@
 import logging
 import time
 import numpy as np
-import cmath
 from pyModbusTCP.server import ModbusServer
 from pyModbusTCP.utils import get_2comp, word_list_to_long, long_list_to_word
 from utils import kw_to_hw, hw_to_kw
@@ -34,12 +33,8 @@ def plant_agent(config, shared_data):
     dt_s = config["PLANT_PERIOD_S"]
     dt_h = dt_s / 3600.0
     
-    # Plant model parameters
-    r_ohm = config["PLANT_R_OHM"]
-    x_ohm = config["PLANT_X_OHM"]
-    v_nom_v = config["PLANT_NOMINAL_VOLTAGE_V"]
-    base_power_kva = config["PLANT_BASE_POWER_KVA"]
-    power_factor = config["PLANT_POWER_FACTOR"]
+    # POI voltage (fixed value, no impedance model)
+    poi_voltage_v = config["PLANT_POI_VOLTAGE_V"]
     
     # Power limits
     p_max_kw = config["PLANT_P_MAX_KW"]
@@ -85,63 +80,6 @@ def plant_agent(config, shared_data):
         long_list_to_word([0], big_endian=False)
     )
     plant_server.data_bank.set_holding_registers(config["PLANT_V_POI_REGISTER"], [10000])  # 1.0 pu
-    
-    def calculate_poi_power(p_batt_kw, v_nom_v, r_ohm, x_ohm, power_factor):
-        """
-        Calculate power at POI using impedance model.
-        
-        Args:
-            p_batt_kw: Battery active power (kW)
-            v_nom_v: Nominal line-to-line voltage (V)
-            r_ohm: Resistance (ohms)
-            x_ohm: Reactance (ohms)
-            power_factor: Battery power factor
-            
-        Returns:
-            tuple: (p_poi_kw, q_poi_kvar, v_poi_pu)
-        """
-        if abs(p_batt_kw) < 0.01:
-            # No power flow - no losses, no reactive power
-            return 0.0, 0.0, 1.0
-        
-        # Calculate apparent and reactive power at battery
-        s_batt_kva = abs(p_batt_kw) / power_factor
-        # Reactive power has same sign as active power for inductive load
-        q_batt_kvar = np.sign(p_batt_kw) * np.sqrt(max(0, s_batt_kva**2 - p_batt_kw**2))
-        
-        # Convert to phase values
-        v_nom_ll_kv = v_nom_v / 1000.0  # Line-to-line in kV
-        v_nom_ph_kv = v_nom_ll_kv / np.sqrt(3)  # Phase voltage in kV
-        
-        # Calculate current (per phase)
-        s_batt_per_phase_kva = s_batt_kva / 3.0
-        i_ka = s_batt_per_phase_kva / v_nom_ph_kv  # Current in kA
-        
-        # Current phase angle
-        phi = np.arccos(power_factor)
-        if p_batt_kw < 0:
-            phi = -phi  # Current direction reverses for charging
-        
-        # Complex current (conjugate for power calculation convention)
-        i_complex = i_ka * cmath.exp(-1j * phi)
-        
-        # Voltage drop across impedance
-        z_ohm = complex(r_ohm, x_ohm)
-        v_drop_kv = i_complex * z_ohm / 1000.0  # Convert ohms to kV drop
-        
-        # POI voltage
-        v_poi_kv = v_nom_ph_kv - v_drop_kv
-        v_poi_pu = abs(v_poi_kv) / v_nom_ph_kv
-        
-        # Power at POI (accounting for losses)
-        # S_poi = V_poi * I* (conjugate)
-        s_poi_per_phase_kva = v_poi_kv * i_complex.conjugate()
-        s_poi_kva = 3.0 * s_poi_per_phase_kva
-        
-        p_poi_kw = s_poi_kva.real
-        q_poi_kvar = s_poi_kva.imag
-        
-        return p_poi_kw, q_poi_kvar, v_poi_pu
     
     while not shared_data['shutdown_event'].is_set():
         start_loop_time = time.time()
@@ -232,10 +170,13 @@ def plant_agent(config, shared_data):
                 actual_q_kvar = q_min_kvar
                 logging.warning(f"Reactive power limited to {q_min_kvar:.2f}kvar (min)")
             
-            # --- Plant Model Calculation ---
-            p_poi_kw, q_poi_kvar, v_poi_pu = calculate_poi_power(
-                actual_p_kw, v_nom_v, r_ohm, x_ohm, power_factor
-            )
+            # --- Plant Model Calculation (simplified - no impedance) ---
+            # Plant power equals battery power (no losses)
+            p_poi_kw = actual_p_kw
+            q_poi_kvar = actual_q_kvar
+            # POI voltage is fixed from config (20 kV in Volts)
+            # Convert to per-unit for Modbus register (assuming 20 kV nominal)
+            v_poi_pu = poi_voltage_v / 20000.0
             
             # --- Update Modbus Registers ---
             # Active power battery actual

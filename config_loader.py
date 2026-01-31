@@ -63,13 +63,8 @@ def load_config(config_path="config.yaml"):
     config['PLANT_Q_MAX_KVAR'] = power_limits.get('q_max_kvar', 600.0)
     config['PLANT_Q_MIN_KVAR'] = power_limits.get('q_min_kvar', -600.0)
     
-    # Plant model parameters
-    impedance = plant.get('impedance', {})
-    config['PLANT_R_OHM'] = impedance.get('r_ohm', 0.01)
-    config['PLANT_X_OHM'] = impedance.get('x_ohm', 0.1)
-    config['PLANT_NOMINAL_VOLTAGE_V'] = plant.get('nominal_voltage_v', 400.0)
-    config['PLANT_BASE_POWER_KVA'] = plant.get('base_power_kva', 1000.0)
-    config['PLANT_POWER_FACTOR'] = plant.get('power_factor', 1.0)
+    # POI voltage (fixed value, no impedance model)
+    config['PLANT_POI_VOLTAGE_V'] = plant.get('poi_voltage_v', 20000.0)
     
     # Modbus settings
     modbus = yaml_config.get('modbus', {})
