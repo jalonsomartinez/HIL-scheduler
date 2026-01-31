@@ -179,9 +179,9 @@ if __name__ == "__main__":
     ######### Consultaremos así las consignas para el día siguiente.
     # Consultadas hoy (por ejemplo a las 15:00), que ya estarán disponibles als de mañana, con los delivery periods
     # de mañana entre las 00:00 y las 23:45.
-    # lib_day_ahead_setpoints_kW, vrfb_day_ahead_setpoints_kW = api.day_ahead_schedule_between_periods(delivery_period_gte="2026-01-28T23:00:00+00:00", delivery_period_lte="2026-01-29T22:45:00+00:00")
-    # print("LIB Day-Ahead Setpoints kW:", lib_day_ahead_setpoints_kW)
-    # print("VRFB Day-Ahead Setpoints kW:", vrfb_day_ahead_setpoints_kW)
+    lib_day_ahead_setpoints_kW, vrfb_day_ahead_setpoints_kW = api.day_ahead_schedule_between_periods(delivery_period_gte="2026-01-29T23:00:00+00:00", delivery_period_lte="2026-01-30T22:45:00+00:00")
+    print("LIB Day-Ahead Setpoints kW:", lib_day_ahead_setpoints_kW)
+    print("VRFB Day-Ahead Setpoints kW:", vrfb_day_ahead_setpoints_kW)
 
 
     ######### Consultaremos así la siguiente activación mfRR.
@@ -189,7 +189,7 @@ if __name__ == "__main__":
     # print(lib_mfrr_next_activation_kW)
 
     #######Uso para posteo de mediciones
-    response_timestamp = api.post_lib_SOC_kWh(500.0, timestamp="2026-01-29T12:00:00+00:00")
-    print(response_timestamp)
+    # response_timestamp = api.post_lib_SOC_kWh(500.0, timestamp="2026-01-29T12:00:00+00:00")
+    # print(response_timestamp)
 
 

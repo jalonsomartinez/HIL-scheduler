@@ -25,10 +25,6 @@ def main():
     )
     logging.info("Director agent starting the application.")
     
-    end_time = config["SCHEDULE_START_TIME"] + timedelta(
-        hours=config["SCHEDULE_DURATION_H"]
-    )
-    
     # --- Create shared data ---
     shared_data = {
         # Dataframe that holds the power schedule received from control center
@@ -39,6 +35,12 @@ def main():
         "lock": threading.Lock(),
         # Event to signal shutdown
         "shutdown_event": threading.Event(),
+        # Schedule manager reference (set by data_fetcher_agent)
+        "schedule_manager": None,
+        # Current schedule mode (set by dashboard)
+        "schedule_mode": None,
+        # Schedule mode parameters (set by dashboard)
+        "schedule_mode_params": None,
     }
     
     try:
@@ -54,13 +56,13 @@ def main():
         for t in threads:
             t.start()
         
-        logging.info(f"All agents started. Running until {end_time}.")
+        logging.info("All agents started.")
+        logging.info("Dashboard available at http://127.0.0.1:8050/")
+        logging.info("Use the dashboard to select a schedule mode and generate/upload a schedule.")
         
-        # Wait until the schedule is over
-        while datetime.now() < end_time:
+        # Run indefinitely until interrupted (no fixed end time)
+        while not shared_data["shutdown_event"].is_set():
             time.sleep(1)
-            if shared_data["shutdown_event"].is_set():  # Allow for early exit
-                break
     
     except KeyboardInterrupt:
         logging.info("Keyboard interrupt received. Shutting down...")

@@ -1,129 +1,167 @@
 # Active Context: HIL Scheduler
 
 ## Current Focus
-Application has been refactored with merged Plant Agent and plant model simulation. PPC and Battery agents have been merged into a single Plant Agent. Setpoint naming has been cleaned up and reactive power setpoint support has been added.
+Extended the HIL Scheduler with 3 selectable schedule modes:
+1. **Random Mode**: Generate random schedules at configurable resolution
+2. **CSV Mode**: Upload CSV files with custom start time via dashboard
+3. **API Mode**: Fetch schedules from Istentore API with automatic polling for next day
 
-## Recent Changes (2026-01-30)
+Created new modules:
+- `istentore_api.py`: Istentore API wrapper with session-based password handling
+- `schedule_manager.py`: Central module for managing all schedule modes
 
-### Major Refactoring
-1. **Agent Merge**: Merged `ppc_agent.py` and `battery_agent.py` into `plant_agent.py`
-   - Single Modbus server interface (PPC interface)
-   - Internal battery simulation (no separate Modbus server)
-   - Simplified architecture with fewer moving parts
+## Recent Changes (2026-01-31)
 
-2. **Plant Model Simplification** (2026-01-31): Removed impedance model
-   - Eliminated complex impedance calculations
-   - Plant power equals battery power (no losses)
-   - POI voltage is fixed from config (20 kV)
-   - Simplified code by ~60 lines
+### Extended Setpoint Modes Implementation
 
-3. **YAML Configuration**: Moved simulated plant config to YAML
-   - Created `config.yaml` with plant model parameters
-   - Created `config_loader.py` to parse YAML
-   - Retained `config.py` for HIL plant (remote mode)
+#### New Files Created
+1. **`istentore_api.py`**: Istentore API wrapper class
+   - Session-based password handling (password not stored, asked by dashboard)
+   - `get_day_ahead_schedule(start_time, end_time)`: Fetch day-ahead market schedules
+   - `get_mfrr_next_activation()`: Fetch next MFRR activation
+   - `schedule_to_dataframe()`: Convert API response to pandas DataFrame
+   - Automatic token refresh on 401 errors
 
-4. **Setpoint Naming Cleanup** (2026-01-30)
-   - Renamed `setpoint_in` → `p_setpoint_in` (active power setpoint from scheduler)
-   - Renamed `setpoint_actual` → `p_setpoint_actual` (actual battery active power)
-   - Removed redundant `original_setpoint_kw` from measurements (was just echoing Modbus register)
-   - Renamed `actual_setpoint_kw` → `battery_active_power_kw` for clarity
-   - Added `q_setpoint_in` and `q_setpoint_actual` registers for reactive power
+2. **`schedule_manager.py`**: Central schedule management
+   - `ScheduleMode` enum: RANDOM, CSV, API
+   - `ScheduleManager` class:
+     - `set_mode()`: Switch between modes
+     - `generate_random_schedule()`: Mode 1 - Random schedules at 5-min resolution
+     - `load_csv_schedule()`: Mode 2 - Load from CSV with start time offset
+     - `fetch_current_day_schedule()`: Mode 3 - Fetch current day on API connect
+     - `fetch_next_day_schedule()`: Mode 3 - Fetch next day (used in polling)
+     - `append_schedule()`: Add data, replace only overlapping periods
+     - `start_api_polling()`: Poll for next day starting at 17:30
+     - `get_current_setpoint()`: Use asof() to find value before current time
 
-5. **Reactive Power Support** (2026-01-30)
-   - Added reactive power schedule generation (independent of active power)
-   - Added Q setpoint registers to Modbus map
-   - Reactive power is limited by plant limits (NOT by SoC)
-   - Battery follows Q setpoint always within its limits
-   - Added power limits configuration (p_max_kw, p_min_kw, q_max_kvar, q_min_kvar)
+#### Modified Files
 
-6. **New Measurements**: Added POI values to data logging
-   - `p_poi_kw` - Active power at POI
-   - `q_poi_kvar` - Reactive power at POI
-   - `v_poi_pu` - Voltage at POI
-   - `p_setpoint_kw` - Active power setpoint from scheduler
-   - `battery_active_power_kw` - Actual battery active power (after SoC limiting)
-   - `q_setpoint_kvar` - Reactive power setpoint from scheduler
-   - `battery_reactive_power_kvar` - Actual battery reactive power (after limit clamping)
+1. **`data_fetcher_agent.py`**:
+   - Now uses ScheduleManager instead of direct CSV generation
+   - Handles mode changes triggered from dashboard via shared_data
+   - Stores schedule_manager reference in shared_data for dashboard access
+   - No upsampling - uses original resolution from source
 
-7. **Dashboard Updates**: Extended to show POI measurements
-   - Added P_poi trace to power graph
-   - Added Q_poi subplot
-   - Shows voltage at POI
-   - Added Q setpoint and Q battery actual traces
+2. **`dashboard_agent.py`**:
+   - Added mode selection radio buttons (Random, CSV, API)
+   - Added controls for each mode:
+     - Random: Duration, min/max power inputs, Generate button
+     - CSV: File upload, start date/time picker, Load button
+     - API: Password input, Connect & Fetch button
+   - Added schedule preview graph
+   - Added Clear Schedule button
+   - Added mode status display
 
-8. **Code Cleanup**: Deleted deprecated files
-   - Deleted `ppc_agent.py`
-   - Deleted `battery_agent.py`
-   - Retained `config.py` for HIL plant configuration
+3. **`config.yaml`**:
+   - Added `istentore_api` section:
+     - `base_url`: API endpoint
+     - `email`: Fixed email (i-STENTORE)
+     - `poll_interval_min`: 10 (polling interval)
+     - `poll_start_time`: "17:30" (when to start polling for next day)
+   - Added `schedule` section:
+     - `default_min_power_kw`: -1000
+     - `default_max_power_kw`: 1000
+     - `default_q_power_kvar`: 0
+     - `default_resolution_min`: 5
+
+4. **`config_loader.py`**:
+   - Added loading of `istentore_api` section
+   - Added loading of `schedule` section
+
+5. **`hil_scheduler.py`**:
+   - Runs indefinitely (no fixed end time)
+   - Uses new shared_data structure with `schedule_manager` reference
+   - Added `schedule_mode` and `schedule_mode_params` to shared_data
+
+### Key Design Decisions
+
+1. **Flexible Time Resolution**: Schedule DataFrame preserves original resolution
+   - API: 5-minute intervals (from market periods)
+   - CSV: Whatever resolution the CSV has
+   - Random: Configurable (default 5 minutes)
+
+2. **Smart Data Replacement**: When new data is added:
+   - Only overlapping time periods are replaced
+   - Non-overlapping data is preserved
+   - Allows accumulating schedules from multiple sources
+
+3. **asof() Lookup**: Scheduler uses pandas `asof()` to find the value just before current time
+   - Works correctly with any time resolution
+   - No upsampling needed
+
+4. **API Polling Logic**:
+   - On API mode connect: Immediately fetch current day schedule
+   - Start polling at 17:30 (configurable)
+   - Poll every 10 minutes (configurable) until next day schedule available
+   - Next day schedule is typically available around 18:00
+
+5. **Password Handling**:
+   - Password asked by dashboard when switching to API mode
+   - Stored in memory only (session-persistent)
+   - Cleared when application restarts
+   - Re-asked when API mode is selected again
 
 ## Next Steps
-1. Functional testing of the refactored system
-2. Consider unified configuration approach for both plant modes
-3. Update README.md with new architecture documentation
+1. Functional testing of the 3 schedule modes
+2. Test API connection and polling
+3. Test CSV upload with start time offset
+4. Update README.md with new architecture documentation
 
-## Architecture Changes
+## Architecture
 
-### Before
-- PPC Agent → Modbus → Battery Agent → Modbus
-- Two separate servers (ports 5020 and 5021)
-- Two clients in measurement agent
+```
+Dashboard (Mode Selection UI)
+    ↓ shared_data['schedule_mode']
+Data Fetcher Agent → ScheduleManager
+    ↓
+    ├─ Mode 1: Random Generator → schedule_df
+    ├─ Mode 2: CSV Loader → schedule_df
+    └─ Mode 3: API Fetcher + Polling → schedule_df
+    ↓ shared_data['schedule_final_df']
+Scheduler Agent (uses asof()) → Plant Agent
+```
 
-### After
-- Scheduler → Modbus → Plant Agent (single server)
-- Internal battery simulation
-- Single client in measurement agent
-- POI values: P_poi = P_battery, Q_poi = Q_battery, V_poi = fixed (20 kV)
+## Configuration
 
-## Configuration Files
+### config.yaml - Istentore API Settings
+```yaml
+istentore_api:
+  base_url: "https://3mku48kfxf.execute-api.eu-south-2.amazonaws.com/default"
+  email: "i-STENTORE"
+  poll_interval_min: 10
+  poll_start_time: "17:30"
 
-### config.yaml (Simulated Plant)
-Used by `hil_scheduler.py` for local simulation mode.
-Contains plant power limits, POI voltage (fixed 20 kV), and Modbus register map.
-
-### config.py (HIL Plant)
-Retained for future remote/HIL mode implementation.
-Contains real hardware configuration.
-
-## Register Map (Plant Agent)
-
-| Address | Size | Name | Description |
-|---------|------|------|-------------|
-| 0-1 | 2 words | P_SETPOINT_IN | Active power setpoint from scheduler (hW, signed 32-bit) |
-| 2-3 | 2 words | P_BATTERY_ACTUAL | Actual battery active power after SoC limiting (hW, signed 32-bit) |
-| 4-5 | 2 words | Q_SETPOINT_IN | Reactive power setpoint from scheduler (hW, signed 32-bit) |
-| 6-7 | 2 words | Q_BATTERY_ACTUAL | Actual battery reactive power after limit clamping (hW, signed 32-bit) |
-| 10 | 1 word | ENABLE | Enable flag (0=disabled, 1=enabled) |
-| 12 | 1 word | SOC | State of Charge (per-unit x10000) |
-| 14-15 | 2 words | P_POI | Active power at POI (hW, signed 32-bit) |
-| 16-17 | 2 words | Q_POI | Reactive power at POI (hW, signed 32-bit) |
-| 18 | 1 word | V_POI | Voltage at POI (per-unit x100) |
+schedule:
+  default_min_power_kw: -1000
+  default_max_power_kw: 1000
+  default_q_power_kvar: 0
+  default_resolution_min: 5
+```
 
 ## Important Patterns
 
-### Code Organization
-- Each agent is in its own file with clear naming convention: `{agent_name}_agent.py`
-- Shared utilities in `utils.py`
-- Configuration: `config.yaml` for simulation, `config_loader.py` for parsing
-- Main entry point: `hil_scheduler.py` (Director agent)
+### Schedule DataFrame Format
+```python
+# Index: datetime (flexible resolution)
+# Columns:
+#   - power_setpoint_kw: float
+#   - reactive_power_setpoint_kvar: float (defaults to 0)
+
+# Example (5-min from API):
+#                          power_setpoint_kw  reactive_power_setpoint_kvar
+# 2026-01-31 00:00:00                 100.0                           0.0
+# 2026-01-31 00:05:00                 150.0                           0.0
+```
+
+### Mode Switching Flow
+1. User selects mode in dashboard (radio button)
+2. User fills mode-specific controls and clicks action button
+3. Dashboard sets `shared_data['schedule_mode']` and `shared_data['schedule_mode_params']`
+4. Data fetcher agent detects mode change and calls `schedule_manager.set_mode()`
+5. Schedule manager generates/loads schedule and updates `schedule_final_df`
+6. Scheduler agent picks up new schedule on next iteration
 
 ### Thread Safety
-All agents share `shared_data` dict with:
-- `schedule_final_df`: Read by Scheduler, written by Data Fetcher
-- `measurements_df`: Written by Measurement, read by Dashboard
-- `lock`: threading.Lock() for DataFrame access
-- `shutdown_event`: threading.Event() for graceful shutdown
-
-### Modbus Conversions
-Critical to handle unit conversions at Modbus boundaries:
-- Power: kW (Python) ↔ hW (Modbus, signed)
-- SoC: pu (Python) ×10000 ↔ register (unsigned)
-- Voltage: pu (Python) ×100 ↔ register (unsigned)
-- Use `get_2comp` and `word_list_to_long` for 32-bit values
-
-### Power Limiting Behavior
-- **Active Power (P)**: Limited by SoC boundaries AND plant power limits
-  - SoC limiting: Battery cannot charge beyond capacity or discharge below 0
-  - Power limits: Battery cannot exceed p_max_kw or go below p_min_kw
-- **Reactive Power (Q)**: Limited ONLY by plant power limits
-  - NOT limited by SoC (battery can provide reactive power regardless of charge level)
-  - Limited by q_max_kvar and q_min_kvar
+- `schedule_manager._lock`: Protects schedule DataFrame access
+- `shared_data['lock']`: Used by agents for broader shared data access
+- `schedule_manager._shutdown_event`: Used to stop API polling thread

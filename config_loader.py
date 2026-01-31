@@ -87,4 +87,18 @@ def load_config(config_path="config.yaml"):
     output = yaml_config.get('output', {})
     config['MEASUREMENTS_CSV'] = output.get('measurements_csv', 'measurements.csv')
     
+    # Istentore API settings
+    istentore_api = yaml_config.get('istentore_api', {})
+    config['ISTENTORE_BASE_URL'] = istentore_api.get('base_url', 'https://3mku48kfxf.execute-api.eu-south-2.amazonaws.com/default')
+    config['ISTENTORE_EMAIL'] = istentore_api.get('email', 'i-STENTORE')
+    config['ISTENTORE_POLL_INTERVAL_MIN'] = istentore_api.get('poll_interval_min', 10)
+    config['ISTENTORE_POLL_START_TIME'] = istentore_api.get('poll_start_time', '17:30')
+    
+    # Schedule default settings
+    schedule = yaml_config.get('schedule', {})
+    config['SCHEDULE_DEFAULT_MIN_POWER_KW'] = schedule.get('default_min_power_kw', -1000)
+    config['SCHEDULE_DEFAULT_MAX_POWER_KW'] = schedule.get('default_max_power_kw', 1000)
+    config['SCHEDULE_DEFAULT_Q_POWER_KVAR'] = schedule.get('default_q_power_kvar', 0)
+    config['SCHEDULE_DEFAULT_RESOLUTION_MIN'] = schedule.get('default_resolution_min', 5)
+    
     return config

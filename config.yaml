@@ -11,6 +11,20 @@ general:
   schedule_q_min_kvar: -600
   schedule_q_max_kvar: 600
 
+# Istentore API Configuration
+istentore_api:
+  base_url: "https://3mku48kfxf.execute-api.eu-south-2.amazonaws.com/default"
+  email: "i-STENTORE"
+  poll_interval_min: 10
+  poll_start_time: "17:30"
+
+# Schedule Default Settings
+schedule:
+  default_min_power_kw: -1000
+  default_max_power_kw: 1000
+  default_q_power_kvar: 0
+  default_resolution_min: 5
+
 # Timing Configuration
 timing:
   data_fetcher_period_s: 1

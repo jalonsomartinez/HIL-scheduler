@@ -4,11 +4,20 @@
 
 ### Core Agents
 - [x] **Director Agent** (`hil_scheduler.py`): Main orchestrator, starts/stops all threads, handles shutdown
-- [x] **Data Fetcher Agent** (`data_fetcher_agent.py`): Generates random schedules, interpolates 5min→1min, creates 1-second resolution DataFrame
-- [x] **Scheduler Agent** (`scheduler_agent.py`): Reads schedule, sends setpoints to Plant via Modbus
+- [x] **Data Fetcher Agent** (`data_fetcher_agent.py`): Uses ScheduleManager for all 3 schedule modes
+- [x] **Scheduler Agent** (`scheduler_agent.py`): Reads schedule using asof(), sends setpoints to Plant via Modbus
 - [x] **Plant Agent** (`plant_agent.py`): Merged PPC + Battery functionality with internal simulation and POI calculations
 - [x] **Measurement Agent** (`measurement_agent.py`): Logs data from Plant agent to CSV (including POI measurements)
-- [x] **Dashboard Agent** (`dashboard_agent.py`): Dash web UI with real-time graphs and controls
+- [x] **Dashboard Agent** (`dashboard_agent.py`): Dash web UI with real-time graphs, controls, and mode selection
+
+### Schedule Management
+- [x] **ScheduleManager** (`schedule_manager.py`): Unified interface for all 3 schedule modes
+- [x] **Mode 1: Random Schedule**: Generates random schedules at configurable resolution (default 5-min)
+- [x] **Mode 2: CSV Upload**: Upload CSV files with custom start time via dashboard
+- [x] **Mode 3: Istentore API**: Fetch day-ahead schedules with automatic polling for next day
+- [x] **Flexible Resolution**: Schedule DataFrame preserves original time resolution (5-min from API, any from CSV)
+- [x] **Smart Data Replacement**: New data replaces only overlapping periods, preserving non-overlapping data
+- [x] **asof() Lookup**: Scheduler uses pandas asof() to find value just before current time
 
 ### Communication Layer
 - [x] Modbus TCP client/server implementation using pyModbusTCP
@@ -22,8 +31,9 @@
 - [x] Legacy config.py retained for HIL plant configuration (remote mode)
 
 ### Data Files
-- [x] `schedule_source.csv`: Generated schedule (1-min resolution)
+- [x] `schedule_source.csv`: Generated schedule (flexible resolution)
 - [x] `measurements.csv`: Logged measurements with timestamps and POI values
+- [x] `istentore_api.py`: Istentore API wrapper with session-based password handling
 
 ### Threading
 - [x] Proper threading.Lock for shared DataFrame access
@@ -67,9 +77,37 @@ Application has been refactored with merged Plant Agent and plant model simulati
 - [x] Plan document created for agent merge (`plans/agent_merge_and_plant_model.md`)
 - [ ] README.md could be enhanced with quick start guide
 
-## Recent Changes (2026-01-30)
+## Recent Changes (2026-01-31)
 
-### Agent Merge
+### Extended Setpoint Modes Implementation
+- Added 3 schedule modes selectable from dashboard:
+  1. **Random Mode**: Generate random schedules (5-min resolution by default)
+  2. **CSV Mode**: Upload CSV files with selectable start time
+  3. **API Mode**: Fetch schedules from Istentore API with polling
+- Created `istentore_api.py` wrapper class:
+  - Session-based password handling
+  - Day-ahead schedule fetching
+  - Automatic token refresh
+- Created `schedule_manager.py` central module:
+  - Handles all 3 schedule modes
+  - Supports flexible time resolution
+  - Smart data replacement (only overlapping periods)
+  - Automatic polling for next-day API schedules
+- Modified `data_fetcher_agent.py`:
+  - Uses ScheduleManager instead of direct CSV generation
+  - Handles mode changes from dashboard
+- Modified `dashboard_agent.py`:
+  - Added mode selection radio buttons
+  - Added controls for each mode
+  - Added schedule preview graph
+- Modified `config.yaml`:
+  - Added Istentore API settings
+  - Added schedule default settings
+- Modified `config_loader.py`:
+  - Added loading of new configuration sections
+- Modified `hil_scheduler.py`:
+  - Runs indefinitely (no fixed end time)
+  - Uses new shared data structure with schedule_manager
 - Merged `ppc_agent.py` and `battery_agent.py` into single `plant_agent.py`
 - Plant agent provides single Modbus server interface
 - Battery simulation is now internal (no separate Modbus server)
