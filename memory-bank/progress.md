@@ -182,3 +182,23 @@ Application has been tested for syntax correctness. Functional testing pending.
 - Added plant impedance model for more realistic simulation
 - Migrated simulated plant configuration to YAML format
 - Single Modbus server for plant interface (no battery server needed in simulation)
+
+### Dashboard UI Redesign (2026-01-31)
+- Complete UI overhaul with modern professional light theme
+- Added tabbed interface:
+  - **Tab 1: Schedule Configuration** - Mode selection, controls, and schedule preview
+  - **Tab 2: Status & Plots** - Real-time status, control buttons, and live graphs
+- Design system with consistent styling:
+  - Color palette: Professional blue (#2563eb), success green (#16a34a), error red (#dc2626)
+  - Clean white surfaces with subtle borders and shadows
+  - Uniform spacing scale (4px, 8px, 12px, 16px, 24px)
+  - Standardized border radius (6px-8px)
+- Compact card-based layout for mode controls
+- Visual mode selector with card-based radio buttons
+- Collapsible mode control sections (hidden when not selected)
+- Responsive design with CSS media queries for mobile
+- Improved graph styling with clean white backgrounds
+- Status indicator with color-coded states (running/stopped/unknown)
+- Enhanced form controls with consistent styling
+- File upload with drag-and-drop styled area
+- Added last update timestamp display

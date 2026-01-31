@@ -17,11 +17,6 @@ def dashboard_agent(config, shared_data):
     """
     Creates and runs a Dash dashboard to visualize the scheduler data.
     Displays power setpoints, battery SoC, and POI measurements.
-    
-    New features:
-    - Mode selection (Random, CSV, API)
-    - Controls for each mode
-    - Schedule preview graph
     """
     logging.info("Dashboard agent started.")
     
@@ -35,177 +30,396 @@ def dashboard_agent(config, shared_data):
     api_password_memory = {"password": None}
     
     app.layout = html.Div(children=[
-        html.H1(children='HIL Scheduler Dashboard'),
-        
-        html.Div(children='''
-            Real-time visualization of power setpoints, battery SoC, and POI measurements.
-            Use the buttons to control the plant.
-        '''),
-        
-        # Mode Selection Section
-        html.H2("Schedule Mode Selection"),
-        html.Div([
-            html.Label("Select Schedule Source Mode:"),
-            dcc.RadioItems(
-                id='mode-selector',
-                options=[
-                    {'label': ' Random Schedule', 'value': 'random'},
-                    {'label': ' CSV File Upload', 'value': 'csv'},
-                    {'label': ' Istentore API', 'value': 'api'}
-                ],
-                value='random',  # Default mode
-                inline=True,
-                style={'marginBottom': '10px'}
-            ),
-        ], style={'marginBottom': '20px', 'padding': '10px', 'border': '1px solid #ccc', 'borderRadius': '5px'}),
-        
-        # Random Mode Controls
-        html.Div(id='random-mode-controls', children=[
-            html.H3("Random Schedule Settings"),
-            html.Div([
-                html.Label("Duration (hours):"),
-                dcc.Input(id='random-duration', type='number', value=1.0, min=0.1, step=0.1),
-                html.Label("Min Power (kW):", style={'marginLeft': '20px'}),
-                dcc.Input(id='random-min-power', type='number', value=-1000, step=10),
-                html.Label("Max Power (kW):", style={'marginLeft': '20px'}),
-                dcc.Input(id='random-max-power', type='number', value=1000, step=10),
-            ], style={'marginBottom': '10px'}),
-            html.Button('Generate Random Schedule', id='random-generate-btn', n_clicks=0),
-            # Schedule preview for Random mode
-            dcc.Graph(id='random-schedule-preview', style={'marginTop': '10px'}),
-        ], style={'marginBottom': '20px', 'padding': '10px', 'border': '1px solid #ccc', 'borderRadius': '5px'}),
-        
-        # CSV Mode Controls
-        html.Div(id='csv-mode-controls', children=[
-            html.H3("CSV Upload Settings"),
-            html.Div([
-                html.Label("Upload Schedule CSV:"),
-                dcc.Upload(
-                    id='csv-upload',
-                    children=html.Div([
-                        'Drag and Drop or ',
-                        html.A('Select File')
-                    ]),
-                    style={
-                        'width': '50%',
-                        'height': '40px',
-                        'lineHeight': '40px',
-                        'borderWidth': '1px',
-                        'borderStyle': 'dashed',
-                        'borderRadius': '10px',
-                        'textAlign': 'center',
-                        'margin': '10px'
-                    },
-                    multiple=False
-                ),
+        # Main container
+        html.Div(className='app-container', children=[
+            
+            # Header
+            html.Div(className='app-header', children=[
+                html.H1("HIL Scheduler Dashboard"),
+                html.P("Real-time visualization of power setpoints, battery SoC, and POI measurements"),
             ]),
-            html.Div(id='csv-filename-display', style={'marginBottom': '10px'}),
-            html.Label("Start Time:"),
-            dcc.DatePickerSingle(
-                id='csv-start-date',
-                date=datetime.now().date(),
-                min_date_allowed=datetime(2020, 1, 1),
-                max_date_allowed=datetime(2030, 12, 31)
+            
+            # Tab container
+            html.Div(className='tab-container', children=[
+                # Tab headers
+                html.Div(className='tab-header', children=[
+                    html.Button(
+                        "Schedule Configuration",
+                        id='tab-config-btn',
+                        className='tab-button active',
+                        n_clicks=0
+                    ),
+                    html.Button(
+                        "Status & Plots",
+                        id='tab-status-btn',
+                        className='tab-button',
+                        n_clicks=0
+                    ),
+                ]),
+                
+                # Tab content container
+                html.Div(id='tab-content', className='tab-content', children=[
+                    
+                    # =========================================
+                    # TAB 1: SCHEDULE CONFIGURATION
+                    # =========================================
+                    html.Div(id='config-tab', children=[
+                        
+                        # Mode Selection Card
+                        html.Div(className='card', children=[
+                            html.Div(className='card-header', children=[
+                                html.Div(children=[
+                                    html.H3(className='card-title', children="Schedule Source"),
+                                    html.P(className='card-subtitle', children="Choose how to generate or load your schedule"),
+                                ]),
+                            ]),
+                            html.Div(className='mode-selector', children=[
+                                html.Label(
+                                    className='mode-option selected',
+                                    id='mode-random-option',
+                                    n_clicks=0,
+                                    children=[
+                                        html.Span(className='mode-label', children="Random Schedule"),
+                                        html.Span(className='mode-description', children="Generate random power setpoints"),
+                                    ]
+                                ),
+                                html.Label(
+                                    className='mode-option',
+                                    id='mode-csv-option',
+                                    n_clicks=0,
+                                    children=[
+                                        html.Span(className='mode-label', children="CSV Upload"),
+                                        html.Span(className='mode-description', children="Load schedule from CSV file"),
+                                    ]
+                                ),
+                                html.Label(
+                                    className='mode-option',
+                                    id='mode-api-option',
+                                    n_clicks=0,
+                                    children=[
+                                        html.Span(className='mode-label', children="Istentore API"),
+                                        html.Span(className='mode-description', children="Fetch schedules from API"),
+                                    ]
+                                ),
+                            ]),
+                            dcc.RadioItems(
+                                id='mode-selector',
+                                options=[
+                                    {'label': ' Random Schedule', 'value': 'random'},
+                                    {'label': ' CSV File Upload', 'value': 'csv'},
+                                    {'label': ' Istentore API', 'value': 'api'}
+                                ],
+                                value='random',
+                                style={'display': 'none'}
+                            ),
+                        ]),
+                        
+                        # Random Mode Controls
+                        html.Div(id='random-mode-controls', className='card', children=[
+                            html.Div(className='card-header', children=[
+                                html.H3(className='card-title', children="Random Schedule Settings"),
+                            ]),
+                            html.Div(className='form-row', children=[
+                                html.Div(className='form-group', children=[
+                                    html.Label("Duration (hours)"),
+                                    dcc.Input(
+                                        id='random-duration',
+                                        type='number',
+                                        value=1.0,
+                                        min=0.1,
+                                        step=0.1,
+                                        className='form-control'
+                                    ),
+                                ]),
+                                html.Div(className='form-group', children=[
+                                    html.Label("Min Power (kW)"),
+                                    dcc.Input(
+                                        id='random-min-power',
+                                        type='number',
+                                        value=-1000,
+                                        step=10,
+                                        className='form-control'
+                                    ),
+                                ]),
+                                html.Div(className='form-group', children=[
+                                    html.Label("Max Power (kW)"),
+                                    dcc.Input(
+                                        id='random-max-power',
+                                        type='number',
+                                        value=1000,
+                                        step=10,
+                                        className='form-control'
+                                    ),
+                                ]),
+                                html.Div(className='form-group', children=[
+                                    html.Label(""),
+                                    html.Button(
+                                        'Generate Schedule',
+                                        id='random-generate-btn',
+                                        n_clicks=0,
+                                        className='btn btn-primary btn-block'
+                                    ),
+                                ]),
+                            ]),
+                        ]),
+                        
+                        # CSV Mode Controls
+                        html.Div(id='csv-mode-controls', className='card hidden', children=[
+                            html.Div(className='card-header', children=[
+                                html.H3(className='card-title', children="CSV Upload"),
+                            ]),
+                            html.Div(className='form-row', style={'flexWrap': 'wrap'}, children=[
+                                html.Div(className='form-group', style={'flex': '2', 'minWidth': '200px'}, children=[
+                                    html.Label("Schedule File"),
+                                    dcc.Upload(
+                                        id='csv-upload',
+                                        children=html.Div(
+                                            className='file-upload',
+                                            children=[
+                                                html.Span(className='file-upload-text', children=[
+                                                    "Drag and drop or ", html.A("select file"), " (CSV)"
+                                                ])
+                                            ]
+                                        ),
+                                        multiple=False
+                                    ),
+                                ]),
+                                html.Div(className='form-group', style={'flex': '1', 'minWidth': '150px'}, children=[
+                                    html.Label("Start Date"),
+                                    dcc.DatePickerSingle(
+                                        id='csv-start-date',
+                                        date=datetime.now().date(),
+                                        min_date_allowed=datetime(2020, 1, 1),
+                                        max_date_allowed=datetime(2030, 12, 31),
+                                        className='form-control'
+                                    ),
+                                ]),
+                                html.Div(className='form-group', style={'width': '80px'}, children=[
+                                    html.Label("Hour"),
+                                    dcc.Dropdown(
+                                        id='csv-start-hour',
+                                        options=[{'label': f'{h:02d}', 'value': h} for h in range(24)],
+                                        value=datetime.now().hour,
+                                        clearable=False,
+                                        className='form-control'
+                                    ),
+                                ]),
+                                html.Div(className='form-group', style={'width': '70px'}, children=[
+                                    html.Label("Min"),
+                                    dcc.Dropdown(
+                                        id='csv-start-minute',
+                                        options=[{'label': f'{m:02d}', 'value': m} for m in range(0, 60, 5)],
+                                        value=0,
+                                        clearable=False,
+                                        className='form-control'
+                                    ),
+                                ]),
+                                html.Div(className='form-group', style={'width': '100px'}, children=[
+                                    html.Label(""),
+                                    html.Button(
+                                        'Load',
+                                        id='csv-load-btn',
+                                        n_clicks=0,
+                                        className='btn btn-primary btn-block'
+                                    ),
+                                ]),
+                            ]),
+                            html.Div(id='csv-filename-display', style={'fontSize': '13px', 'color': '#64748b'}),
+                        ]),
+                        
+                        # API Mode Controls
+                        html.Div(id='api-mode-controls', className='card hidden', children=[
+                            html.Div(className='card-header', children=[
+                                html.H3(className='card-title', children="Istentore API"),
+                            ]),
+                            html.Div(className='form-row', children=[
+                                html.Div(className='form-group', style={'flex': '2'}, children=[
+                                    html.Label("API Password (session-only)"),
+                                    dcc.Input(
+                                        id='api-password',
+                                        type='password',
+                                        placeholder='Enter API password',
+                                        className='form-control'
+                                    ),
+                                ]),
+                                html.Div(className='form-group', children=[
+                                    html.Label(""),
+                                    html.Button(
+                                        'Connect & Fetch',
+                                        id='api-connect-btn',
+                                        n_clicks=0,
+                                        className='btn btn-primary btn-block'
+                                    ),
+                                ]),
+                            ]),
+                            html.Div(id='api-status', style={
+                                'fontSize': '13px',
+                                'color': '#64748b',
+                                'marginTop': '8px'
+                            }),
+                        ]),
+                        
+                        # Schedule Preview
+                        html.Div(className='card', children=[
+                            html.Div(className='card-header', children=[
+                                html.H3(className='card-title', children="Schedule Preview"),
+                                html.Div(id='mode-status', style={
+                                    'fontSize': '13px',
+                                    'color': '#64748b'
+                                }),
+                            ]),
+                            html.Div(className='form-row', children=[
+                                html.Button(
+                                    'Clear Schedule',
+                                    id='clear-schedule-btn',
+                                    n_clicks=0,
+                                    className='btn btn-secondary'
+                                ),
+                            ]),
+                            dcc.Graph(id='schedule-preview', style={'height': '200px'}),
+                        ]),
+                        
+                    ]),  # End config tab
+                    
+                    # =========================================
+                    # TAB 2: STATUS & PLOTS
+                    # =========================================
+                    html.Div(id='status-tab', className='hidden', children=[
+                        
+                        # Status Bar
+                        html.Div(className='status-bar', children=[
+                            html.Div(id='status-indicator', className='status-indicator status-unknown', children=[
+                                html.Span(className='status-dot'),
+                                "Unknown"
+                            ]),
+                            html.Div(id='mode-status-bar', className='status-info', children="Mode: None"),
+                            html.Div(id='last-update', className='status-info', children=""),
+                        ]),
+                        
+                        # Control Buttons
+                        html.Div(className='card', children=[
+                            html.Div(className='form-row', children=[
+                                html.Button(
+                                    children=[html.Span("▶"), " Start"],
+                                    id='start-button',
+                                    n_clicks=0,
+                                    className='btn btn-success'
+                                ),
+                                html.Button(
+                                    children=[html.Span("■"), " Stop"],
+                                    id='stop-button',
+                                    n_clicks=0,
+                                    className='btn btn-danger'
+                                ),
+                            ]),
+                        ]),
+                        
+                        # Live Graph
+                        html.Div(className='graph-container', children=[
+                            dcc.Graph(id='live-graph', style={'height': '550px'}),
+                        ]),
+                        
+                    ]),  # End status tab
+                    
+                ]),  # End tab content
+            ]),  # End tab container
+            
+            # Hidden stores
+            dcc.Store(id='uploaded-file-content'),
+            dcc.Store(id='active-tab', data='config'),
+            
+            # Refresh interval
+            dcc.Interval(
+                id='interval-component',
+                interval=5 * 1000,
+                n_intervals=0
             ),
-            dcc.Dropdown(
-                id='csv-start-hour',
-                options=[{'label': f'{h:02d}:00', 'value': h} for h in range(24)],
-                value=datetime.now().hour,
-                clearable=False,
-                style={'width': '80px', 'display': 'inline-block', 'verticalAlign': 'middle', 'marginRight': '5px'}
-            ),
-            dcc.Dropdown(
-                id='csv-start-minute',
-                options=[{'label': f'{m:02d}', 'value': m} for m in range(0, 60, 5)],
-                value=0,
-                clearable=False,
-                style={'width': '60px', 'display': 'inline-block', 'verticalAlign': 'middle'}
-            ),
-            html.Button('Load CSV Schedule', id='csv-load-btn', n_clicks=0, style={'marginLeft': '10px'}),
-            # Schedule preview for CSV mode
-            dcc.Graph(id='csv-schedule-preview', style={'marginTop': '10px'}),
-        ], style={'marginBottom': '20px', 'padding': '10px', 'border': '1px solid #ccc', 'borderRadius': '5px'}),
-        
-        # API Mode Controls
-        html.Div(id='api-mode-controls', children=[
-            html.H3("Istentore API Settings"),
-            html.Div([
-                html.Label("API Password (session-only):"),
-                dcc.Input(id='api-password', type='password', placeholder='Enter API password'),
-                html.Button('Connect & Fetch', id='api-connect-btn', n_clicks=0, style={'marginLeft': '10px'}),
-            ], style={'marginBottom': '10px'}),
-            html.Div(id='api-status', children='Not connected'),
-            # Schedule preview for API mode
-            dcc.Graph(id='api-schedule-preview', style={'marginTop': '10px'}),
-        ], style={'marginBottom': '20px', 'padding': '10px', 'border': '1px solid #ccc', 'borderRadius': '5px'}),
-        
-        # Common Controls
-        html.Div([
-            html.Button('Clear Schedule', id='clear-schedule-btn', n_clicks=0, 
-                       style={'marginRight': '10px', 'backgroundColor': '#ffcccc'}),
-            html.Div(id='mode-status', children='Current Mode: None', 
-                    style={'display': 'inline-block', 'marginLeft': '20px', 'fontWeight': 'bold'}),
-        ], style={'marginBottom': '20px'}),
-        
-        # Hidden div for button callback output
-        html.Div(id='button-output-status', style={'display': 'none'}),
-        
-        # Controls and Indicator
-        html.Div([
-            html.Button(
-                'Start',
-                id='start-button',
-                n_clicks=0,
-                style={'marginRight': '10px', 'fontSize': '16px'}
-            ),
-            html.Button(
-                'Stop',
-                id='stop-button',
-                n_clicks=0,
-                style={'marginRight': '20px', 'fontSize': '16px'}
-            ),
-            html.Div(
-                id='status-indicator',
-                style={
-                    'display': 'inline-block',
-                    'padding': '10px',
-                    'border': '1px solid black',
-                    'borderRadius': '5px',
-                    'fontWeight': 'bold'
-                }
-            ),
-        ], style={'marginBottom': '20px', 'marginTop': '20px', 'display': 'flex', 'alignItems': 'center'}),
-        
-        dcc.Graph(id='live-graph'),
-        dcc.Interval(
-            id='interval-component',
-            interval=5 * 1000,  # in milliseconds
-            n_intervals=0
-        ),
-        # Store for uploaded file content
-        dcc.Store(id='uploaded-file-content'),
+            
+        ]),  # End app container
     ])
     
-    # Show/hide mode controls based on selection
+    # ============================================================
+    # TAB SWITCHING CALLBACKS
+    # ============================================================
     @app.callback(
-        [Output('random-mode-controls', 'style'),
-         Output('csv-mode-controls', 'style'),
-         Output('api-mode-controls', 'style')],
+        [Output('tab-config-btn', 'className'),
+         Output('tab-status-btn', 'className'),
+         Output('config-tab', 'className'),
+         Output('status-tab', 'className'),
+         Output('active-tab', 'data')],
+        [Input('tab-config-btn', 'n_clicks'),
+         Input('tab-status-btn', 'n_clicks')]
+    )
+    def switch_tabs(config_clicks, status_clicks):
+        ctx = callback_context
+        if not ctx.triggered:
+            return ('tab-button active', 'tab-button', '', 'hidden', 'config')
+        
+        button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        
+        if button_id == 'tab-config-btn':
+            return ('tab-button active', 'tab-button', '', 'hidden', 'config')
+        elif button_id == 'tab-status-btn':
+            return ('tab-button', 'tab-button active', 'hidden', '', 'status')
+        
+        return ('tab-button active', 'tab-button', '', 'hidden', 'config')
+    
+    # ============================================================
+    # MODE SELECTION CALLBACKS
+    # ============================================================
+    @app.callback(
+        [Output('random-mode-controls', 'className'),
+         Output('csv-mode-controls', 'className'),
+         Output('api-mode-controls', 'className'),
+         Output('mode-random-option', 'className'),
+         Output('mode-csv-option', 'className'),
+         Output('mode-api-option', 'className')],
         Input('mode-selector', 'value')
     )
     def update_mode_controls(selected_mode):
-        base_style = {'marginBottom': '20px', 'padding': '10px', 'border': '1px solid #ccc', 'borderRadius': '5px'}
-        hidden_style = {'display': 'none'}
+        card_base = 'card'
+        card_hidden = 'card hidden'
+        option_base = 'mode-option'
+        option_selected = 'mode-option selected'
         
-        if selected_mode == 'random':
-            return base_style, hidden_style, hidden_style
-        elif selected_mode == 'csv':
-            return hidden_style, base_style, hidden_style
-        elif selected_mode == 'api':
-            return hidden_style, hidden_style, base_style
-        return hidden_style, hidden_style, hidden_style
+        random_card = card_base if selected_mode == 'random' else card_hidden
+        csv_card = card_base if selected_mode == 'csv' else card_hidden
+        api_card = card_base if selected_mode == 'api' else card_hidden
+        
+        random_opt = option_selected if selected_mode == 'random' else option_base
+        csv_opt = option_selected if selected_mode == 'csv' else option_base
+        api_opt = option_selected if selected_mode == 'api' else option_base
+        
+        return random_card, csv_card, api_card, random_opt, csv_opt, api_opt
     
-    # Handle CSV upload
+    # ============================================================
+    # MODE BUTTON CLICK HANDLERS
+    # ============================================================
+    @app.callback(
+        Output('mode-selector', 'value'),
+        [Input('mode-random-option', 'n_clicks'),
+         Input('mode-csv-option', 'n_clicks'),
+         Input('mode-api-option', 'n_clicks')]
+    )
+    def handle_mode_clicks(random_clicks, csv_clicks, api_clicks):
+        ctx = callback_context
+        if not ctx.triggered:
+            return 'random'
+        
+        # Get which option was clicked
+        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        if 'random' in trigger_id:
+            return 'random'
+        elif 'csv' in trigger_id:
+            return 'csv'
+        elif 'api' in trigger_id:
+            return 'api'
+        
+        return 'random'
+    
+    # ============================================================
+    # CSV UPLOAD CALLBACK
+    # ============================================================
     @app.callback(
         [Output('uploaded-file-content', 'data'),
          Output('csv-filename-display', 'children')],
@@ -216,52 +430,28 @@ def dashboard_agent(config, shared_data):
         if contents is None:
             return None, ""
         
-        # Store file content in dcc.Store (base64 encoded)
         return {'contents': contents, 'filename': filename}, f"Selected: {filename}"
     
-    # Update CSV preview when schedule changes
+    # ============================================================
+    # SCHEDULE PREVIEW UPDATE
+    # ============================================================
     @app.callback(
-        Output('csv-schedule-preview', 'figure'),
+        Output('schedule-preview', 'figure'),
         Input('interval-component', 'n_intervals'),
         prevent_initial_call=False
     )
-    def update_csv_preview(n):
+    def update_schedule_preview(n):
         if 'schedule_manager' in shared_data:
             sm = shared_data['schedule_manager']
             if not sm.is_empty:
                 return create_schedule_preview_fig(sm.schedule_df)
-        return go.Figure()
+        return create_empty_fig("No schedule loaded")
     
-    # Update API preview when schedule changes
+    # ============================================================
+    # RANDOM MODE GENERATE
+    # ============================================================
     @app.callback(
-        Output('api-schedule-preview', 'figure'),
-        Input('interval-component', 'n_intervals'),
-        prevent_initial_call=False
-    )
-    def update_api_preview(n):
-        if 'schedule_manager' in shared_data:
-            sm = shared_data['schedule_manager']
-            if not sm.is_empty:
-                return create_schedule_preview_fig(sm.schedule_df)
-        return go.Figure()
-    
-    # Update Random preview when schedule changes
-    @app.callback(
-        Output('random-schedule-preview', 'figure'),
-        Input('interval-component', 'n_intervals'),
-        prevent_initial_call=False
-    )
-    def update_random_preview(n):
-        if 'schedule_manager' in shared_data:
-            sm = shared_data['schedule_manager']
-            if not sm.is_empty:
-                return create_schedule_preview_fig(sm.schedule_df)
-        return go.Figure()
-    
-    # Handle Random mode generate button
-    @app.callback(
-        [Output('button-output-status', 'children', allow_duplicate=True),
-         Output('random-mode-controls', 'children')],
+        Output('csv-filename-display', 'children', allow_duplicate=True),
         Input('random-generate-btn', 'n_clicks'),
         State('random-duration', 'value'),
         State('random-min-power', 'value'),
@@ -274,7 +464,6 @@ def dashboard_agent(config, shared_data):
         
         logging.info(f"Dashboard: Generating random schedule (duration={duration}h, min={min_power}kW, max={max_power}kW)")
         
-        # Generate random schedule using schedule_manager
         if 'schedule_manager' in shared_data:
             sm = shared_data['schedule_manager']
             sm._generate_random_schedule(
@@ -286,11 +475,13 @@ def dashboard_agent(config, shared_data):
                 resolution_min=config.get('SCHEDULE_DEFAULT_RESOLUTION_MIN', 5)
             )
         
-        return f"Random schedule generated (duration: {duration}h)", dash.no_update
+        return f"Random schedule generated ({duration}h duration)"
     
-    # Handle CSV load button
+    # ============================================================
+    # CSV LOAD
+    # ============================================================
     @app.callback(
-        Output('button-output-status', 'children', allow_duplicate=True),
+        Output('csv-filename-display', 'children', allow_duplicate=True),
         Input('csv-load-btn', 'n_clicks'),
         State('uploaded-file-content', 'data'),
         State('csv-start-date', 'date'),
@@ -302,39 +493,31 @@ def dashboard_agent(config, shared_data):
         if n_clicks == 0 or file_data is None:
             raise PreventUpdate
         
-        # Save the uploaded file temporarily
         import base64
         
         content = file_data['contents']
         filename = file_data['filename']
         
-        # Decode base64 content
         content_type, content_string = content.split(',')
         decoded = base64.b64decode(content_string)
         
-        # Save to a temporary file
         temp_csv_path = f"temp_{filename}"
         with open(temp_csv_path, 'wb') as f:
             f.write(decoded)
         
-        # Parse start time with hour and minute
         start_datetime = datetime.strptime(f"{start_date}", "%Y-%m-%d")
         start_datetime = start_datetime.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
         
         logging.info(f"Dashboard: Loading CSV schedule from {filename} starting at {start_datetime}")
         
-        # Load the CSV to get the data
         csv_df = pd.read_csv(temp_csv_path, parse_dates=['datetime'])
         
-        # Calculate the offset from the first timestamp in the file
         first_ts = csv_df['datetime'].iloc[0]
         offset = start_datetime - first_ts
         
-        # Apply offset to all timestamps
         csv_df['datetime'] = csv_df['datetime'] + offset
         csv_df = csv_df.set_index('datetime')
         
-        # Merge with existing schedule using schedule_manager
         if 'schedule_manager' in shared_data:
             sm = shared_data['schedule_manager']
             sm.append_schedule_from_dict(
@@ -344,10 +527,12 @@ def dashboard_agent(config, shared_data):
         
         return f"CSV schedule loaded from {filename}"
     
-    # Handle API connect button
+    # ============================================================
+    # API CONNECT
+    # ============================================================
     @app.callback(
         [Output('api-status', 'children'),
-         Output('button-output-status', 'children', allow_duplicate=True)],
+         Output('csv-filename-display', 'children', allow_duplicate=True)],
         Input('api-connect-btn', 'n_clicks'),
         State('api-password', 'value'),
         prevent_initial_call=True
@@ -359,12 +544,9 @@ def dashboard_agent(config, shared_data):
         if not password:
             return "Error: Password required", "Error: Password required"
         
-        # Store password in memory
         api_password_memory['password'] = password
-        
         logging.info("Dashboard: Connecting to Istentore API")
         
-        # Connect to API and fetch current day schedule
         if 'schedule_manager' in shared_data:
             sm = shared_data['schedule_manager']
             try:
@@ -377,9 +559,11 @@ def dashboard_agent(config, shared_data):
         
         return "Not connected", "Error: Schedule manager not initialized"
     
-    # Handle Clear Schedule button
+    # ============================================================
+    # CLEAR SCHEDULE
+    # ============================================================
     @app.callback(
-        Output('button-output-status', 'children', allow_duplicate=True),
+        Output('csv-filename-display', 'children', allow_duplicate=True),
         Input('clear-schedule-btn', 'n_clicks'),
         prevent_initial_call=True
     )
@@ -389,26 +573,24 @@ def dashboard_agent(config, shared_data):
         
         logging.info("Dashboard: Clearing schedule")
         
-        # Clear mode in shared data
         if 'schedule_manager' in shared_data:
             shared_data['schedule_manager'].clear_schedule()
         
-        # Clear mode indicators
         shared_data.pop('schedule_mode', None)
         shared_data.pop('schedule_mode_params', None)
         
         return "Schedule cleared"
     
-    # Mode status is updated by update_graphs_and_status callback
-    
+    # ============================================================
+    # START/STOP BUTTONS
+    # ============================================================
     @app.callback(
-        Output('button-output-status', 'children'),
+        Output('csv-filename-display', 'children', allow_duplicate=True),
         Input('start-button', 'n_clicks'),
         Input('stop-button', 'n_clicks'),
         prevent_initial_call=True
     )
     def handle_control_buttons(start_clicks, stop_clicks):
-        """Handles start/stop button clicks by writing to the Plant Modbus server."""
         ctx = callback_context
         if not ctx.triggered:
             raise PreventUpdate
@@ -418,10 +600,10 @@ def dashboard_agent(config, shared_data):
         
         if button_id == 'start-button':
             value_to_write = 1
-            logging.info("Dashboard: Start button clicked. Sending command to enable plant.")
+            logging.info("Dashboard: Start button clicked.")
         elif button_id == 'stop-button':
             value_to_write = 0
-            logging.info("Dashboard: Stop button clicked. Sending command to disable plant.")
+            logging.info("Dashboard: Stop button clicked.")
         
         if value_to_write in [0, 1]:
             client = ModbusClient(
@@ -429,7 +611,7 @@ def dashboard_agent(config, shared_data):
                 port=config["PLANT_MODBUS_PORT"]
             )
             if not client.open():
-                logging.error("Dashboard: Could not connect to Plant to send command.")
+                logging.error("Dashboard: Could not connect to Plant.")
                 return "Error: Connection to Plant failed."
             
             is_ok = client.write_single_register(
@@ -439,21 +621,26 @@ def dashboard_agent(config, shared_data):
             client.close()
             
             if is_ok:
-                msg = f"Successfully sent command for {button_id}."
+                msg = f"Command sent: {button_id.replace('-button', '')}"
                 logging.info(f"Dashboard: {msg}")
                 return msg
             else:
-                msg = f"Failed to send command for {button_id}."
+                msg = f"Failed to send command"
                 logging.error(f"Dashboard: {msg}")
                 return f"Error: {msg}"
         
         raise PreventUpdate
     
+    # ============================================================
+    # UPDATE GRAPHS AND STATUS
+    # ============================================================
     @app.callback(
         [Output('live-graph', 'figure'),
+         Output('status-indicator', 'className'),
          Output('status-indicator', 'children'),
-         Output('status-indicator', 'style'),
-         Output('mode-status', 'children')],
+         Output('mode-status', 'children'),
+         Output('mode-status-bar', 'children'),
+         Output('last-update', 'children')],
         [Input('interval-component', 'n_intervals'),
          Input('random-generate-btn', 'n_clicks'),
          Input('csv-load-btn', 'n_clicks'),
@@ -462,18 +649,9 @@ def dashboard_agent(config, shared_data):
         prevent_initial_call=False
     )
     def update_graphs_and_status(n, random_clicks, csv_clicks, api_clicks, clear_clicks):
-        """Updates the graphs and status indicator with the latest data."""
-        # --- Status Indicator Logic ---
+        # Status indicator
         status_text = "Unknown"
-        base_style = {
-            'display': 'inline-block',
-            'padding': '10px',
-            'border': '1px solid black',
-            'borderRadius': '5px',
-            'fontWeight': 'bold'
-        }
-        status_style = base_style.copy()
-        status_style['backgroundColor'] = 'lightgrey'
+        status_class = "status-indicator status-unknown"
         
         client = ModbusClient(
             host=config["PLANT_MODBUS_HOST"],
@@ -485,51 +663,55 @@ def dashboard_agent(config, shared_data):
             )
             client.close()
             if regs:
-                status_text = "Running" if regs[0] == 1 else "Stopped"
-                status_style['backgroundColor'] = (
-                    'lightgreen' if regs[0] == 1 else 'lightcoral'
-                )
+                if regs[0] == 1:
+                    status_text = "Running"
+                    status_class = "status-indicator status-running"
+                else:
+                    status_text = "Stopped"
+                    status_class = "status-indicator status-stopped"
             else:
                 status_text = "Read Error"
-                status_style['backgroundColor'] = 'orange'
+                status_class = "status-indicator status-unknown"
         
-        # --- Mode Status ---
-        mode_status = "Current Mode: None"
+        # Mode status
+        mode_status = "Mode: None"
+        mode_status_bar = "Mode: None"
         if 'schedule_manager' in shared_data:
             sm = shared_data['schedule_manager']
             if sm.mode:
-                mode_status = f"Current Mode: {sm.mode.value}"
+                mode_status = f"Mode: {sm.mode.value}"
+                mode_status_bar = f"Mode: {sm.mode.value}"
                 if not sm.is_empty:
                     mode_status += f" ({len(sm.schedule_df)} points)"
+                    mode_status_bar += f" | {len(sm.schedule_df)} points"
         
-        # --- Measurements Graph Logic ---
+        # Last update
+        last_update = f"Last update: {datetime.now().strftime('%H:%M:%S')}"
+        
+        # Measurements graph
         measurements_df, schedule_df = load_and_process_data()
         
         if measurements_df.empty or schedule_df.empty:
-            return go.Figure(), status_text, status_style, mode_status
+            return create_empty_fig("No data available"), status_class, status_text, mode_status, mode_status_bar, last_update
         
-        # Create a figure with 3 subplots that share the x-axis
+        # Create figure with 3 subplots
         fig = make_subplots(
             rows=3,
             cols=1,
             shared_xaxes=True,
-            vertical_spacing=0.1,
-            subplot_titles=(
-                'Active Power (kW)',
-                'State of Charge (pu)',
-                'Reactive Power (kvar)'
-            )
+            vertical_spacing=0.08,
+            subplot_titles=('Active Power (kW)', 'State of Charge (pu)', 'Reactive Power (kvar)')
         )
         
-        # Active Power Graph traces (row 1)
+        # Active Power traces
         fig.add_trace(
             go.Scatter(
                 x=schedule_df['datetime'],
                 y=schedule_df['power_setpoint_kw'],
                 mode='lines',
                 line_shape='hv',
-                name='P Setpoint (Schedule)',
-                line=dict(color='blue')
+                name='P Setpoint',
+                line=dict(color='#2563eb', width=2)
             ),
             row=1, col=1
         )
@@ -539,8 +721,8 @@ def dashboard_agent(config, shared_data):
                 y=measurements_df['battery_active_power_kw'],
                 mode='lines',
                 line_shape='hv',
-                name='P Battery Actual',
-                line=dict(color='green')
+                name='P Battery',
+                line=dict(color='#16a34a', width=2)
             ),
             row=1, col=1
         )
@@ -550,25 +732,25 @@ def dashboard_agent(config, shared_data):
                 y=measurements_df['p_poi_kw'],
                 mode='lines',
                 line_shape='hv',
-                name='P at POI',
-                line=dict(color='red', dash='dash')
+                name='P POI',
+                line=dict(color='#dc2626', width=1.5, dash='dash')
             ),
             row=1, col=1
         )
         
-        # SoC Graph trace (row 2)
+        # SoC trace
         fig.add_trace(
             go.Scatter(
                 x=measurements_df['datetime'],
                 y=measurements_df['soc_pu'],
                 mode='lines',
-                name='SoC (pu)',
-                line=dict(color='purple')
+                name='SoC',
+                line=dict(color='#9333ea', width=2)
             ),
             row=2, col=1
         )
         
-        # Reactive Power traces (row 3)
+        # Reactive Power traces
         if 'reactive_power_setpoint_kvar' in schedule_df.columns:
             fig.add_trace(
                 go.Scatter(
@@ -576,8 +758,8 @@ def dashboard_agent(config, shared_data):
                     y=schedule_df['reactive_power_setpoint_kvar'],
                     mode='lines',
                     line_shape='hv',
-                    name='Q Setpoint (Schedule)',
-                    line=dict(color='orange')
+                    name='Q Setpoint',
+                    line=dict(color='#ea580c', width=2)
                 ),
                 row=3, col=1
             )
@@ -588,8 +770,8 @@ def dashboard_agent(config, shared_data):
                     y=measurements_df['battery_reactive_power_kvar'],
                     mode='lines',
                     line_shape='hv',
-                    name='Q Battery Actual',
-                    line=dict(color='green')
+                    name='Q Battery',
+                    line=dict(color='#16a34a', width=2)
                 ),
                 row=3, col=1
             )
@@ -600,28 +782,38 @@ def dashboard_agent(config, shared_data):
                     y=measurements_df['q_poi_kvar'],
                     mode='lines',
                     line_shape='hv',
-                    name='Q at POI',
-                    line=dict(color='brown', dash='dash')
+                    name='Q POI',
+                    line=dict(color='#dc2626', width=1.5, dash='dash')
                 ),
                 row=3, col=1
             )
         
-        # Update layout properties
+        # Layout
         fig.update_layout(
-            height=900,
-            title_text="HIL Scheduler Status",
             uirevision='constant',
-            showlegend=True
+            showlegend=True,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            ),
+            margin=dict(l=60, r=20, t=50, b=40),
+            plot_bgcolor='#ffffff',
+            paper_bgcolor='#ffffff',
         )
         
-        # Update y-axis titles
-        fig.update_yaxes(title_text="Active Power (kW)", row=1, col=1)
-        fig.update_yaxes(title_text="SoC (pu)", row=2, col=1)
-        fig.update_yaxes(title_text="Reactive Power (kvar)", row=3, col=1)
-        fig.update_xaxes(title_text="Time", row=3, col=1)
+        fig.update_yaxes(title_text="Power (kW)", row=1, col=1, gridcolor='#e2e8f0')
+        fig.update_yaxes(title_text="SoC (pu)", row=2, col=1, gridcolor='#e2e8f0')
+        fig.update_yaxes(title_text="Power (kvar)", row=3, col=1, gridcolor='#e2e8f0')
+        fig.update_xaxes(title_text="Time", row=3, col=1, gridcolor='#e2e8f0')
         
-        return fig, status_text, status_style, mode_status
+        return fig, status_class, status_text, mode_status, mode_status_bar, last_update
     
+    # ============================================================
+    # HELPER FUNCTIONS
+    # ============================================================
     def load_and_process_data():
         """Loads and preprocesses data for the graphs."""
         try:
@@ -630,18 +822,15 @@ def dashboard_agent(config, shared_data):
                 parse_dates=['timestamp']
             )
             
-            # Try to get schedule from schedule_manager first
             schedule_df = None
             if 'schedule_manager' in shared_data:
                 sm = shared_data['schedule_manager']
                 if not sm.is_empty:
                     schedule_df = sm.schedule_df.copy()
-                    # Reset index to get 'datetime' column
                     schedule_df = schedule_df.reset_index()
                     if 'index' in schedule_df.columns:
                         schedule_df = schedule_df.rename(columns={'index': 'datetime'})
             
-            # Fallback to CSV file if no schedule in memory
             if schedule_df is None or schedule_df.empty:
                 try:
                     schedule_df = pd.read_csv(
@@ -651,18 +840,14 @@ def dashboard_agent(config, shared_data):
                 except FileNotFoundError:
                     schedule_df = pd.DataFrame()
             
-            # Ensure 'datetime' is present in measurements_df
             if 'datetime' not in measurements_df.columns:
                 measurements_df['datetime'] = measurements_df['timestamp']
             
-            # Ensure reactive power column exists in schedule_df
             if not schedule_df.empty and 'reactive_power_setpoint_kvar' not in schedule_df.columns:
                 schedule_df['reactive_power_setpoint_kvar'] = 0.0
             
             if not schedule_df.empty:
-                # Find the end time for filtering measurements
                 end_time = schedule_df['datetime'].max() + timedelta(minutes=15)
-                # Filter measurements within the schedule timeframe
                 measurements_df = measurements_df[measurements_df['datetime'] <= end_time]
             
             return measurements_df, schedule_df
@@ -675,43 +860,71 @@ def dashboard_agent(config, shared_data):
         fig = go.Figure()
         
         if not schedule_df.empty:
+            # Get datetime column
+            if 'datetime' in schedule_df.columns:
+                x_data = schedule_df['datetime']
+            elif hasattr(schedule_df.index, 'name') and schedule_df.index.name == 'datetime':
+                x_data = schedule_df.index
+            else:
+                x_data = schedule_df.index
+            
             fig.add_trace(
                 go.Scatter(
-                    x=schedule_df.index,
+                    x=x_data,
                     y=schedule_df['power_setpoint_kw'],
                     mode='lines',
                     line_shape='hv',
                     name='P Setpoint',
-                    line=dict(color='blue')
+                    fill='tozeroy',
+                    fillcolor='rgba(37, 99, 235, 0.1)',
+                    line=dict(color='#2563eb', width=2)
                 )
             )
-            fig.update_layout(
-                title="Schedule Preview",
-                xaxis_title="Time",
-                yaxis_title="Power (kW)",
-                height=200,
-                margin=dict(l=20, r=20, t=40, b=20),
-                uirevision='constant'
-            )
         
+        fig.update_layout(
+            margin=dict(l=50, r=20, t=30, b=30),
+            uirevision='constant',
+            showlegend=False,
+            plot_bgcolor='#ffffff',
+            paper_bgcolor='#ffffff',
+        )
+        fig.update_xaxes(showgrid=True, gridcolor='#e2e8f0')
+        fig.update_yaxes(title_text="Power (kW)", gridcolor='#e2e8f0')
+        
+        return fig
+    
+    def create_empty_fig(message):
+        """Create an empty figure with a message."""
+        fig = go.Figure()
+        fig.add_annotation(
+            text=message,
+            xref="paper", yref="paper",
+            x=0.5, y=0.5,
+            showarrow=False,
+            font=dict(size=14, color='#64748b')
+        )
+        fig.update_layout(
+            margin=dict(l=50, r=20, t=30, b=30),
+            plot_bgcolor='#ffffff',
+            paper_bgcolor='#ffffff',
+        )
         return fig
     
     # Run the Dash app in a separate thread
     def run_app():
-        app.run(debug=False)  # Set debug=False for production
+        app.run(debug=False)
     
     dashboard_thread = threading.Thread(target=run_app)
-    dashboard_thread.daemon = True  # Allow the main program to exit
+    dashboard_thread.daemon = True
     dashboard_thread.start()
     
     while not shared_data['shutdown_event'].is_set():
-        time.sleep(1)  # Keep the agent alive, letting the dashboard run
+        time.sleep(1)
     
     logging.info("Dashboard agent stopped.")
 
 
 if __name__ == "__main__":
-    # Test the dashboard
     import dash
     from dash import dcc, html
     
@@ -730,5 +943,4 @@ if __name__ == "__main__":
         'shutdown_event': threading.Event(),
     }
     
-    # Start dashboard
     dashboard_agent(config, shared_data)
