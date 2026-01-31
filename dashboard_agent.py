@@ -909,12 +909,12 @@ def dashboard_agent(config, shared_data):
             legend=dict(
                 orientation="h",
                 yanchor="bottom",
-                y=1.02,
-                xanchor="right",
-                x=1
+                y=1.12,
+                xanchor="center",
+                x=0.5
             ),
-            margin=dict(l=60, r=20, t=50, b=40),
-            plot_bgcolor='#ffffff',
+            margin=dict(l=60, r=20, t=100, b=40),
+            plot_bgcolor='#f5f5f0',
             paper_bgcolor='#ffffff',
         )
         
@@ -1025,15 +1025,15 @@ def dashboard_agent(config, shared_data):
             )
         
         fig.update_layout(
-            margin=dict(l=50, r=20, t=30, b=30),
+            margin=dict(l=50, r=20, t=70, b=30),
             uirevision='constant',
             showlegend=True,
             legend=dict(
                 orientation="h",
                 yanchor="bottom",
-                y=1.02,
-                xanchor="right",
-                x=1
+                y=1.12,
+                xanchor="center",
+                x=0.5
             ),
             plot_bgcolor='#ffffff',
             paper_bgcolor='#ffffff',
