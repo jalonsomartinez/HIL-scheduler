@@ -1,128 +1,196 @@
 import logging
 import time
-import threading
 import pandas as pd
-from datetime import timedelta
+from datetime import datetime, timedelta
 
-from schedule_manager import ScheduleManager, ScheduleMode
+from istentore_api import IstentoreAPI, AuthenticationError
 
 
 def data_fetcher_agent(config, shared_data):
     """
-    Data fetcher agent that manages the schedule and keeps it updated.
+    Data fetcher agent that fetches schedules from the Istentore API.
     
-    This agent uses the ScheduleManager to handle all three schedule modes:
-    1. Random schedule generation
-    2. CSV file loading
-    3. API fetching with polling
+    This agent runs independently in a loop:
+    1. Waits for an API password to be set in shared_data
+    2. Once password is set, connects to the API
+    3. Fetches today's schedule
+    4. Polls for tomorrow's schedule starting at configured time
+    5. Updates the shared api_schedule_df with fetched data
+    6. Updates data_fetcher_status for dashboard display
     
-    The agent periodically updates the shared schedule DataFrame and handles
-    mode changes triggered from the dashboard.
+    The agent is completely decoupled from the dashboard and scheduler.
+    It only reads api_password and writes to api_schedule_df and data_fetcher_status.
     """
     logging.info("Data fetcher agent started.")
     
-    # Initialize the schedule manager
-    schedule_manager = ScheduleManager(config)
-    
-    # Store schedule manager in shared data for dashboard access
-    shared_data['schedule_manager'] = schedule_manager
-    
-    # Set up callback for schedule updates
-    def on_schedule_update():
-        """Called when the schedule is updated."""
-        with shared_data['lock']:
-            shared_data['schedule_final_df'] = schedule_manager.schedule_df
-    
-    schedule_manager.set_on_schedule_update_callback(on_schedule_update)
-    
-    # Check if there's a mode set in shared_data (from dashboard)
-    def check_for_mode_changes():
-        """Check for mode changes from the dashboard."""
-        if 'schedule_mode' in shared_data:
-            mode = shared_data.pop('schedule_mode', None)
-            mode_params = shared_data.pop('schedule_mode_params', {})
-            
-            if mode == 'random':
-                logging.info("Data fetcher: Applying random mode from dashboard")
-                schedule_manager.set_mode(ScheduleMode.RANDOM, **mode_params)
-            elif mode == 'csv':
-                logging.info("Data fetcher: Applying CSV mode from dashboard")
-                schedule_manager.set_mode(ScheduleMode.CSV, **mode_params)
-            elif mode == 'api':
-                logging.info("Data fetcher: Applying API mode from dashboard")
-                schedule_manager.set_mode(ScheduleMode.API, **mode_params)
-    
-    # Start with empty schedule (user must select mode via dashboard)
-    # The schedule will be populated when user selects a mode
+    api = None
+    password_checked = False
+    poll_start_time = config.get('ISTENTORE_POLL_START_TIME', '17:30')
+    poll_interval_min = config.get('ISTENTORE_POLL_INTERVAL_MIN', 10)
+    first_fetch_done = False  # Track if first fetch was successful
     
     while not shared_data['shutdown_event'].is_set():
         try:
-            # Check for mode changes from dashboard
-            check_for_mode_changes()
-            
-            # Update the shared schedule DataFrame
+            # Check if password is set
             with shared_data['lock']:
-                shared_data['schedule_final_df'] = schedule_manager.schedule_df
+                password = shared_data.get('api_password')
             
-            # Sleep for the configured period
-            time.sleep(config["DATA_FETCHER_PERIOD_S"])
+            if not password:
+                # No password set, just wait
+                if password_checked:
+                    logging.info("Data fetcher: Password cleared, resetting connection.")
+                    api = None
+                    password_checked = False
+                    _update_status(shared_data, connected=False)
+                time.sleep(5)
+                continue
+            
+            password_checked = True
+            
+            # Initialize API if needed
+            if api is None:
+                api = IstentoreAPI()
+                api.set_password(password)
+                logging.info("Data fetcher: API initialized with password.")
+            
+            # Check if password has changed
+            if api._password != password:
+                api.set_password(password)
+                logging.info("Data fetcher: Password updated.")
+            
+            # Fetch today's schedule if not already fetched
+            with shared_data['lock']:
+                status = shared_data.get('data_fetcher_status', {})
+                today_fetched = status.get('today_fetched', False)
+            
+            if not today_fetched:
+                logging.info("Data fetcher: Fetching today's schedule...")
+                try:
+                    now = datetime.now()
+                    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                    today_end = today_start + timedelta(days=1) - timedelta(minutes=15)
+                    
+                    schedule = api.get_day_ahead_schedule(today_start, today_end)
+                    
+                    if schedule:
+                        df = api.schedule_to_dataframe(schedule)
+                        with shared_data['lock']:
+                            shared_data['api_schedule_df'] = df
+                        _update_status(shared_data,
+                            connected=True,
+                            today_fetched=True,
+                            today_points=len(df),
+                            error=None
+                        )
+                        first_fetch_done = True  # Mark first fetch as done
+                        logging.info(f"Data fetcher: Today's schedule fetched ({len(df)} points).")
+                    else:
+                        _update_status(shared_data, 
+                            connected=True, 
+                            today_fetched=False,
+                            error="No data available for today"
+                        )
+                        logging.warning("Data fetcher: No schedule available for today.")
+                
+                except AuthenticationError as e:
+                    _update_status(shared_data, connected=False, error=f"Authentication failed: {e}")
+                    logging.error(f"Data fetcher: Authentication failed: {e}")
+                    api = None
+                    time.sleep(30)  # Wait longer on auth error
+                    continue
+                except Exception as e:
+                    _update_status(shared_data, error=str(e))
+                    logging.error(f"Data fetcher: Error fetching today's schedule: {e}")
+            
+            # Check if it's time to poll for tomorrow's schedule
+            now = datetime.now()
+            current_time = now.strftime("%H:%M")
+            
+            with shared_data['lock']:
+                status = shared_data.get('data_fetcher_status', {})
+                tomorrow_fetched = status.get('tomorrow_fetched', False)
+            
+            if not tomorrow_fetched and current_time >= poll_start_time:
+                logging.info("Data fetcher: Polling for tomorrow's schedule...")
+                try:
+                    tomorrow_start = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+                    tomorrow_end = tomorrow_start + timedelta(days=1) - timedelta(minutes=15)
+                    
+                    schedule = api.get_day_ahead_schedule(tomorrow_start, tomorrow_end)
+                    
+                    if schedule:
+                        df = api.schedule_to_dataframe(schedule)
+                        with shared_data['lock']:
+                            # Append to existing schedule
+                            existing_df = shared_data['api_schedule_df']
+                            if not existing_df.empty:
+                                # Remove overlapping periods
+                                non_overlapping = existing_df.index.difference(df.index)
+                                existing_df = existing_df.loc[non_overlapping]
+                                combined_df = pd.concat([existing_df, df]).sort_index()
+                            else:
+                                combined_df = df
+                            shared_data['api_schedule_df'] = combined_df
+                        
+                        _update_status(shared_data, 
+                            connected=True,
+                            tomorrow_fetched=True,
+                            tomorrow_points=len(df),
+                            error=None
+                        )
+                        logging.info(f"Data fetcher: Tomorrow's schedule fetched ({len(df)} points).")
+                    else:
+                        logging.info("Data fetcher: Tomorrow's schedule not yet available.")
+                
+                except Exception as e:
+                    logging.error(f"Data fetcher: Error fetching tomorrow's schedule: {e}")
+            
+            # Update last attempt timestamp
+            _update_status(shared_data, last_attempt=now.isoformat())
+
+            # Sleep until next check - use 5 minutes after first fetch, otherwise 60 seconds
+            if first_fetch_done:
+                sleep_time = 300  # 5 minutes
+            else:
+                sleep_time = config.get("DATA_FETCHER_PERIOD_S", 60)
+            time.sleep(sleep_time)
             
         except Exception as e:
-            logging.error(f"Error in data fetcher agent: {e}")
+            logging.error(f"Data fetcher: Unexpected error: {e}")
             time.sleep(5)
     
     logging.info("Data fetcher agent stopped.")
 
 
-def create_schedule_csv(config):
-    """
-    Creates a power schedule by generating random setpoints at the specified resolution.
-    
-    This function is kept for backward compatibility but now generates at the
-    configured resolution (default 5 minutes) instead of upsampling.
-    
-    Args:
-        config: Configuration dictionary with schedule settings
-    """
-    logging.info(f"Creating schedule file: {config['SCHEDULE_SOURCE_CSV']}")
-
-    from schedule_manager import create_schedule_csv as sm_create_csv
-    sm_create_csv(config)
+def _update_status(shared_data, **kwargs):
+    """Update the data_fetcher_status in shared_data."""
+    with shared_data['lock']:
+        if 'data_fetcher_status' not in shared_data:
+            shared_data['data_fetcher_status'] = {}
+        shared_data['data_fetcher_status'].update(kwargs)
 
 
 if __name__ == "__main__":
     # Test the data fetcher agent
-    import pandas as pd
-    from datetime import datetime
+    import threading
     
     # Create a mock config
     config = {
-        'SCHEDULE_SOURCE_CSV': 'test_schedule.csv',
-        'SCHEDULE_START_TIME': datetime.now().replace(microsecond=0),
-        'SCHEDULE_DURATION_H': 0.5,
-        'SCHEDULE_POWER_MIN_KW': -1000,
-        'SCHEDULE_POWER_MAX_KW': 1000,
-        'SCHEDULE_Q_MIN_KVAR': -600,
-        'SCHEDULE_Q_MAX_KVAR': 600,
-        'DATA_FETCHER_PERIOD_S': 1,
-        'ISTENTORE_POLL_INTERVAL_MIN': 10,
-        'ISTENTORE_POLL_START_TIME': '17:30',
-        'SCHEDULE_DEFAULT_MIN_POWER_KW': -1000,
-        'SCHEDULE_DEFAULT_MAX_POWER_KW': 1000,
-        'SCHEDULE_DEFAULT_Q_POWER_KVAR': 0,
-        'SCHEDULE_DEFAULT_RESOLUTION_MIN': 5,
+        'DATA_FETCHER_PERIOD_S': 5,
+        'ISTENTORE_POLL_INTERVAL_MIN': 1,
+        'ISTENTORE_POLL_START_TIME': '00:00',
     }
     
     # Create shared data
     shared_data = {
         'lock': threading.Lock(),
         'shutdown_event': threading.Event(),
-        'schedule_final_df': pd.DataFrame(),
+        'api_schedule_df': pd.DataFrame(),
+        'api_password': None,
+        'data_fetcher_status': {},
     }
     
     # Test the agent in a separate thread
-    import threading
-    
     def run_agent():
         data_fetcher_agent(config, shared_data)
     
@@ -130,31 +198,19 @@ if __name__ == "__main__":
     agent_thread.start()
     
     # Wait a moment
-    time.sleep(0.5)
+    time.sleep(1)
     
-    # Check the schedule manager
-    if 'schedule_manager' in shared_data:
-        sm = shared_data['schedule_manager']
-        print(f"Schedule manager mode: {sm.mode}")
-        print(f"Schedule empty: {sm.is_empty}")
-        
-        # Generate a random schedule
-        shared_data['schedule_mode'] = 'random'
-        shared_data['schedule_mode_params'] = {
-            'start_time': datetime.now(),
-            'duration_h': 1.0,
-            'min_power': -500,
-            'max_power': 500,
-            'resolution_min': 5
-        }
-        
-        time.sleep(1)
-        
-        df = sm.schedule_df
-        print(f"Schedule shape: {df.shape}")
-        print(f"Start: {sm.start_time}")
-        print(f"End: {sm.end_time}")
-        print(df.head())
+    print("Data fetcher running. Setting password...")
+    with shared_data['lock']:
+        shared_data['api_password'] = 'test_password'
+    
+    # Wait a bit
+    time.sleep(3)
+    
+    # Check status
+    with shared_data['lock']:
+        status = shared_data.get('data_fetcher_status', {})
+        print(f"Status: {status}")
     
     # Stop the agent
     shared_data['shutdown_event'].set()

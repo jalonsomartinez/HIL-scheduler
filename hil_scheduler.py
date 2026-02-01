@@ -27,20 +27,30 @@ def main():
     
     # --- Create shared data ---
     shared_data = {
-        # Dataframe that holds the power schedule received from control center
-        "schedule_final_df": pd.DataFrame(),
+        # Dataframe that holds the manual schedule (random/CSV)
+        "manual_schedule_df": pd.DataFrame(),
+        # Dataframe that holds the API-fetched schedule
+        "api_schedule_df": pd.DataFrame(),
+        # Which schedule is currently active: 'manual' or 'api'
+        "active_schedule_source": "manual",
         # Dataframe that holds the measurements
         "measurements_df": pd.DataFrame(),
         # Lock for shared data
         "lock": threading.Lock(),
         # Event to signal shutdown
         "shutdown_event": threading.Event(),
-        # Schedule manager reference (set by data_fetcher_agent)
-        "schedule_manager": None,
-        # Current schedule mode (set by dashboard)
-        "schedule_mode": None,
-        # Schedule mode parameters (set by dashboard)
-        "schedule_mode_params": None,
+        # API password (set by dashboard, read by data_fetcher)
+        "api_password": None,
+        # Data fetcher status (set by data_fetcher, read by dashboard)
+        "data_fetcher_status": {
+            "connected": False,
+            "today_fetched": False,
+            "tomorrow_fetched": False,
+            "today_points": 0,
+            "tomorrow_points": 0,
+            "last_attempt": None,
+            "error": None,
+        },
     }
     
     try:

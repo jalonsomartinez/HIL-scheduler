@@ -36,15 +36,71 @@ def agent_name(config, shared_data):
 | Agent | Thread | Role | Data Flow |
 |-------|--------|------|-----------|
 | **Director** | Main | Orchestrates lifecycle | Starts/stops all agents |
-| **Data Fetcher** | Separate | Schedule provider | schedule_source.csv → schedule_final_df |
-| **Scheduler** | Separate | Setpoint dispatcher | schedule_final_df → Plant Modbus |
+| **Data Fetcher** | Separate | API fetcher | Fetches API → api_schedule_df |
+| **Scheduler** | Separate | Setpoint dispatcher | Reads active source → Plant Modbus |
 | **Plant** | Separate | Merged PPC + Battery simulation | Single Modbus server, internal battery sim |
 | **Measurement** | Separate | Data logger | Reads Plant Modbus → measurements.csv |
-| **Dashboard** | Separate | UI server | Renders UI, controls Plant enable |
+| **Dashboard** | Separate | UI server | Three tabs: Manual, API, Status & Plots |
+
+### Shared Data Structure
+
+```python
+shared_data = {
+    # Two separate schedules
+    "manual_schedule_df": pd.DataFrame(),      # Dashboard writes, Scheduler reads
+    "api_schedule_df": pd.DataFrame(),         # Data Fetcher writes, Scheduler reads
+    
+    # Schedule selection
+    "active_schedule_source": "manual",        # 'manual' or 'api'
+    
+    # API configuration
+    "api_password": None,                      # Dashboard writes, Data Fetcher reads
+    
+    # Status information
+    "data_fetcher_status": {
+        "connected": False,
+        "today_fetched": False,
+        "tomorrow_fetched": False,
+        "today_points": 0,
+        "tomorrow_points": 0,
+        "last_attempt": None,
+        "error": None,
+    },
+    
+    # Existing data
+    "measurements_df": pd.DataFrame(),
+    "lock": threading.Lock(),
+    "shutdown_event": threading.Event(),
+}
+```
 
 ## Data Flow Patterns
 
-### Schedule Data Flow
+### Schedule Data Flow (New Architecture)
+```
+Manual Schedule Path:
+  Dashboard Tab 1 → manual_schedule_manager → manual_schedule_df
+                                                    ↓
+                                            [Scheduler reads if active]
+                                                    ↓
+                                            Plant Modbus Server
+
+API Schedule Path:
+  Dashboard Tab 2 (sets password) → Data Fetcher (polling loop)
+                                          ↓
+                                   api_schedule_df
+                                          ↓
+                                   [Scheduler reads if active]
+                                          ↓
+                                   Plant Modbus Server
+
+Scheduler Logic:
+  Reads active_schedule_source → 
+    IF 'manual': use manual_schedule_df
+    IF 'api': use api_schedule_df
+```
+
+### Old Schedule Data Flow (Deprecated)
 ```
 [Random Generation] → schedule_source.csv (5min → 1min interpolated)
                            ↓

@@ -2,32 +2,33 @@
 
 ## What Works
 
-### Core Agents
-- [x] **Director Agent** (`hil_scheduler.py`): Main orchestrator, starts/stops all threads, handles shutdown
-- [x] **Data Fetcher Agent** (`data_fetcher_agent.py`): Uses ScheduleManager for all 3 schedule modes
-- [x] **Scheduler Agent** (`scheduler_agent.py`): Reads schedule using asof(), sends setpoints to Plant via Modbus
-- [x] **Plant Agent** (`plant_agent.py`): Merged PPC + Battery functionality with internal simulation and POI calculations
-- [x] **Measurement Agent** (`measurement_agent.py`): Logs data from Plant agent to CSV (including POI measurements)
-- [x] **Dashboard Agent** (`dashboard_agent.py`): Dash web UI with real-time graphs, controls, and mode selection
+### Core Agents (New Architecture)
+- [x] **Director Agent** (`hil_scheduler.py`): Updated shared data structure with two schedules
+- [x] **Data Fetcher Agent** (`data_fetcher_agent.py`): **REWRITTEN** - Decoupled API-only fetcher
+- [x] **Scheduler Agent** (`scheduler_agent.py`): **UPDATED** - Reads active_schedule_source to choose schedule
+- [x] **Plant Agent** (`plant_agent.py`): Merged PPC + Battery functionality (unchanged)
+- [x] **Measurement Agent** (`measurement_agent.py`): Logs data to CSV (unchanged)
+- [x] **Dashboard Agent** (`dashboard_agent.py`): **REWRITTEN** - Three-tab structure
+
+### New Architecture (2026-02-01)
+- [x] **Two Shared Schedules**: `manual_schedule_df` and `api_schedule_df`
+- [x] **Active Source Selector**: `active_schedule_source` ('manual' or 'api')
+- [x] **Decoupled Data Fetcher**: No polling, just fetches API when password is set
+- [x] **Manual Schedule Manager** (`manual_schedule_manager.py`): Simple utility module
 
 ### Schedule Management
-- [x] **ScheduleManager** (`schedule_manager.py`): Unified interface for all 3 schedule modes
-- [x] **Mode 1: Random Schedule**: Generates random schedules at configurable resolution (default 5-min)
-- [x] **Mode 2: CSV Upload**: Upload CSV files with custom start time via dashboard
-- [x] **Mode 3: Istentore API**: Fetch day-ahead schedules with automatic polling for next day
-- [x] **Mode Simplification**: Merged Random and CSV into single "Manual" mode with sub-selector
-- [x] **Flexible Resolution**: Schedule DataFrame preserves original time resolution (5-min from API, any from CSV)
-- [x] **Smart Data Replacement**: New data replaces only overlapping periods, preserving non-overlapping data
-- [x] **asof() Lookup**: Scheduler uses pandas asof() to find value just before current time
+- [x] **Manual Schedule**: Random generation and CSV upload via dashboard
+- [x] **API Schedule**: Fetched independently by Data Fetcher agent
+- [x] **Smart Replacement**: New data replaces only overlapping periods
+- [x] **asof() Lookup**: Scheduler uses pandas asof() for robust time-based lookup
 
-### Dashboard UI
+### Dashboard UI (Three-Tab Structure)
+- [x] **Tab 1: Manual Schedule** - Random generation, CSV upload, preview/accept
+- [x] **Tab 2: API Schedule** - Password input, connection status, API schedule preview
+- [x] **Tab 3: Status & Plots** - Active source selector, live graphs, system status
 - [x] Modern professional light theme with clean white surfaces
-- [x] Tabbed interface (Schedule Configuration / Status & Plots)
 - [x] Schedule preview with diff visualization (existing vs preview)
-- [x] Preview workflow: Configure → Preview → Accept/Clear
 - [x] Responsive design with CSS media queries
-- [x] Color-coded status indicator (running/stopped/unknown)
-- [x] Uniform styling across all components
 
 ## What's Left to Build
 
@@ -59,12 +60,23 @@ Dashboard UI improvements completed. All 3 schedule modes functional with previe
 
 ## Recent Changes (2026-02-01)
 
-### Schedule Creation Simplification
+### Major Architecture Refactoring
+Split schedule management into two independent schedules:
+
+**New Components:**
+- `manual_schedule_df` - Managed directly by dashboard
+- `api_schedule_df` - Managed by decoupled Data Fetcher agent
+- `active_schedule_source` - Selects which schedule the scheduler uses
+- `manual_schedule_manager.py` - Simple utility for random/CSV operations
+
+**Rewritten Agents:**
+- **Data Fetcher**: Simple loop, no mode polling, just fetches API when password set
+- **Dashboard**: Three-tab structure (Manual, API, Status & Plots)
+- **Scheduler**: Reads `active_schedule_source` to choose schedule
+
+### Schedule Creation Simplification (Earlier)
 - Merged Random Schedule and CSV Upload into single "Manual" mode
 - Mode selector now shows 2 options: Manual | API
-- Manual mode has sub-selector: Random Schedule | CSV Upload
-- Same preview/accept workflow preserved
-- Added MANUAL to ScheduleMode enum
 
 ## Previous Changes (2026-01-31)
 

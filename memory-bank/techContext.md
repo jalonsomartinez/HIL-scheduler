@@ -48,15 +48,39 @@ Modbus Value (hW/hWh or encoded)
 - [`kw_to_hw()`](utils.py:5): Convert kW to hW (hectowatts)
 - [`hw_to_kw()`](utils.py:8): Convert hW to kW
 
-### Shared Data Pattern
+### Shared Data Pattern (Updated)
 ```python
 shared_data = {
-    "schedule_final_df": pd.DataFrame(),  # 1-second resolution schedule
-    "measurements_df": pd.DataFrame(),    # Logged measurements
-    "lock": threading.Lock(),             # Thread synchronization
-    "shutdown_event": threading.Event(),  # Graceful shutdown signal
+    # Two separate schedules (new architecture)
+    "manual_schedule_df": pd.DataFrame(),   # Manual schedule (random/CSV)
+    "api_schedule_df": pd.DataFrame(),      # API-fetched schedule
+    "active_schedule_source": "manual",     # 'manual' or 'api'
+    
+    # API configuration
+    "api_password": None,                   # Set by dashboard
+    "data_fetcher_status": {                # Set by data fetcher
+        "connected": False,
+        "today_fetched": False,
+        "tomorrow_fetched": False,
+        "today_points": 0,
+        "tomorrow_points": 0,
+        "last_attempt": None,
+        "error": None,
+    },
+    
+    # Existing data
+    "measurements_df": pd.DataFrame(),      # Logged measurements
+    "lock": threading.Lock(),               # Thread synchronization
+    "shutdown_event": threading.Event(),    # Graceful shutdown signal
 }
 ```
+
+### Manual Schedule Manager
+The [`manual_schedule_manager.py`](manual_schedule_manager.py) module provides utility functions:
+- [`generate_random_schedule()`](manual_schedule_manager.py:15): Create random schedule DataFrame
+- [`load_csv_schedule()`](manual_schedule_manager.py:45): Load schedule from CSV file
+- [`append_schedules()`](manual_schedule_manager.py:79): Merge schedules with overlap replacement
+- [`get_current_setpoint()`](manual_schedule_manager.py:99): Get setpoint for current time using asof()
 
 ## Configuration System
 

@@ -1,5 +1,6 @@
 import logging
 import time
+import pandas as pd
 from datetime import datetime
 from pyModbusTCP.client import ModbusClient
 from pyModbusTCP.utils import long_list_to_word
@@ -8,8 +9,12 @@ from utils import kw_to_hw
 
 def scheduler_agent(config, shared_data):
     """
-    Checks the schedule every second and sends setpoint updates to the plant agent
+    Checks the active schedule every second and sends setpoint updates to the plant agent
     via Modbus. Sends both active power (P) and reactive power (Q) setpoints.
+    
+    Reads the active_schedule_source to determine which schedule to use:
+    - 'manual': Use manual_schedule_df
+    - 'api': Use api_schedule_df
     """
     logging.info("Scheduler agent started.")
     
@@ -21,6 +26,7 @@ def scheduler_agent(config, shared_data):
     current_q_setpoint = None
     previous_p_setpoint = None
     previous_q_setpoint = None
+    last_active_source = None
     
     while not shared_data['shutdown_event'].is_set():
         start_loop_time = time.time()
@@ -35,14 +41,41 @@ def scheduler_agent(config, shared_data):
         
         try:
             with shared_data['lock']:
-                schedule_final_df = shared_data['schedule_final_df']
-                if schedule_final_df.empty:
+                # Determine which schedule is active
+                active_source = shared_data.get('active_schedule_source', 'manual')
+                
+                # Log when source changes
+                if active_source != last_active_source:
+                    logging.info(f"Scheduler: Active schedule source changed to '{active_source}'")
+                    last_active_source = active_source
+                
+                # Get the appropriate schedule
+                if active_source == 'api':
+                    schedule_df = shared_data.get('api_schedule_df')
+                else:  # default to manual
+                    schedule_df = shared_data.get('manual_schedule_df')
+                
+                # Handle None case - send 0 setpoint when no schedule available
+                if schedule_df is None or schedule_df.empty:
+                    # Send 0 setpoint for both P and Q
+                    logging.info("No schedule available, sending 0 setpoint")
+                    p_reg_val = long_list_to_word([0], big_endian=False)
+                    q_reg_val = long_list_to_word([0], big_endian=False)
+                    client.write_multiple_registers(config["PLANT_P_SETPOINT_REGISTER"], p_reg_val)
+                    client.write_multiple_registers(config["PLANT_Q_SETPOINT_REGISTER"], q_reg_val)
                     time.sleep(config["SCHEDULER_PERIOD_S"])
                     continue
+                
                 # Use asof for robust lookup
-                current_row = schedule_final_df.asof(datetime.now())
+                current_row = schedule_df.asof(datetime.now())
                 current_p_setpoint = current_row['power_setpoint_kw']
                 current_q_setpoint = current_row.get('reactive_power_setpoint_kvar', 0.0)
+
+                # Check for NaN values and send 0 instead
+                if pd.isna(current_p_setpoint) or pd.isna(current_q_setpoint):
+                    logging.warning(f"NaN setpoint found in schedule, sending 0 instead")
+                    current_p_setpoint = 0.0
+                    current_q_setpoint = 0.0
             
             # Send active power setpoint if changed
             if current_p_setpoint != previous_p_setpoint:

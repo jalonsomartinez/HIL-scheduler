@@ -1,75 +1,95 @@
 # Active Context: HIL Scheduler
 
 ## Current Focus
-Simplified schedule creation with merged Manual mode containing Random and CSV options.
+Split schedule management into two independent schedules: Manual and API.
 
 ## Recent Changes (2026-02-01)
 
-### Schedule Creation Simplification
-Merged Random Schedule and CSV Upload into a single "Manual" mode:
-- **Before**: 3 mode options (Random, CSV, API)
-- **After**: 2 mode options (Manual, API)
-- Manual mode contains sub-selector: Random Schedule | CSV Upload
-- Same preview/accept workflow preserved for both sub-methods
+### Major Architecture Refactoring
+Split the monolithic schedule management into two decoupled schedules:
+
+**Before:**
+- Single `schedule_final_df` managed by complex `ScheduleManager` class
+- Polling-based mode switching caused timing issues
+- Dashboard, Data Fetcher, and Scheduler tightly coupled through ScheduleManager
+
+**After:**
+- Two independent schedules: `manual_schedule_df` and `api_schedule_df`
+- Data Fetcher agent completely decoupled - just fetches API data
+- Dashboard manages manual schedule directly
+- Scheduler reads `active_schedule_source` to choose which schedule to use
+
+### Three-Tab Dashboard Structure
+- **Tab 1: Manual Schedule** - Random generation, CSV upload, preview/accept
+- **Tab 2: API Schedule** - Password input, connection status, API schedule preview
+- **Tab 3: Status & Plots** - Active source selector, live graphs, system status
 
 ### Technical Changes
-1. **dashboard_agent.py**:
-   - Mode selector reduced to 2 options: `['manual', 'api']`
-   - Added `manual-sub-mode` radio for Random/CSV selection
-   - Merged control sections into single Manual mode card
-   - Updated all callbacks to handle new structure
+1. **[`hil_scheduler.py`](hil_scheduler.py)**:
+   - New shared data: `manual_schedule_df`, `api_schedule_df`
+   - New: `active_schedule_source` ('manual' or 'api')
+   - New: `api_password` (set by dashboard, read by data fetcher)
+   - New: `data_fetcher_status` (for dashboard display)
 
-2. **schedule_manager.py**:
-   - Added `MANUAL` to `ScheduleMode` enum
-   - Accept callback sets mode to `MANUAL` when schedule accepted
+2. **[`data_fetcher_agent.py`](data_fetcher_agent.py)** (Completely rewritten):
+   - Simple loop: wait for password → connect → fetch today + tomorrow → update `api_schedule_df`
+   - No mode polling, no ScheduleManager dependency
+   - Updates `data_fetcher_status` for dashboard
 
-3. **assets/custom.css**:
-   - Added `.sub-mode-selector` styles for the sub-method buttons
+3. **[`scheduler_agent.py`](scheduler_agent.py)**:
+   - Reads `active_schedule_source` from shared data
+   - Uses appropriate schedule (`manual_schedule_df` or `api_schedule_df`)
+   - Logs when source changes
 
-## Previous Changes (2026-01-31)
+4. **[`dashboard_agent.py`](dashboard_agent.py)** (Completely rewritten):
+   - Three-tab structure
+   - Tab 1: Direct management of `manual_schedule_df`
+   - Tab 2: Password input for `api_password`, displays `data_fetcher_status`
+   - Tab 3: Active source selector, live graphs
 
-### Dashboard UI Redesign
+5. **New: [`manual_schedule_manager.py`](manual_schedule_manager.py)**:
+   - Stateless utility functions for random generation and CSV loading
+   - Simple functions: `generate_random_schedule()`, `load_csv_schedule()`, `append_schedules()`
+
+## Previous Changes
+
+### Schedule Creation Simplification (Earlier 2026-02-01)
+Merged Random Schedule and CSV Upload into a single "Manual" mode.
+
+### Dashboard UI Redesign (2026-01-31)
 - Complete UI overhaul with professional light theme
-- Two tabs: Schedule Configuration and Status & Plots
 - Preview workflow: Generate preview → Review diff → Accept to commit
-- Fixed duplicate callback outputs error
-
-### New Dashboard Features
-1. **Tab Structure**:
-   - Tab 1: Schedule Configuration - Mode selection, controls, preview
-   - Tab 2: Status & Plots - Real-time status, control buttons, live graphs
-
-2. **Schedule Preview Workflow**:
-   - Manual → Random: Configure start/end/step → Preview → Accept
-   - Manual → CSV: Upload file → Adjust start date/time → Preview → Accept
-   - API Mode: Enter password → Connect & Fetch → Schedule loaded
-   - Diff visualization: Existing schedule (dashed gray) vs Preview (solid blue)
-   - Accept button commits preview to active schedule
-   - Clear button removes preview only
-
-3. **UI Design System**:
-   - Color palette: Blue (#2563eb), Green (#16a34a), Red (#dc2626)
-   - Clean white surfaces with subtle borders
-   - Uniform spacing scale (4px-24px)
-   - Responsive CSS media queries
 
 ## Next Steps
-- Test Manual mode with both Random and CSV sub-options
-- Verify API mode still works correctly
-- Consider adding CSV validation before preview
+- Test the new three-tab dashboard
+- Verify data fetcher correctly fetches and updates API schedule
+- Test manual schedule generation and CSV upload
+- Verify scheduler correctly switches between sources
+- Monitor for any race conditions with the new decoupled architecture
 
 ## Architecture Notes
 
-### Preview Workflow Pattern
+### New Data Flow
 ```
-1. User configures mode controls
-2. Preview callback generates temporary DataFrame
-3. Data stored in dcc.Store (preview-schedule)
-4. Graph callback reads from store and shows diff
-5. Accept callback: Reads from store → Commits to schedule
-6. Clear callback: Sets store to None
+Manual Path:
+  Dashboard (Tab 1) → manual_schedule_manager → manual_schedule_df
+
+API Path:
+  Dashboard (Tab 2: set password) → Data Fetcher → api_schedule_df
+
+Scheduler Path:
+  Reads active_schedule_source → Reads manual_df OR api_df → Plant
 ```
 
-### Key Dashboard Files
-- [`dashboard_agent.py`](dashboard_agent.py): Main dashboard with all callbacks
-- [`assets/custom.css`](assets/custom.css): Light theme styles
+### Decoupling Benefits
+1. **No polling delays**: Data Fetcher runs independently
+2. **Clear separation**: Each component has one responsibility
+3. **Easier debugging**: State changes are explicit in shared data
+4. **Simpler code**: Removed complex ScheduleManager with callbacks
+
+### Key Files
+- [`dashboard_agent.py`](dashboard_agent.py): Three-tab dashboard
+- [`data_fetcher_agent.py`](data_fetcher_agent.py): Decoupled API fetcher
+- [`scheduler_agent.py`](scheduler_agent.py): Source-aware scheduler
+- [`manual_schedule_manager.py`](manual_schedule_manager.py): Schedule utilities
+- [`hil_scheduler.py`](hil_scheduler.py): Updated shared data structure
