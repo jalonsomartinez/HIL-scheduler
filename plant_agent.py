@@ -98,7 +98,7 @@ def plant_agent(config, shared_data):
             
             if not regs_p_setpoint or not regs_q_setpoint or not regs_enable:
                 logging.warning("Plant agent could not read registers from Modbus server.")
-                time.sleep(max(0, dt_s - (time.time() - start_loop_time)))
+                time.sleep(max(0.1, dt_s - (time.time() - start_loop_time)))
                 continue
             
             # Decode active power setpoint
@@ -229,7 +229,7 @@ def plant_agent(config, shared_data):
         except Exception as e:
             logging.error(f"Error in plant agent: {e}")
         
-        time.sleep(max(0, dt_s - (time.time() - start_loop_time)))
+        time.sleep(max(0.1, dt_s - (time.time() - start_loop_time)))
     
     # --- Cleanup ---
     logging.info("Stopping Plant Modbus server...")
