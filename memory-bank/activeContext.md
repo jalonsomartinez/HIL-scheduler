@@ -1,7 +1,68 @@
 # Active Context: HIL Scheduler
 
 ## Current Focus
-Simplified data fetcher timing strategy. Now uses single polling interval from config with unified error backoff.
+Dual plant support implementation complete. Application now supports switching between local (emulated) and remote (real hardware) plants via dashboard UI with modal confirmation.
+
+## Recent Changes (2026-02-01) - Dual Plant Support
+
+### Overview
+Implemented support for communicating with two different plants:
+1. **Local Plant**: Emulated plant running in `plant_agent.py` (localhost:5020)
+2. **Remote Plant**: Real hardware plant (10.117.133.21:502)
+
+### Files Modified
+
+**1. Configuration Changes:**
+- [`config.yaml`](config.yaml): 
+  - Renamed `modbus` → `modbus_local`
+  - Added `modbus_remote` section with same register structure
+  - Added `startup` section for initial schedule_source and plant selection
+  - Merged schedule settings into unified `schedule` section
+- [`config_loader.py`](config_loader.py): Loads both plant configurations
+- [`config.py`](config.py): Legacy config retained for reference
+
+**2. Core Agent Updates:**
+- [`hil_scheduler.py`](hil_scheduler.py): 
+  - Added `selected_plant` to shared_data (default from config)
+  - Added `plant_switching` flag for coordination
+- [`scheduler_agent.py`](scheduler_agent.py): 
+  - Dynamic plant switching based on `selected_plant`
+  - Reconnects to appropriate Modbus host/port when changed
+- [`measurement_agent.py`](measurement_agent.py):
+  - Same dynamic switching logic as scheduler
+  - All register reads use plant-specific configuration
+
+**3. Dashboard Updates:**
+- [`dashboard_agent.py`](dashboard_agent.py):
+  - New "Plant Selection" UI in Status & Plots tab
+  - Modal confirmation dialog before switching plants
+  - Plant switching sequence: Stop → Update shared_data → Wait for user Start
+  - Start/Stop buttons control the currently selected plant
+
+### Plant Switching Flow
+1. User clicks to change plant in dashboard
+2. Modal asks for confirmation
+3. On confirm: sends STOP to current plant
+4. Updates `selected_plant` in shared_data
+5. Scheduler and Measurement agents automatically reconnect
+6. User manually clicks Start on new plant
+
+### Startup Configuration
+New `startup` section in config.yaml:
+```yaml
+startup:
+  schedule_source: "manual"    # Options: "manual" or "api"
+  plant: "local"               # Options: "local" or "remote"
+```
+
+### Configuration Cleanup
+- Removed unused schedule power limit configs (now using plant.power_limits)
+- Removed unused default_* configs (not referenced anywhere)
+- Unified schedule settings into single `schedule` section
+
+---
+
+## Previous: Simplified data fetcher timing strategy. Now uses single polling interval from config with unified error backoff.
 
 ## Recent Changes (2026-02-01) - Configuration Cleanup
 

@@ -4,25 +4,23 @@
 # General Settings
 general:
   log_level: INFO
-  schedule_source_csv: "schedule_source.csv"
-  schedule_duration_h: 0.5
-  schedule_power_min_kw: -1000
-  schedule_power_max_kw: 1000
-  schedule_q_min_kvar: -600
-  schedule_q_max_kvar: 600
+
+# Schedule Settings
+schedule:
+  source_csv: "schedule_source.csv"
+  duration_h: 0.5
+  default_resolution_min: 5
+
+# Startup Configuration
+startup:
+  schedule_source: "manual"    # Options: "manual" or "api"
+  plant: "local"               # Options: "local" or "remote"
 
 # Istentore API Configuration
 istentore_api:
   base_url: "https://3mku48kfxf.execute-api.eu-south-2.amazonaws.com/default"
   email: "i-STENTORE"
   poll_start_time: "17:30"  # When to start polling for tomorrow's schedule (HH:MM)
-
-# Schedule Default Settings
-schedule:
-  default_min_power_kw: -1000
-  default_max_power_kw: 1000
-  default_q_power_kvar: 0
-  default_resolution_min: 5
 
 # Timing Configuration
 timing:
@@ -47,12 +45,35 @@ plant:
   # POI voltage (fixed value, no impedance model)
   poi_voltage_v: 20000.0  # POI voltage in Volts (20 kV)
 
-# Modbus Configuration
-modbus:
+# Modbus Configuration - Local Plant (Emulated)
+modbus_local:
   host: "localhost"
   port: 5020
-  
+  description: "Local emulated plant running in plant_agent"
+
   # Register Map
+  registers:
+    # Active Power
+    p_setpoint_in: 0        # 32-bit signed: Active power setpoint from scheduler (hW)
+    p_poi: 14               # 32-bit signed: Active power at POI (hW)
+    p_battery: 2            # 32-bit signed: Actual battery active power after SoC limiting (hW)
+    # Reactive Power
+    q_setpoint_in: 4        # 32-bit signed: Reactive power setpoint from scheduler (hW)
+    q_poi: 16               # 32-bit signed: Reactive power at POI (hW)
+    q_battery: 6            # 32-bit signed: Actual battery reactive power (hW)
+    # Voltage
+    v_poi: 18               # 16-bit unsigned: Voltage at POI (per-unit x100)
+    # Control and Status
+    enable: 10              # 16-bit: Enable flag (0=disabled, 1=enabled)
+    soc: 12                 # 16-bit unsigned: State of Charge (per-unit x10000)
+
+# Modbus Configuration - Remote Plant (Real Hardware)
+modbus_remote:
+  host: "localhost" #"10.117.133.21"
+  port: 5020 #502
+  description: "Remote real plant - edit register values as needed"
+
+  # Register Map - Same structure as local, customize values as needed
   registers:
     # Active Power
     p_setpoint_in: 0        # 32-bit signed: Active power setpoint from scheduler (hW)

@@ -2,6 +2,16 @@
 
 ## What Works
 
+### Dual Plant Support (2026-02-01)
+- [x] **Local Plant**: Emulated plant running in `plant_agent.py` (localhost:5020)
+- [x] **Remote Plant**: Real hardware plant (10.117.133.21:502)
+- [x] **Dynamic Switching**: Scheduler and Measurement agents auto-reconnect on plant change
+- [x] **Dashboard UI**: Plant selector with Local/Remote options in Status & Plots tab
+- [x] **Modal Confirmation**: Confirmation dialog before switching plants
+- [x] **Safe Switching**: Current plant stopped before switching, user manually starts new plant
+- [x] **Startup Configuration**: `startup.plant` config sets initial plant on application start
+- [x] **Modbus Config Separation**: `modbus_local` and `modbus_remote` sections in config.yaml
+
 ### Configuration Cleanup (2026-02-01)
 - [x] Removed unused `MEASUREMENTS_CSV` from config.yaml
 - [x] Removed unused `MEASUREMENTS_CSV` from config.py

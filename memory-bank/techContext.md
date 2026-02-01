@@ -56,6 +56,10 @@ shared_data = {
     "api_schedule_df": pd.DataFrame(),      # API-fetched schedule
     "active_schedule_source": "manual",     # 'manual' or 'api'
     
+    # Plant selection (NEW - dual plant support)
+    "selected_plant": "local",              # 'local' or 'remote'
+    "plant_switching": False,               # True during plant switch
+    
     # API configuration
     "api_password": None,                   # Set by dashboard
     "data_fetcher_status": {                # Set by data fetcher
@@ -68,8 +72,11 @@ shared_data = {
         "error": None,
     },
     
-    # Existing data
+    # Measurement file management
+    "measurements_filename": None,          # Set by dashboard, polled by agent
     "measurements_df": pd.DataFrame(),      # Logged measurements
+    
+    # Threading
     "lock": threading.Lock(),               # Thread synchronization
     "shutdown_event": threading.Event(),    # Graceful shutdown signal
 }
@@ -84,24 +91,74 @@ The [`manual_schedule_manager.py`](manual_schedule_manager.py) module provides u
 
 ## Configuration System
 
-### YAML Configuration (Simulated Plant)
-The [`config.yaml`](config.yaml) file provides configuration for the simulated plant:
+### YAML Configuration
+The [`config.yaml`](config.yaml) file provides unified configuration for both simulated and real plants:
 
 ```yaml
-general:
-  log_level: INFO
-  schedule_duration_h: 0.5
+# Startup Configuration
+startup:
+  schedule_source: "manual"    # Initial schedule: "manual" or "api"
+  plant: "local"               # Initial plant: "local" or "remote"
 
+# Schedule Settings
+schedule:
+  source_csv: "schedule_source.csv"
+  duration_h: 0.5
+  default_resolution_min: 5
+
+# Timing
 timing:
-  data_fetcher_period_s: 120  # API polling interval (seconds)
-  scheduler_period_s: 1       # Setpoint dispatch interval
-  plant_period_s: 1           # Battery simulation interval
-  measurement_period_s: 1     # Measurement sampling interval
-  measurements_write_period_s: 60  # CSV write interval
+  data_fetcher_period_s: 120
+  scheduler_period_s: 1
+  plant_period_s: 1
+  measurement_period_s: 1
+  measurements_write_period_s: 60
 
+# Istentore API
 istentore_api:
-  poll_start_time: "17:30"    # When to start polling for tomorrow's schedule
+  poll_start_time: "17:30"
+
+# Plant Model
+plant:
+  capacity_kwh: 50.0
+  initial_soc_pu: 0.5
+  power_limits:
+    p_max_kw: 1000.0
+    p_min_kw: -1000.0
+    q_max_kvar: 600.0
+    q_min_kvar: -600.0
+  poi_voltage_v: 20000.0
+
+# Modbus - Local Plant (Emulated)
+modbus_local:
+  host: "localhost"
+  port: 5020
+  registers:
+    p_setpoint_in: 0
+    p_battery: 2
+    q_setpoint_in: 4
+    q_battery: 6
+    enable: 10
+    soc: 12
+    p_poi: 14
+    q_poi: 16
+    v_poi: 18
+
+# Modbus - Remote Plant (Real Hardware)
+modbus_remote:
+  host: "10.117.133.21"
+  port: 502
+  registers:
+    # Same structure as local, customize values as needed
+    p_setpoint_in: 0
+    # ... etc
 ```
+
+**Key Configuration Notes:**
+- `startup.plant`: Sets initial plant on application start ('local' or 'remote')
+- `startup.schedule_source`: Sets initial schedule source ('manual' or 'api')
+- Schedule generation uses `plant.power_limits` (not separate schedule limits)
+- Both plants use same register structure (customize `modbus_remote` values as needed)
 
 **Timing Configuration Notes:**
 - `data_fetcher_period_s`: How often to poll Istentore API for schedule updates (default 120s = 2 minutes)

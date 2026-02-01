@@ -474,11 +474,12 @@ def create_schedule_csv(config: dict, csv_path: str = None):
     
     start_time = config.get('SCHEDULE_START_TIME', datetime.now().replace(microsecond=0))
     duration_h = config.get('SCHEDULE_DURATION_H', 0.5)
-    min_power = config.get('SCHEDULE_POWER_MIN_KW', -1000)
-    max_power = config.get('SCHEDULE_POWER_MAX_KW', 1000)
-    q_min = config.get('SCHEDULE_Q_MIN_KVAR', -600)
-    q_max = config.get('SCHEDULE_Q_MAX_KVAR', 600)
-    resolution_min = 5  # Default resolution
+    # Use plant power limits for schedule generation
+    min_power = config.get('PLANT_P_MIN_KW', -1000)
+    max_power = config.get('PLANT_P_MAX_KW', 1000)
+    q_min = config.get('PLANT_Q_MIN_KVAR', -600)
+    q_max = config.get('PLANT_Q_MAX_KVAR', 600)
+    resolution_min = config.get('SCHEDULE_DEFAULT_RESOLUTION_MIN', 5)
     
     logging.info(f"Creating schedule file: {csv_path}")
     

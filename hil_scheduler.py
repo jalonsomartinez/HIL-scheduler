@@ -26,13 +26,27 @@ def main():
     logging.info("Director agent starting the application.")
     
     # --- Create shared data ---
+    # Get startup values from config, with defaults
+    startup_schedule_source = config.get("STARTUP_SCHEDULE_SOURCE", "manual")
+    startup_plant = config.get("STARTUP_PLANT", "local")
+    
+    # Validate startup values
+    if startup_schedule_source not in ["manual", "api"]:
+        logging.warning(f"Invalid STARTUP_SCHEDULE_SOURCE '{startup_schedule_source}', using 'manual'")
+        startup_schedule_source = "manual"
+    if startup_plant not in ["local", "remote"]:
+        logging.warning(f"Invalid STARTUP_PLANT '{startup_plant}', using 'local'")
+        startup_plant = "local"
+    
+    logging.info(f"Startup configuration: schedule_source='{startup_schedule_source}', plant='{startup_plant}'")
+    
     shared_data = {
         # Dataframe that holds the manual schedule (random/CSV)
         "manual_schedule_df": pd.DataFrame(),
         # Dataframe that holds the API-fetched schedule
         "api_schedule_df": pd.DataFrame(),
         # Which schedule is currently active: 'manual' or 'api'
-        "active_schedule_source": "manual",
+        "active_schedule_source": startup_schedule_source,
         # Dataframe that holds the measurements
         "measurements_df": pd.DataFrame(),
         # Current measurements filename (set by dashboard on start, read by measurement agent)
@@ -53,6 +67,10 @@ def main():
             "last_attempt": None,
             "error": None,
         },
+        # Selected plant: 'local' or 'remote'
+        "selected_plant": startup_plant,
+        # Plant switching status: True when a switch is in progress
+        "plant_switching": False,
     }
     
     try:

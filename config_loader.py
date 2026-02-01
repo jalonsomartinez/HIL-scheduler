@@ -35,13 +35,13 @@ def load_config(config_path="config.yaml"):
     general = yaml_config.get('general', {})
     log_level_str = general.get('log_level', 'INFO')
     config['LOG_LEVEL'] = getattr(logging, log_level_str.upper(), logging.INFO)
-    config['SCHEDULE_SOURCE_CSV'] = general.get('schedule_source_csv', 'schedule_source.csv')
     config['SCHEDULE_START_TIME'] = datetime.now().replace(microsecond=0)
-    config['SCHEDULE_DURATION_H'] = general.get('schedule_duration_h', 0.5)
-    config['SCHEDULE_POWER_MIN_KW'] = general.get('schedule_power_min_kw', -1000)
-    config['SCHEDULE_POWER_MAX_KW'] = general.get('schedule_power_max_kw', 1000)
-    config['SCHEDULE_Q_MIN_KVAR'] = general.get('schedule_q_min_kvar', -600)
-    config['SCHEDULE_Q_MAX_KVAR'] = general.get('schedule_q_max_kvar', 600)
+    
+    # Schedule settings
+    schedule = yaml_config.get('schedule', {})
+    config['SCHEDULE_SOURCE_CSV'] = schedule.get('source_csv', 'schedule_source.csv')
+    config['SCHEDULE_DURATION_H'] = schedule.get('duration_h', 0.5)
+    config['SCHEDULE_DEFAULT_RESOLUTION_MIN'] = schedule.get('default_resolution_min', 5)
     
     # Timing settings
     timing = yaml_config.get('timing', {})
@@ -66,13 +66,22 @@ def load_config(config_path="config.yaml"):
     # POI voltage (fixed value, no impedance model)
     config['PLANT_POI_VOLTAGE_V'] = plant.get('poi_voltage_v', 20000.0)
     
-    # Modbus settings
-    modbus = yaml_config.get('modbus', {})
-    config['PLANT_MODBUS_HOST'] = modbus.get('host', 'localhost')
-    config['PLANT_MODBUS_PORT'] = modbus.get('port', 5020)
+    # Modbus Local Plant settings (emulated)
+    modbus_local = yaml_config.get('modbus_local', {})
+    config['PLANT_LOCAL_MODBUS_HOST'] = modbus_local.get('host', 'localhost')
+    config['PLANT_LOCAL_MODBUS_PORT'] = modbus_local.get('port', 5020)
     
-    # Modbus registers
-    registers = modbus.get('registers', {})
+    # Modbus Remote Plant settings (real hardware)
+    modbus_remote = yaml_config.get('modbus_remote', {})
+    config['PLANT_REMOTE_MODBUS_HOST'] = modbus_remote.get('host', '10.117.133.21')
+    config['PLANT_REMOTE_MODBUS_PORT'] = modbus_remote.get('port', 502)
+    
+    # Default to local plant for backward compatibility
+    config['PLANT_MODBUS_HOST'] = config['PLANT_LOCAL_MODBUS_HOST']
+    config['PLANT_MODBUS_PORT'] = config['PLANT_LOCAL_MODBUS_PORT']
+    
+    # Modbus registers - use local as default (agents will switch based on selected_plant)
+    registers = modbus_local.get('registers', {})
     config['PLANT_P_SETPOINT_REGISTER'] = registers.get('p_setpoint_in', 0)
     config['PLANT_P_BATTERY_ACTUAL_REGISTER'] = registers.get('p_battery', 2)
     config['PLANT_Q_SETPOINT_REGISTER'] = registers.get('q_setpoint_in', 4)
@@ -83,6 +92,18 @@ def load_config(config_path="config.yaml"):
     config['PLANT_Q_POI_REGISTER'] = registers.get('q_poi', 16)
     config['PLANT_V_POI_REGISTER'] = registers.get('v_poi', 18)
     
+    # Remote plant registers (can be customized independently)
+    remote_registers = modbus_remote.get('registers', {})
+    config['PLANT_REMOTE_P_SETPOINT_REGISTER'] = remote_registers.get('p_setpoint_in', 0)
+    config['PLANT_REMOTE_P_BATTERY_ACTUAL_REGISTER'] = remote_registers.get('p_battery', 2)
+    config['PLANT_REMOTE_Q_SETPOINT_REGISTER'] = remote_registers.get('q_setpoint_in', 4)
+    config['PLANT_REMOTE_Q_BATTERY_ACTUAL_REGISTER'] = remote_registers.get('q_battery', 6)
+    config['PLANT_REMOTE_ENABLE_REGISTER'] = remote_registers.get('enable', 10)
+    config['PLANT_REMOTE_SOC_REGISTER'] = remote_registers.get('soc', 12)
+    config['PLANT_REMOTE_P_POI_REGISTER'] = remote_registers.get('p_poi', 14)
+    config['PLANT_REMOTE_Q_POI_REGISTER'] = remote_registers.get('q_poi', 16)
+    config['PLANT_REMOTE_V_POI_REGISTER'] = remote_registers.get('v_poi', 18)
+    
 
     # Istentore API settings
     istentore_api = yaml_config.get('istentore_api', {})
@@ -91,11 +112,9 @@ def load_config(config_path="config.yaml"):
     config['ISTENTORE_POLL_INTERVAL_MIN'] = istentore_api.get('poll_interval_min', 10)
     config['ISTENTORE_POLL_START_TIME'] = istentore_api.get('poll_start_time', '17:30')
     
-    # Schedule default settings
-    schedule = yaml_config.get('schedule', {})
-    config['SCHEDULE_DEFAULT_MIN_POWER_KW'] = schedule.get('default_min_power_kw', -1000)
-    config['SCHEDULE_DEFAULT_MAX_POWER_KW'] = schedule.get('default_max_power_kw', 1000)
-    config['SCHEDULE_DEFAULT_Q_POWER_KVAR'] = schedule.get('default_q_power_kvar', 0)
-    config['SCHEDULE_DEFAULT_RESOLUTION_MIN'] = schedule.get('default_resolution_min', 5)
+    # Startup configuration
+    startup = yaml_config.get('startup', {})
+    config['STARTUP_SCHEDULE_SOURCE'] = startup.get('schedule_source', 'manual')
+    config['STARTUP_PLANT'] = startup.get('plant', 'local')
     
     return config

@@ -17,14 +17,62 @@ def measurement_agent(config, shared_data):
     - When filename changes: writes to old file, clears DataFrame, starts new file
     - Measurements are taken according to MEASUREMENT_PERIOD_S config
     - Writes directly to shared_data for immediate visibility (no buffer)
+    
+    Dynamically switches between local and remote plant based on selected_plant in shared_data.
     """
     logging.info("Measurement agent started.")
     
-    # Single client to connect to the plant agent (which is the PPC interface)
-    plant_client = ModbusClient(
-        host=config["PLANT_MODBUS_HOST"],
-        port=config["PLANT_MODBUS_PORT"]
-    )
+    # Track current plant selection
+    current_plant = None
+    plant_client = None
+    
+    def get_plant_config(plant_type):
+        """Get Modbus configuration for the selected plant."""
+        if plant_type == 'remote':
+            return {
+                'host': config.get("PLANT_REMOTE_MODBUS_HOST", "10.117.133.21"),
+                'port': config.get("PLANT_REMOTE_MODBUS_PORT", 502),
+                'p_setpoint_reg': config.get("PLANT_REMOTE_P_SETPOINT_REGISTER", 0),
+                'p_battery_reg': config.get("PLANT_REMOTE_P_BATTERY_ACTUAL_REGISTER", 2),
+                'q_setpoint_reg': config.get("PLANT_REMOTE_Q_SETPOINT_REGISTER", 4),
+                'q_battery_reg': config.get("PLANT_REMOTE_Q_BATTERY_ACTUAL_REGISTER", 6),
+                'enable_reg': config.get("PLANT_REMOTE_ENABLE_REGISTER", 10),
+                'soc_reg': config.get("PLANT_REMOTE_SOC_REGISTER", 12),
+                'p_poi_reg': config.get("PLANT_REMOTE_P_POI_REGISTER", 14),
+                'q_poi_reg': config.get("PLANT_REMOTE_Q_POI_REGISTER", 16),
+                'v_poi_reg': config.get("PLANT_REMOTE_V_POI_REGISTER", 18),
+            }
+        else:  # local
+            return {
+                'host': config.get("PLANT_LOCAL_MODBUS_HOST", "localhost"),
+                'port': config.get("PLANT_LOCAL_MODBUS_PORT", 5020),
+                'p_setpoint_reg': config.get("PLANT_P_SETPOINT_REGISTER", 0),
+                'p_battery_reg': config.get("PLANT_P_BATTERY_ACTUAL_REGISTER", 2),
+                'q_setpoint_reg': config.get("PLANT_Q_SETPOINT_REGISTER", 4),
+                'q_battery_reg': config.get("PLANT_Q_BATTERY_ACTUAL_REGISTER", 6),
+                'enable_reg': config.get("PLANT_ENABLE_REGISTER", 10),
+                'soc_reg': config.get("PLANT_SOC_REGISTER", 12),
+                'p_poi_reg': config.get("PLANT_P_POI_REGISTER", 14),
+                'q_poi_reg': config.get("PLANT_Q_POI_REGISTER", 16),
+                'v_poi_reg': config.get("PLANT_V_POI_REGISTER", 18),
+            }
+    
+    def connect_to_plant(plant_type):
+        """Create and return a new Modbus client for the specified plant."""
+        nonlocal plant_client
+        if plant_client is not None:
+            try:
+                plant_client.close()
+            except:
+                pass
+        
+        plant_config = get_plant_config(plant_type)
+        plant_client = ModbusClient(
+            host=plant_config['host'],
+            port=plant_config['port']
+        )
+        logging.info(f"Measurement: Switched to {plant_type} plant at {plant_config['host']}:{plant_config['port']}")
+        return plant_config
     
     last_measurement_time = time.time()
     last_filename_poll_time = time.time()
@@ -89,10 +137,13 @@ def measurement_agent(config, shared_data):
                     current_filename = None  # Stop writing to disk
                     logging.info("Measurements filename cleared. Stopped writing to disk.")
     
-    def take_measurement():
+    def take_measurement(plant_config):
         """Take a single measurement from the plant and write directly to shared_data."""
+        if plant_client is None:
+            return False
+            
         if not plant_client.is_open:
-            logging.info("Measurement agent trying to connect to Plant Modbus server...")
+            logging.info(f"Measurement agent trying to connect to {current_plant} Plant Modbus server...")
             if not plant_client.open():
                 logging.warning(
                     "Measurement agent could not connect to Plant. Retrying..."
@@ -104,7 +155,7 @@ def measurement_agent(config, shared_data):
             # Read all values from plant agent
             # 1. Active power setpoint (what scheduler sent)
             regs_p_setpoint = plant_client.read_holding_registers(
-                config["PLANT_P_SETPOINT_REGISTER"], 2
+                plant_config['p_setpoint_reg'], 2
             )
             if not regs_p_setpoint:
                 logging.warning("Measurement agent could not read P setpoint from Plant.")
@@ -116,7 +167,7 @@ def measurement_agent(config, shared_data):
             
             # 2. Actual active power (after SoC limiting)
             regs_p_actual = plant_client.read_holding_registers(
-                config["PLANT_P_BATTERY_ACTUAL_REGISTER"], 2
+                plant_config['p_battery_reg'], 2
             )
             if not regs_p_actual:
                 logging.warning(
@@ -130,7 +181,7 @@ def measurement_agent(config, shared_data):
             
             # 3. Reactive power setpoint (what scheduler sent)
             regs_q_setpoint = plant_client.read_holding_registers(
-                config["PLANT_Q_SETPOINT_REGISTER"], 2
+                plant_config['q_setpoint_reg'], 2
             )
             if not regs_q_setpoint:
                 logging.warning("Measurement agent could not read Q setpoint from Plant.")
@@ -142,7 +193,7 @@ def measurement_agent(config, shared_data):
             
             # 4. Actual reactive power (after limit clamping)
             regs_q_actual = plant_client.read_holding_registers(
-                config["PLANT_Q_BATTERY_ACTUAL_REGISTER"], 2
+                plant_config['q_battery_reg'], 2
             )
             if not regs_q_actual:
                 logging.warning(
@@ -156,7 +207,7 @@ def measurement_agent(config, shared_data):
             
             # 5. State of Charge
             regs_soc = plant_client.read_holding_registers(
-                config["PLANT_SOC_REGISTER"], 1
+                plant_config['soc_reg'], 1
             )
             if not regs_soc:
                 logging.warning("Measurement agent could not read SoC from Plant.")
@@ -166,7 +217,7 @@ def measurement_agent(config, shared_data):
             
             # 6. Active power at POI
             regs_p_poi = plant_client.read_holding_registers(
-                config["PLANT_P_POI_REGISTER"], 2
+                plant_config['p_poi_reg'], 2
             )
             if not regs_p_poi:
                 logging.warning("Measurement agent could not read P_poi from Plant.")
@@ -178,7 +229,7 @@ def measurement_agent(config, shared_data):
             
             # 7. Reactive power at POI
             regs_q_poi = plant_client.read_holding_registers(
-                config["PLANT_Q_POI_REGISTER"], 2
+                plant_config['q_poi_reg'], 2
             )
             if not regs_q_poi:
                 logging.warning("Measurement agent could not read Q_poi from Plant.")
@@ -190,7 +241,7 @@ def measurement_agent(config, shared_data):
             
             # 8. Voltage at POI
             regs_v_poi = plant_client.read_holding_registers(
-                config["PLANT_V_POI_REGISTER"], 1
+                plant_config['v_poi_reg'], 1
             )
             if not regs_v_poi:
                 logging.warning("Measurement agent could not read V_poi from Plant.")
@@ -238,6 +289,23 @@ def measurement_agent(config, shared_data):
     while not shared_data['shutdown_event'].is_set():
         current_time = time.time()
         
+        # Check for plant selection change
+        with shared_data['lock']:
+            selected_plant = shared_data.get('selected_plant', 'local')
+        
+        if selected_plant != current_plant:
+            plant_config = connect_to_plant(selected_plant)
+            current_plant = selected_plant
+        else:
+            plant_config = get_plant_config(current_plant)
+        
+        if plant_client is None:
+            plant_config = get_plant_config(selected_plant)
+            plant_client = ModbusClient(
+                host=plant_config['host'],
+                port=plant_config['port']
+            )
+        
         # Poll filename every second
         if current_time - last_filename_poll_time >= 1.0:
             poll_filename()
@@ -245,7 +313,7 @@ def measurement_agent(config, shared_data):
         
         # Take measurement according to configured period
         if current_time - last_measurement_time >= config["MEASUREMENT_PERIOD_S"]:
-            if take_measurement():
+            if take_measurement(plant_config):
                 last_measurement_time = current_time
         
         # Periodically write to CSV (if we have a filename)

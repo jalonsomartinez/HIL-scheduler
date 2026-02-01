@@ -256,6 +256,63 @@ def dashboard_agent(config, shared_data):
                 # =========================================
                 html.Div(id='status-tab', className='hidden', children=[
                     
+                    # Plant Selection
+                    html.Div(className='card', children=[
+                        html.Div(className='card-header', children=[
+                            html.H3(className='card-title', children="Plant Selection"),
+                            html.P("Select which plant to connect to", className='card-subtitle'),
+                        ]),
+                        html.Div(className='mode-selector', style={'marginTop': '12px'}, children=[
+                            html.Label(
+                                className='mode-option selected',
+                                id='plant-local-option',
+                                n_clicks=0,
+                                children=[
+                                    html.Span(className='mode-label', children="Local Plant"),
+                                    html.Span(className='mode-description', children="Emulated plant (localhost:5020)"),
+                                ]
+                            ),
+                            html.Label(
+                                className='mode-option',
+                                id='plant-remote-option',
+                                n_clicks=0,
+                                children=[
+                                    html.Span(className='mode-label', children="Remote Plant"),
+                                    html.Span(className='mode-description', children="Real hardware (10.117.133.21:502)"),
+                                ]
+                            ),
+                        ]),
+                        dcc.RadioItems(
+                            id='selected-plant-selector',
+                            options=[
+                                {'label': ' Local', 'value': 'local'},
+                                {'label': ' Remote', 'value': 'remote'}
+                            ],
+                            value='local',
+                            style={'display': 'none'}
+                        ),
+                        html.Div(id='plant-status-display', style={'marginTop': '12px', 'fontSize': '13px', 'color': '#64748b'}),
+                    ]),
+                    
+                    # Plant Switch Confirmation Modal
+                    html.Div(id='plant-switch-modal', className='hidden', style={
+                        'position': 'fixed', 'top': '0', 'left': '0', 'width': '100%', 'height': '100%',
+                        'backgroundColor': 'rgba(0,0,0,0.5)', 'zIndex': '1000', 'display': 'flex',
+                        'justifyContent': 'center', 'alignItems': 'center'
+                    }, children=[
+                        html.Div(style={
+                            'backgroundColor': 'white', 'padding': '24px', 'borderRadius': '8px',
+                            'maxWidth': '400px', 'boxShadow': '0 4px 12px rgba(0,0,0,0.15)'
+                        }, children=[
+                            html.H3("Confirm Plant Switch", style={'marginTop': '0'}),
+                            html.P(id='plant-switch-message', children="Switching plants will stop the current plant. Continue?"),
+                            html.Div(style={'display': 'flex', 'gap': '12px', 'marginTop': '20px', 'justifyContent': 'flex-end'}, children=[
+                                html.Button('Cancel', id='plant-switch-cancel', className='btn btn-secondary'),
+                                html.Button('Confirm', id='plant-switch-confirm', className='btn btn-primary'),
+                            ]),
+                        ]),
+                    ]),
+                    
                     # Active Schedule Selector
                     html.Div(className='card', children=[
                         html.Div(className='card-header', children=[
@@ -696,6 +753,112 @@ def dashboard_agent(config, shared_data):
             return 'manual', 'mode-option selected', 'mode-option'
     
     # ============================================================
+    # PLANT SELECTION
+    # ============================================================
+    @app.callback(
+        [Output('selected-plant-selector', 'value'),
+         Output('plant-local-option', 'className'),
+         Output('plant-remote-option', 'className'),
+         Output('plant-switch-modal', 'className'),
+         Output('plant-status-display', 'children')],
+        [Input('plant-local-option', 'n_clicks'),
+         Input('plant-remote-option', 'n_clicks'),
+         Input('plant-switch-cancel', 'n_clicks'),
+         Input('plant-switch-confirm', 'n_clicks')],
+        [State('selected-plant-selector', 'value')],
+        prevent_initial_call=True
+    )
+    def select_plant(local_clicks, remote_clicks, cancel_clicks, confirm_clicks, current_plant):
+        ctx = callback_context
+        if not ctx.triggered:
+            # Read current plant from shared_data on initial load
+            with shared_data['lock']:
+                stored_plant = shared_data.get('selected_plant', 'local')
+            if stored_plant == 'remote':
+                return 'remote', 'mode-option', 'mode-option selected', 'hidden', f"Connected to: Remote Plant ({config.get('PLANT_REMOTE_MODBUS_HOST', '10.117.133.21')}:{config.get('PLANT_REMOTE_MODBUS_PORT', 502)})"
+            else:
+                return 'local', 'mode-option selected', 'mode-option', 'hidden', f"Connected to: Local Plant ({config.get('PLANT_LOCAL_MODBUS_HOST', 'localhost')}:{config.get('PLANT_LOCAL_MODBUS_PORT', 5020)})"
+        
+        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        
+        # Handle cancel button
+        if trigger_id == 'plant-switch-cancel':
+            # Return to current selection without changing
+            with shared_data['lock']:
+                stored_plant = shared_data.get('selected_plant', 'local')
+            if stored_plant == 'remote':
+                return 'remote', 'mode-option', 'mode-option selected', 'hidden', f"Connected to: Remote Plant ({config.get('PLANT_REMOTE_MODBUS_HOST', '10.117.133.21')}:{config.get('PLANT_REMOTE_MODBUS_PORT', 502)})"
+            else:
+                return 'local', 'mode-option selected', 'mode-option', 'hidden', f"Connected to: Local Plant ({config.get('PLANT_LOCAL_MODBUS_HOST', 'localhost')}:{config.get('PLANT_LOCAL_MODBUS_PORT', 5020)})"
+        
+        # Handle confirm button - perform the actual switch
+        if trigger_id == 'plant-switch-confirm':
+            requested_plant = 'remote' if current_plant == 'local' else 'local'
+            
+            def perform_plant_switch():
+                try:
+                    # First, stop the current plant
+                    logging.info(f"Dashboard: Stopping current plant before switching to {requested_plant}...")
+                    
+                    # Get current plant config
+                    with shared_data['lock']:
+                        current_selected = shared_data.get('selected_plant', 'local')
+                    
+                    if current_selected == 'local':
+                        stop_host = config.get('PLANT_LOCAL_MODBUS_HOST', 'localhost')
+                        stop_port = config.get('PLANT_LOCAL_MODBUS_PORT', 5020)
+                        stop_enable_reg = config.get('PLANT_ENABLE_REGISTER', 10)
+                    else:
+                        stop_host = config.get('PLANT_REMOTE_MODBUS_HOST', '10.117.133.21')
+                        stop_port = config.get('PLANT_REMOTE_MODBUS_PORT', 502)
+                        stop_enable_reg = config.get('PLANT_REMOTE_ENABLE_REGISTER', 10)
+                    
+                    # Send stop command
+                    from pyModbusTCP.client import ModbusClient
+                    client = ModbusClient(host=stop_host, port=stop_port)
+                    if client.open():
+                        client.write_single_register(stop_enable_reg, 0)
+                        client.close()
+                        logging.info(f"Dashboard: Stop command sent to {current_selected} plant")
+                    
+                    # Update shared_data with new plant selection
+                    with shared_data['lock']:
+                        shared_data['selected_plant'] = requested_plant
+                        shared_data['plant_switching'] = False
+                    
+                    logging.info(f"Dashboard: Switched to {requested_plant} plant")
+                    
+                except Exception as e:
+                    logging.error(f"Dashboard: Error during plant switch: {e}")
+                    with shared_data['lock']:
+                        shared_data['plant_switching'] = False
+            
+            # Run switch in background thread
+            switch_thread = threading.Thread(target=perform_plant_switch)
+            switch_thread.daemon = True
+            switch_thread.start()
+            
+            # Return the new selection (will update after switch completes)
+            if requested_plant == 'remote':
+                return 'remote', 'mode-option', 'mode-option selected', 'hidden', f"Switching to: Remote Plant..."
+            else:
+                return 'local', 'mode-option selected', 'mode-option', 'hidden', f"Switching to: Local Plant..."
+        
+        # Handle plant option clicks - show confirmation modal
+        if trigger_id == 'plant-remote-option' and current_plant != 'remote':
+            return current_plant, 'mode-option selected', 'mode-option', '', "Confirm switch to Remote Plant..."
+        elif trigger_id == 'plant-local-option' and current_plant != 'local':
+            return current_plant, 'mode-option', 'mode-option selected', '', "Confirm switch to Local Plant..."
+        
+        # Default: no change
+        with shared_data['lock']:
+            stored_plant = shared_data.get('selected_plant', 'local')
+        if stored_plant == 'remote':
+            return 'remote', 'mode-option', 'mode-option selected', 'hidden', f"Connected to: Remote Plant ({config.get('PLANT_REMOTE_MODBUS_HOST', '10.117.133.21')}:{config.get('PLANT_REMOTE_MODBUS_PORT', 502)})"
+        else:
+            return 'local', 'mode-option selected', 'mode-option', 'hidden', f"Connected to: Local Plant ({config.get('PLANT_LOCAL_MODBUS_HOST', 'localhost')}:{config.get('PLANT_LOCAL_MODBUS_PORT', 5020)})"
+    
+    # ============================================================
     # START/STOP BUTTONS - RUN IN BACKGROUND THREAD
     # ============================================================
     @app.callback(
@@ -738,15 +901,26 @@ def dashboard_agent(config, shared_data):
         # Run Modbus operation in background to not block UI
         def send_command():
             from pyModbusTCP.client import ModbusClient
-            client = ModbusClient(
-                host=config["PLANT_MODBUS_HOST"],
-                port=config["PLANT_MODBUS_PORT"]
-            )
+            
+            # Read selected plant to determine which one to control
+            with shared_data['lock']:
+                selected_plant = shared_data.get('selected_plant', 'local')
+            
+            if selected_plant == 'remote':
+                host = config.get('PLANT_REMOTE_MODBUS_HOST', '10.117.133.21')
+                port = config.get('PLANT_REMOTE_MODBUS_PORT', 502)
+                enable_reg = config.get('PLANT_REMOTE_ENABLE_REGISTER', 10)
+            else:
+                host = config.get('PLANT_LOCAL_MODBUS_HOST', 'localhost')
+                port = config.get('PLANT_LOCAL_MODBUS_PORT', 5020)
+                enable_reg = config.get('PLANT_ENABLE_REGISTER', 10)
+            
+            client = ModbusClient(host=host, port=port)
             if not client.open():
-                logging.error("Dashboard: Could not connect to Plant.")
+                logging.error(f"Dashboard: Could not connect to {selected_plant} Plant.")
                 return
             
-            is_ok = client.write_single_register(config["PLANT_ENABLE_REGISTER"], value_to_write)
+            is_ok = client.write_single_register(enable_reg, value_to_write)
             client.close()
             
             if is_ok:
@@ -785,13 +959,24 @@ def dashboard_agent(config, shared_data):
             def check_modbus():
                 nonlocal last_modbus_status
                 from pyModbusTCP.client import ModbusClient
-                client = ModbusClient(
-                    host=config["PLANT_MODBUS_HOST"],
-                    port=config["PLANT_MODBUS_PORT"]
-                )
+                
+                # Read selected plant to determine which one to check
+                with shared_data['lock']:
+                    selected_plant = shared_data.get('selected_plant', 'local')
+                
+                if selected_plant == 'remote':
+                    host = config.get('PLANT_REMOTE_MODBUS_HOST', '10.117.133.21')
+                    port = config.get('PLANT_REMOTE_MODBUS_PORT', 502)
+                    enable_reg = config.get('PLANT_REMOTE_ENABLE_REGISTER', 10)
+                else:
+                    host = config.get('PLANT_LOCAL_MODBUS_HOST', 'localhost')
+                    port = config.get('PLANT_LOCAL_MODBUS_PORT', 5020)
+                    enable_reg = config.get('PLANT_ENABLE_REGISTER', 10)
+                
+                client = ModbusClient(host=host, port=port)
                 try:
                     if client.open():
-                        regs = client.read_holding_registers(config["PLANT_ENABLE_REGISTER"], 1)
+                        regs = client.read_holding_registers(enable_reg, 1)
                         if regs:
                             last_modbus_status = regs[0]
                 except:
@@ -915,7 +1100,7 @@ def dashboard_agent(config, shared_data):
             uirevision='constant', showlegend=True,
             legend=dict(orientation="h", yanchor="bottom", y=1.12, xanchor="center", x=0.5),
             margin=dict(l=60, r=20, t=100, b=40),
-            plot_bgcolor='#f5f5f0', paper_bgcolor='#ffffff',
+            plot_bgcolor='#f5f5ff', paper_bgcolor='#ffffff',
         )
         fig.update_yaxes(title_text="Power (kW)", row=1, col=1, gridcolor='#e2e8f0')
         fig.update_yaxes(title_text="SoC (pu)", row=2, col=1, gridcolor='#e2e8f0')
