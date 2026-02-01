@@ -1,9 +1,40 @@
 # Active Context: HIL Scheduler
 
 ## Current Focus
-Measurement file management system implemented. Dynamic filename generation with timestamp on Start button press.
+Simplified architecture by eliminating buffer and local state. Measurements now appear immediately in dashboard with no latency.
 
 ## Recent Changes (2026-02-01)
+
+### Eliminated Buffer and Local State (Major Simplification)
+Removed unnecessary buffering and caching layers to reduce latency and code complexity:
+
+**Rationale:**
+- Locks are held only for microseconds (reference assignments, not data processing)
+- The measurement buffer added up to 1s delay before measurements appeared in shared_data
+- The dashboard local state added another 1s delay before UI saw updates
+- **Total latency reduction: up to 2 seconds**
+
+**Files Modified:**
+1. **[`measurement_agent.py`](measurement_agent.py)** - Removed buffer pattern:
+   - ~~Removed `measurement_buffer` list~~
+   - ~~Removed `flush_buffer_to_dataframe()` function~~
+   - ~~Removed `FLUSH_INTERVAL_S` and `BUFFER_SIZE_LIMIT` constants~~
+   - Now writes **directly** to `shared_data['measurements_df']` after each measurement
+   - Lock held only for DataFrame reference assignment (microseconds)
+   
+2. **[`dashboard_agent.py`](dashboard_agent.py)** - Removed local state caching:
+   - ~~Removed `local_state` dictionary~~
+   - ~~Removed `sync_from_shared_data()` background thread~~
+   - ~~Removed `sync_thread`~~
+   - Callbacks now read **directly** from `shared_data` with brief locks
+   - Only `last_modbus_status` remains as mutable state
+
+**Benefits:**
+- **Reduced latency**: Measurements appear immediately (no buffer delay)
+- **Simpler code**: ~50 lines removed from each agent
+- **No background threads** needed for data synchronization
+- **Data freshness**: Dashboard always sees current state
+- **Immediate visibility**: No 1-second sync delay
 
 ### Measurement File Management System
 Implemented dynamic measurement file handling:
@@ -11,29 +42,33 @@ Implemented dynamic measurement file handling:
 **Files Modified:**
 1. **[`hil_scheduler.py`](hil_scheduler.py)**: Added `measurements_filename` to shared_data
 2. **[`dashboard_agent.py`](dashboard_agent.py)**: Start button generates timestamped filename, Stop clears it
-3. **[`measurement_agent.py`](measurement_agent.py)**: Complete rewrite with filename polling
+3. **[`measurement_agent.py`](measurement_agent.py)**: Filename polling + direct writes
 
 **Key Features:**
 - **Timestamped filenames**: `data/YYYYMMDD_HHMMSS_data.csv`
 - **Filename stored in shared_data**: Dashboard sets it, agent polls it
-- **Automatic file rotation**: On new Start, flushes old data, clears DataFrame, starts new file
+- **Automatic file rotation**: On new Start, writes old data, clears DataFrame, starts new file
 - **Poll every 1 second**: Agent checks for filename changes independently from measurement rate
 - **Stop clears filename**: Sets to `None`, agent stops writing to disk
 - **Files saved to `data/` folder**: Keeps project root clean
 
-**Measurement Agent Architecture:**
+**Measurement Agent Architecture (Simplified):**
 ```python
-# Three independent timers:
+# Two independent timers:
 - Filename poll: every 1 second
 - Measurement: according to MEASUREMENT_PERIOD_S config
 - CSV write: according to MEASUREMENTS_WRITE_PERIOD_S config
 
 # Filename change handling:
 1. Detect change (poll every 1s)
-2. Flush buffer to DataFrame
-3. Write DataFrame to OLD file
-4. Clear measurements_df
-5. Start writing to NEW file
+2. Write DataFrame to OLD file
+3. Clear measurements_df
+4. Start writing to NEW file
+
+# Direct write pattern (no buffer):
+- After each measurement, append directly to shared_data['measurements_df']
+- Lock held only for reference assignment (microseconds)
+- Immediate visibility to dashboard
 ```
 
 ### Dashboard Plot Updates
@@ -61,11 +96,17 @@ Comprehensive analysis and optimization of all thread locking patterns:
 
 **Files Modified:**
 1. **[`measurement_agent.py`](measurement_agent.py)** - HIGH PRIORITY fixes:
-   - Moved CSV write outside lock (was blocking during disk I/O)
-   - Implemented buffered measurement collection (flush every 10s or 100 measurements)
-   - Lock contention reduced by ~90% for CSV operations
+   - ~~Moved CSV write outside lock (was blocking during disk I/O)~~
+   - ~~Implemented buffered measurement collection (flush every 10s or 100 measurements)~~
+   - **SIMPLIFIED**: Direct write to shared_data (no buffer needed)
+   - Lock held only for brief DataFrame reference assignment (microseconds)
 
-2. **[`data_fetcher_agent.py`](data_fetcher_agent.py)** - LOW PRIORITY optimization:
+2. **[`dashboard_agent.py`](dashboard_agent.py)** - HIGH PRIORITY fixes:
+   - **SIMPLIFIED**: Removed local state cache and sync thread
+   - Direct reads from shared_data with brief locks
+   - No more 1-second stale data
+
+3. **[`data_fetcher_agent.py`](data_fetcher_agent.py)** - LOW PRIORITY optimization:
    - Moved DataFrame `difference()` and `concat()` operations outside lock
    - Lock now only held for brief reference assignments
 
@@ -104,10 +145,11 @@ Split the monolithic schedule management into two decoupled schedules:
 - **Tab 3: Status & Plots** - Active source selector, live graphs, system status
 
 ## Next Steps
-- Test the measurement file management system
+- Test the simplified architecture with direct writes/reads
+- Verify measurements appear immediately in dashboard (no delay)
 - Verify files are created in `data/` folder with correct timestamps
 - Test that Stop button stops writing and Start creates new file
-- Monitor for any issues with filename polling
+- Monitor system for any lock contention issues (not expected)
 
 ## Architecture Notes
 

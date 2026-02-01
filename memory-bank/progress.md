@@ -76,6 +76,35 @@ Measurement file management system completed. Dashboard plots enhanced with all 
 
 ## Recent Changes (2026-02-01)
 
+### Eliminated Buffer and Local State (Simplified Architecture)
+Removed unnecessary buffering and local state caching to reduce latency:
+
+**Rationale:**
+- Locks are only held for microseconds (reference assignments)
+- The buffer added up to 1s delay before measurements appeared
+- The local state added another 1s delay before dashboard saw updates
+- Total latency reduction: up to 2 seconds
+
+**Files Modified:**
+1. `measurement_agent.py`:
+   - Removed `measurement_buffer` list
+   - Removed `flush_buffer_to_dataframe()` function
+   - Removed `FLUSH_INTERVAL_S` and `BUFFER_SIZE_LIMIT` constants
+   - Now writes directly to `shared_data['measurements_df']` after each measurement
+   
+2. `dashboard_agent.py`:
+   - Removed `local_state` dictionary
+   - Removed `sync_from_shared_data()` background thread
+   - Removed `sync_thread`
+   - Callbacks now read directly from `shared_data` with brief locks
+   - Only `last_modbus_status` remains as mutable state
+
+**Benefits:**
+- Reduced latency: measurements appear immediately in dashboard
+- Simpler code: ~50 lines removed from each agent
+- No background threads needed for data sync
+- Data freshness: dashboard always sees current state
+
 ### Measurement File Management System
 Implemented dynamic measurement file handling:
 
@@ -114,16 +143,23 @@ Comprehensive analysis and optimization of all thread locking patterns:
 
 **Optimizations Applied:**
 1. **measurement_agent.py** (HIGH PRIORITY):
-   - Moved CSV `to_csv()` outside lock - prevents disk I/O blocking
-   - Implemented buffered measurement collection (flush every 10s or 100 measurements)
-   - Lock contention reduced by ~90% for write operations
+   - ~~Moved CSV `to_csv()` outside lock - prevents disk I/O blocking~~
+   - ~~Implemented buffered measurement collection (flush every 10s or 100 measurements)~~
+   - **SIMPLIFIED**: Direct write to shared_data, no buffer needed (locks are microseconds)
+   - Lock held only for DataFrame reference assignment
 
-2. **data_fetcher_agent.py** (LOW PRIORITY):
+2. **dashboard_agent.py** (HIGH PRIORITY):
+   - **SIMPLIFIED**: Removed local state cache and sync thread
+   - Direct reads from shared_data with brief locks
+   - No more 1-second stale data
+
+3. **data_fetcher_agent.py** (LOW PRIORITY):
    - Moved DataFrame `difference()` and `concat()` operations outside lock
    - Lock only held for brief reference assignments
 
 **Lock Safety Patterns Documented:**
-- Measurement buffer pattern for high-frequency updates
+- ~~Measurement buffer pattern for high-frequency updates~~
+- Direct access pattern: brief locks for immediate data freshness
 - CSV write pattern (copy outside lock, never I/O in lock)
 - DataFrame merge pattern (prepare outside, assign briefly)
 

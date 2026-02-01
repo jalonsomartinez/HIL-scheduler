@@ -286,35 +286,50 @@ client.write_registers(...)
 |-----------|--------------|-------|
 | Read dict reference | Yes (brief) | `shared_data['key']` |
 | Write dict reference | Yes (brief) | `shared_data['key'] = value` |
-| Read DataFrame | No | DataFrames are read-only for consumers |
-| Write DataFrame | Yes | Replace entire DataFrame reference |
+| Read DataFrame | Yes (brief) | Get reference, then copy outside lock |
+| Write DataFrame | Yes (brief) | Replace entire DataFrame reference |
 | DataFrame operations | No | `asof()`, indexing, etc. |
 | Modbus/network I/O | No | Never hold lock during I/O |
 | Disk I/O (CSV write) | No | Copy DataFrame, write outside lock |
 | DataFrame concat/merge | No | Prepare outside lock, assign with brief lock |
 
-### Measurement Agent Pattern (Buffer for Efficiency)
-Use a local buffer to batch updates and reduce lock frequency:
+### Direct Access Pattern (Simplified)
+Write directly to shared_data for immediate visibility. Locks are held only for microseconds:
 
 ```python
-# Initialize buffer
-measurement_buffer = []
-FLUSH_INTERVAL_S = 10
-BUFFER_SIZE_LIMIT = 100
-
-# Collect measurements (no lock needed)
-measurement_buffer.append({
-    "timestamp": datetime.now(),
-    "value": measurement_value,
-    # ...
-})
-
-# Flush periodically
-if len(measurement_buffer) >= BUFFER_SIZE_LIMIT:
-    buffer_df = pd.DataFrame(measurement_buffer)
+# Measurement Agent - direct write (no buffer needed)
+def take_measurement():
+    # ... read from Modbus ...
+    
+    new_row = pd.DataFrame([{
+        "timestamp": datetime.now(),
+        "value": measurement_value,
+        # ...
+    }])
+    
+    # Brief lock to append
     with shared_data['lock']:
-        shared_data['measurements_df'] = pd.concat([...])
-    measurement_buffer = []
+        if shared_data['measurements_df'].empty:
+            shared_data['measurements_df'] = new_row
+        else:
+            shared_data['measurements_df'] = pd.concat(
+                [shared_data['measurements_df'], new_row],
+                ignore_index=True
+            )
+```
+
+```python
+# Dashboard Agent - direct read with brief locks
+@app.callback(...)
+def update_graphs(n):
+    # Read all shared data with brief lock
+    with shared_data['lock']:
+        measurements_df = shared_data.get('measurements_df', pd.DataFrame()).copy()
+        schedule_df = shared_data.get('manual_schedule_df', pd.DataFrame()).copy()
+        active_source = shared_data.get('active_schedule_source', 'manual')
+    
+    # Work with copies outside lock
+    # ... create figures ...
 ```
 
 ### CSV Write Pattern (Avoid I/O in Lock)

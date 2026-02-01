@@ -20,6 +20,8 @@ def dashboard_agent(config, shared_data):
     1. Manual Schedule: Random generation, CSV upload, preview/accept
     2. API Schedule: Password input, connection status
     3. Status & Plots: Active schedule selector, live graphs, system status
+    
+    All shared data access uses brief locks for immediate data freshness.
     """
     logging.info("Dashboard agent started.")
     
@@ -29,32 +31,8 @@ def dashboard_agent(config, shared_data):
     
     app = Dash(__name__, suppress_callback_exceptions=True)
     
-    # Local state stores (to avoid shared data locking in callbacks)
-    local_state = {
-        'manual_schedule': pd.DataFrame(),
-        'api_schedule': pd.DataFrame(),
-        'api_status': {},
-        'active_source': 'manual',
-        'last_modbus_status': None,
-        'measurements': pd.DataFrame(),
-    }
-    
-    # Update local state from shared data periodically (in a background thread)
-    def sync_from_shared_data():
-        while not shared_data['shutdown_event'].is_set():
-            try:
-                with shared_data['lock']:
-                    local_state['manual_schedule'] = shared_data.get('manual_schedule_df', pd.DataFrame()).copy()
-                    local_state['api_schedule'] = shared_data.get('api_schedule_df', pd.DataFrame()).copy()
-                    local_state['api_status'] = shared_data.get('data_fetcher_status', {}).copy()
-                    local_state['active_source'] = shared_data.get('active_schedule_source', 'manual')
-                    local_state['measurements'] = shared_data.get('measurements_df', pd.DataFrame()).copy()
-            except Exception as e:
-                logging.error(f"Error syncing from shared data: {e}")
-            time.sleep(1)  # Sync every second
-    
-    sync_thread = threading.Thread(target=sync_from_shared_data, daemon=True)
-    sync_thread.start()
+    # Track last Modbus status (only mutable state needed)
+    last_modbus_status = None
     
     app.layout = html.Div(children=[
         html.Div(className='app-container', children=[
@@ -475,15 +453,16 @@ def dashboard_agent(config, shared_data):
             raise PreventUpdate
     
     # ============================================================
-    # SCHEDULE PREVIEW GRAPH (USES LOCAL STATE)
+    # SCHEDULE PREVIEW GRAPH (DIRECT SHARED DATA ACCESS)
     # ============================================================
     @app.callback(
         Output('schedule-preview', 'figure'),
         Input('preview-schedule', 'data')
     )
     def update_schedule_preview(preview_data):
-        # Use local state (no lock needed)
-        existing_df = local_state['manual_schedule']
+        # Read directly from shared data with brief lock
+        with shared_data['lock']:
+            existing_df = shared_data.get('manual_schedule_df', pd.DataFrame()).copy()
         
         preview_df = pd.DataFrame()
         if preview_data:
@@ -526,11 +505,7 @@ def dashboard_agent(config, shared_data):
                     preview_df['datetime'] = pd.to_datetime(preview_df['datetime'])
                     preview_df = preview_df.set_index('datetime')
 
-                # Replace schedule completely (simpler than appending)
-                # Force immediate local state update for instant preview update
-                local_state['manual_schedule'] = preview_df.copy()
-                # shared_data['manual_schedule_df'] = preview_df
-
+                # Replace schedule in shared data directly
                 with shared_data['lock']:
                     shared_data['manual_schedule_df'] = preview_df
                     
@@ -547,8 +522,6 @@ def dashboard_agent(config, shared_data):
         elif button_id == 'clear-schedule-btn' and clear_schedule_clicks and clear_schedule_clicks > 0:
             # Clear the actual schedule from shared data
             try:
-                # Force immediate local state update for instant preview update
-                local_state['manual_schedule'] = pd.DataFrame()
                 with shared_data['lock']:
                     shared_data['manual_schedule_df'] = pd.DataFrame()
                 logging.info("Dashboard: Manual schedule cleared")
@@ -606,7 +579,7 @@ def dashboard_agent(config, shared_data):
             return f"Error: {str(e)}"
     
     # ============================================================
-    # API STATUS DISPLAY (USES LOCAL STATE)
+    # API STATUS DISPLAY (DIRECT SHARED DATA ACCESS)
     # ============================================================
     @app.callback(
         [Output('api-today-status', 'children'),
@@ -615,8 +588,9 @@ def dashboard_agent(config, shared_data):
         Input('interval-component', 'n_intervals')
     )
     def update_api_status(n):
-        # Use local state (synced from shared data in background thread)
-        status = local_state['api_status']
+        # Read directly from shared data with brief lock
+        with shared_data['lock']:
+            status = shared_data.get('data_fetcher_status', {}).copy()
         
         today_fetched = status.get('today_fetched', False)
         tomorrow_fetched = status.get('tomorrow_fetched', False)
@@ -642,15 +616,16 @@ def dashboard_agent(config, shared_data):
         return today_text, tomorrow_text, last_attempt_text
     
     # ============================================================
-    # API SCHEDULE PREVIEW (USES LOCAL STATE)
+    # API SCHEDULE PREVIEW (DIRECT SHARED DATA ACCESS)
     # ============================================================
     @app.callback(
         Output('api-schedule-preview', 'figure'),
         Input('interval-component', 'n_intervals')
     )
     def update_api_schedule_preview(n):
-        # Use local state
-        api_df = local_state['api_schedule']
+        # Read directly from shared data with brief lock
+        with shared_data['lock']:
+            api_df = shared_data.get('api_schedule_df', pd.DataFrame()).copy()
         
         if api_df.empty:
             fig = go.Figure()
@@ -786,7 +761,7 @@ def dashboard_agent(config, shared_data):
         return 'starting' if button_id == 'start-button' else 'stopping'
     
     # ============================================================
-    # MAIN STATUS AND GRAPHS UPDATE (USES LOCAL STATE)
+    # MAIN STATUS AND GRAPHS UPDATE (DIRECT SHARED DATA ACCESS)
     # ============================================================
     @app.callback(
         [Output('live-graph', 'figure'),
@@ -800,12 +775,15 @@ def dashboard_agent(config, shared_data):
         [Input('interval-component', 'n_intervals')]
     )
     def update_status_and_graphs(n):
+        nonlocal last_modbus_status
+        
         # Modbus status check (with timeout to prevent blocking)
-        actual_status = local_state.get('last_modbus_status')
+        actual_status = last_modbus_status
         
         # Try to update modbus status occasionally
         if n % 3 == 0:  # Every 6 seconds
             def check_modbus():
+                nonlocal last_modbus_status
                 from pyModbusTCP.client import ModbusClient
                 client = ModbusClient(
                     host=config["PLANT_MODBUS_HOST"],
@@ -815,7 +793,7 @@ def dashboard_agent(config, shared_data):
                     if client.open():
                         regs = client.read_holding_registers(config["PLANT_ENABLE_REGISTER"], 1)
                         if regs:
-                            local_state['last_modbus_status'] = regs[0]
+                            last_modbus_status = regs[0]
                 except:
                     pass
                 finally:
@@ -845,9 +823,15 @@ def dashboard_agent(config, shared_data):
             start_disabled = False
             stop_disabled = False
         
-        # Use local state (no locks needed)
-        active_source = local_state['active_source']
-        df_status = local_state['api_status']
+        # Read all shared data with brief locks
+        with shared_data['lock']:
+            active_source = shared_data.get('active_schedule_source', 'manual')
+            df_status = shared_data.get('data_fetcher_status', {}).copy()
+            measurements_df = shared_data.get('measurements_df', pd.DataFrame()).copy()
+            if active_source == 'api':
+                schedule_df = shared_data.get('api_schedule_df', pd.DataFrame()).copy()
+            else:
+                schedule_df = shared_data.get('manual_schedule_df', pd.DataFrame()).copy()
         
         source_text = f"Source: {'API' if active_source == 'api' else 'Manual'}"
         
@@ -863,17 +847,10 @@ def dashboard_agent(config, shared_data):
         
         last_update = f"Last update: {datetime.now().strftime('%H:%M:%S')}"
         
-        # Get measurements from local state (synced from shared data)
-        measurements_df = local_state['measurements']
+        # Convert measurements timestamp to datetime
         if not measurements_df.empty and 'timestamp' in measurements_df.columns:
             measurements_df = measurements_df.copy()
             measurements_df['datetime'] = measurements_df['timestamp']
-        
-        # Get schedule from local state
-        if active_source == 'api':
-            schedule_df = local_state['api_schedule']
-        else:
-            schedule_df = local_state['manual_schedule']
         
         # Create figure with subplots
         fig = make_subplots(

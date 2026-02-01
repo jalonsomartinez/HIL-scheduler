@@ -14,8 +14,9 @@ def measurement_agent(config, shared_data):
     
     Filename Management:
     - Polls shared_data['measurements_filename'] every second for changes
-    - When filename changes: flushes to old file, clears DataFrame, starts new file
+    - When filename changes: writes to old file, clears DataFrame, starts new file
     - Measurements are taken according to MEASUREMENT_PERIOD_S config
+    - Writes directly to shared_data for immediate visibility (no buffer)
     """
     logging.info("Measurement agent started.")
     
@@ -25,15 +26,9 @@ def measurement_agent(config, shared_data):
         port=config["PLANT_MODBUS_PORT"]
     )
     
-    # Buffer for measurements to reduce lock contention
-    measurement_buffer = []
-    last_flush_time = time.time()
-    FLUSH_INTERVAL_S = 1  # Flush buffer to shared DataFrame every 10 seconds
-    BUFFER_SIZE_LIMIT = 100  # Or when buffer reaches this size
-    
-    last_write_time = time.time()
     last_measurement_time = time.time()
     last_filename_poll_time = time.time()
+    last_write_time = time.time()
     
     # Track current filename and detect changes
     current_filename = None
@@ -56,37 +51,13 @@ def measurement_agent(config, shared_data):
             except Exception as e:
                 logging.error(f"Error writing to CSV {filename}: {e}")
     
-    def flush_buffer_to_dataframe():
-        """Flush measurement buffer to shared DataFrame."""
-        nonlocal measurement_buffer, last_flush_time
-        
-        if not measurement_buffer:
-            return
-            
-        buffer_df = pd.DataFrame(measurement_buffer)
-        
-        with shared_data['lock']:
-            if shared_data['measurements_df'].empty:
-                shared_data['measurements_df'] = buffer_df
-            else:
-                shared_data['measurements_df'] = pd.concat(
-                    [shared_data['measurements_df'], buffer_df],
-                    ignore_index=True
-                )
-        
-        measurement_buffer = []
-        last_flush_time = time.time()
-    
     def handle_filename_change(new_filename):
-        """Handle filename change: flush old data, clear DataFrame, start new."""
+        """Handle filename change: write old data, clear DataFrame, start new."""
         nonlocal current_filename, last_write_time
-        
-        # First, flush any buffered measurements to the DataFrame
-        flush_buffer_to_dataframe()
         
         # Write existing DataFrame to old file
         if current_filename is not None:
-            logging.info(f"Filename changed. Flushing {len(shared_data['measurements_df'])} records to old file: {current_filename}")
+            logging.info(f"Filename changed. Writing {len(shared_data['measurements_df'])} records to old file: {current_filename}")
             write_measurements_to_csv(current_filename)
         
         # Clear the measurements DataFrame for new file
@@ -114,15 +85,12 @@ def measurement_agent(config, shared_data):
             else:
                 # Filename was cleared (e.g., system stopped)
                 if current_filename is not None:
-                    flush_buffer_to_dataframe()
                     write_measurements_to_csv(current_filename)
                     current_filename = None  # Stop writing to disk
                     logging.info("Measurements filename cleared. Stopped writing to disk.")
     
     def take_measurement():
-        """Take a single measurement from the plant."""
-        nonlocal measurement_buffer
-        
+        """Take a single measurement from the plant and write directly to shared_data."""
         if not plant_client.is_open:
             logging.info("Measurement agent trying to connect to Plant Modbus server...")
             if not plant_client.open():
@@ -237,8 +205,8 @@ def measurement_agent(config, shared_data):
                 f"V_poi={v_poi_pu:.4f}pu"
             )
             
-            # Add to buffer (no lock needed for local list)
-            measurement_buffer.append({
+            # Create measurement row and write directly to shared_data (no buffer)
+            new_row = pd.DataFrame([{
                 "timestamp": datetime.now(),
                 "p_setpoint_kw": p_setpoint_kw,
                 "battery_active_power_kw": battery_active_power_kw,
@@ -248,7 +216,17 @@ def measurement_agent(config, shared_data):
                 "p_poi_kw": p_poi_kw,
                 "q_poi_kvar": q_poi_kvar,
                 "v_poi_pu": v_poi_pu
-            })
+            }])
+            
+            # Brief lock to append to shared DataFrame
+            with shared_data['lock']:
+                if shared_data['measurements_df'].empty:
+                    shared_data['measurements_df'] = new_row
+                else:
+                    shared_data['measurements_df'] = pd.concat(
+                        [shared_data['measurements_df'], new_row],
+                        ignore_index=True
+                    )
             
             return True
             
@@ -270,30 +248,16 @@ def measurement_agent(config, shared_data):
             if take_measurement():
                 last_measurement_time = current_time
         
-        # Flush buffer to DataFrame periodically
-        current_time = time.time()
-        should_flush = (
-            len(measurement_buffer) >= BUFFER_SIZE_LIMIT or
-            (current_time - last_flush_time) >= FLUSH_INTERVAL_S
-        )
-        
-        if should_flush:
-            flush_buffer_to_dataframe()
-        
         # Periodically write to CSV (if we have a filename)
         if current_filename is not None and (current_time - last_write_time) >= config["MEASUREMENTS_WRITE_PERIOD_S"]:
-            flush_buffer_to_dataframe()  # Ensure buffer is in DataFrame
             write_measurements_to_csv(current_filename)
             last_write_time = current_time
         
         # Small sleep to prevent busy-waiting
         time.sleep(0.1)
     
-    # Cleanup - flush any remaining buffered measurements
-    logging.info("Measurement agent stopping. Flushing remaining measurements...")
-    flush_buffer_to_dataframe()
-    
-    logging.info("Performing final write to CSV...")
+    # Cleanup - final write to CSV
+    logging.info("Measurement agent stopping. Performing final write to CSV...")
     write_measurements_to_csv(current_filename)
     plant_client.close()
     logging.info("Measurement agent stopped.")
