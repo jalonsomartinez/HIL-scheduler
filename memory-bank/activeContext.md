@@ -1,11 +1,62 @@
 # Active Context: HIL Scheduler
 
 ## Current Focus
-Thread locking optimizations complete. All agents now follow minimal-lock pattern.
+Measurement file management system implemented. Dynamic filename generation with timestamp on Start button press.
 
 ## Recent Changes (2026-02-01)
 
-### Thread Locking Optimizations Complete
+### Measurement File Management System
+Implemented dynamic measurement file handling:
+
+**Files Modified:**
+1. **[`hil_scheduler.py`](hil_scheduler.py)**: Added `measurements_filename` to shared_data
+2. **[`dashboard_agent.py`](dashboard_agent.py)**: Start button generates timestamped filename, Stop clears it
+3. **[`measurement_agent.py`](measurement_agent.py)**: Complete rewrite with filename polling
+
+**Key Features:**
+- **Timestamped filenames**: `data/YYYYMMDD_HHMMSS_data.csv`
+- **Filename stored in shared_data**: Dashboard sets it, agent polls it
+- **Automatic file rotation**: On new Start, flushes old data, clears DataFrame, starts new file
+- **Poll every 1 second**: Agent checks for filename changes independently from measurement rate
+- **Stop clears filename**: Sets to `None`, agent stops writing to disk
+- **Files saved to `data/` folder**: Keeps project root clean
+
+**Measurement Agent Architecture:**
+```python
+# Three independent timers:
+- Filename poll: every 1 second
+- Measurement: according to MEASUREMENT_PERIOD_S config
+- CSV write: according to MEASUREMENTS_WRITE_PERIOD_S config
+
+# Filename change handling:
+1. Detect change (poll every 1s)
+2. Flush buffer to DataFrame
+3. Write DataFrame to OLD file
+4. Clear measurements_df
+5. Start writing to NEW file
+```
+
+### Dashboard Plot Updates
+Enhanced live graph with all measurement traces:
+
+**Row 1 - Active Power (kW):**
+- P Setpoint (from schedule) - blue solid
+- P POI (measurement) - cyan dotted
+- P Battery (measurement) - green solid
+
+**Row 2 - State of Charge (pu):**
+- SoC (measurement) - purple solid
+
+**Row 3 - Reactive Power (kvar):**
+- Q Setpoint (from schedule) - orange solid
+- Q POI (measurement) - cyan dotted
+- Q Battery (measurement) - green solid
+
+**Improvements:**
+- Schedule plotted even without measurements
+- Consistent legend order: setpoint → POI → battery
+
+### Previous: Thread Locking Optimizations Complete
 Comprehensive analysis and optimization of all thread locking patterns:
 
 **Files Modified:**
@@ -17,15 +68,6 @@ Comprehensive analysis and optimization of all thread locking patterns:
 2. **[`data_fetcher_agent.py`](data_fetcher_agent.py)** - LOW PRIORITY optimization:
    - Moved DataFrame `difference()` and `concat()` operations outside lock
    - Lock now only held for brief reference assignments
-
-**Pattern Applied Across All Agents:**
-```python
-# Brief lock for reference only
-with shared_data['lock']:
-    df = shared_data['key'].copy()
-# All operations outside lock
-df.to_csv(...)  # Disk I/O - no lock held!
-```
 
 ### Critical Bug Fix: Lock Contention Resolved (Earlier)
 **Problem:** Dashboard UI freezing with "Updating" status, slow tab switching and button response.
@@ -61,72 +103,54 @@ Split the monolithic schedule management into two decoupled schedules:
 - **Tab 2: API Schedule** - Password input, connection status, API schedule preview
 - **Tab 3: Status & Plots** - Active source selector, live graphs, system status
 
-### Technical Changes
-1. **[`hil_scheduler.py`](hil_scheduler.py)**:
-   - New shared data: `manual_schedule_df`, `api_schedule_df`
-   - New: `active_schedule_source` ('manual' or 'api')
-   - New: `api_password` (set by dashboard, read by data fetcher)
-   - New: `data_fetcher_status` (for dashboard display)
-
-2. **[`data_fetcher_agent.py`](data_fetcher_agent.py)** (Completely rewritten):
-   - Simple loop: wait for password → connect → fetch today + tomorrow → update `api_schedule_df`
-   - No mode polling, no ScheduleManager dependency
-   - Updates `data_fetcher_status` for dashboard
-
-3. **[`scheduler_agent.py`](scheduler_agent.py)**:
-   - Reads `active_schedule_source` from shared data
-   - Uses appropriate schedule (`manual_schedule_df` or `api_schedule_df`)
-   - Logs when source changes
-
-4. **[`dashboard_agent.py`](dashboard_agent.py)** (Completely rewritten):
-   - Three-tab structure
-   - Tab 1: Direct management of `manual_schedule_df`
-   - Tab 2: Password input for `api_password`, displays `data_fetcher_status`
-   - Tab 3: Active source selector, live graphs
-
-5. **New: [`manual_schedule_manager.py`](manual_schedule_manager.py)**:
-   - Stateless utility functions for random generation and CSV loading
-   - Simple functions: `generate_random_schedule()`, `load_csv_schedule()`, `append_schedules()`
-
-## Previous Changes
-
-### Schedule Creation Simplification (Earlier 2026-02-01)
-Merged Random Schedule and CSV Upload into a single "Manual" mode.
-
-### Dashboard UI Redesign (2026-01-31)
-- Complete UI overhaul with professional light theme
-- Preview workflow: Generate preview → Review diff → Accept to commit
-
 ## Next Steps
-- Test the new three-tab dashboard
-- Verify data fetcher correctly fetches and updates API schedule
-- Test manual schedule generation and CSV upload
-- Verify scheduler correctly switches between sources
-- Monitor for any race conditions with the new decoupled architecture
+- Test the measurement file management system
+- Verify files are created in `data/` folder with correct timestamps
+- Test that Stop button stops writing and Start creates new file
+- Monitor for any issues with filename polling
 
 ## Architecture Notes
 
-### New Data Flow
+### New Data Flow (Measurement Files)
 ```
-Manual Path:
-  Dashboard (Tab 1) → manual_schedule_manager → manual_schedule_df
-
-API Path:
-  Dashboard (Tab 2: set password) → Data Fetcher → api_schedule_df
-
-Scheduler Path:
-  Reads active_schedule_source → Reads manual_df OR api_df → Plant
+User clicks Start:
+  Dashboard → generates filename "data/20260201_154500_data.csv"
+  Dashboard → stores in shared_data['measurements_filename']
+  
+Measurement Agent (polling every 1s):
+  Detects filename change → flushes old data → clears DataFrame → starts new file
+  
+User clicks Stop:
+  Dashboard → sets shared_data['measurements_filename'] = None
+  
+Measurement Agent:
+  Detects None → flushes remaining data → stops writing to disk
 ```
 
-### Decoupling Benefits
-1. **No polling delays**: Data Fetcher runs independently
-2. **Clear separation**: Each component has one responsibility
-3. **Easier debugging**: State changes are explicit in shared data
-4. **Simpler code**: Removed complex ScheduleManager with callbacks
+### Shared Data Structure (Updated)
+```python
+shared_data = {
+    # Schedules
+    "manual_schedule_df": pd.DataFrame(),
+    "api_schedule_df": pd.DataFrame(),
+    "active_schedule_source": "manual",
+    
+    # API configuration
+    "api_password": None,
+    "data_fetcher_status": {...},
+    
+    # Measurement file (NEW)
+    "measurements_filename": None,  # Set by dashboard, polled by measurement agent
+    
+    # Existing data
+    "measurements_df": pd.DataFrame(),
+    "lock": threading.Lock(),
+    "shutdown_event": threading.Event(),
+}
+```
 
 ### Key Files
-- [`dashboard_agent.py`](dashboard_agent.py): Three-tab dashboard
-- [`data_fetcher_agent.py`](data_fetcher_agent.py): Decoupled API fetcher
-- [`scheduler_agent.py`](scheduler_agent.py): Source-aware scheduler
-- [`manual_schedule_manager.py`](manual_schedule_manager.py): Schedule utilities
-- [`hil_scheduler.py`](hil_scheduler.py): Updated shared data structure
+- [`dashboard_agent.py`](dashboard_agent.py): Three-tab dashboard + filename management
+- [`measurement_agent.py`](measurement_agent.py): Filename polling + measurement logging
+- [`hil_scheduler.py`](hil_scheduler.py): Updated shared data with measurements_filename
+- [`data/`](data/): New folder for measurement files

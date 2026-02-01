@@ -3,18 +3,34 @@
 ## What Works
 
 ### Core Agents (New Architecture)
-- [x] **Director Agent** (`hil_scheduler.py`): Updated shared data structure with two schedules
+- [x] **Director Agent** (`hil_scheduler.py`): Updated shared data structure with two schedules + measurements_filename
 - [x] **Data Fetcher Agent** (`data_fetcher_agent.py`): **REWRITTEN** - Decoupled API-only fetcher
 - [x] **Scheduler Agent** (`scheduler_agent.py`): **UPDATED** - Reads active_schedule_source to choose schedule
 - [x] **Plant Agent** (`plant_agent.py`): Merged PPC + Battery functionality (unchanged)
-- [x] **Measurement Agent** (`measurement_agent.py`): Logs data to CSV (unchanged)
-- [x] **Dashboard Agent** (`dashboard_agent.py`): **REWRITTEN** - Three-tab structure
+- [x] **Measurement Agent** (`measurement_agent.py`): **REWRITTEN** - Filename polling + dynamic file management
+- [x] **Dashboard Agent** (`dashboard_agent.py`): **REWRITTEN** - Three-tab structure + filename generation
 
 ### New Architecture (2026-02-01)
 - [x] **Two Shared Schedules**: `manual_schedule_df` and `api_schedule_df`
 - [x] **Active Source Selector**: `active_schedule_source` ('manual' or 'api')
 - [x] **Decoupled Data Fetcher**: No polling, just fetches API when password is set
 - [x] **Manual Schedule Manager** (`manual_schedule_manager.py`): Simple utility module
+
+### Measurement File Management (2026-02-01)
+- [x] **Dynamic Filenames**: `data/YYYYMMDD_HHMMSS_data.csv` format
+- [x] **Filename in Shared Data**: `measurements_filename` field
+- [x] **Start Button**: Generates new timestamped filename
+- [x] **Stop Button**: Clears filename (sets to None)
+- [x] **Filename Polling**: Agent checks every 1 second for changes
+- [x] **Automatic File Rotation**: Flush old, clear DataFrame, start new
+- [x] **Data Folder**: All files stored in `data/` subdirectory
+
+### Dashboard Plots (2026-02-01)
+- [x] **Row 1 - Active Power**: P Setpoint, P POI, P Battery
+- [x] **Row 2 - State of Charge**: SoC
+- [x] **Row 3 - Reactive Power**: Q Setpoint, Q POI, Q Battery
+- [x] **Schedule Always Plotted**: Even without measurement data
+- [x] **Consistent Legend Order**: setpoint → POI → battery
 
 ### Schedule Management
 - [x] **Manual Schedule**: Random generation and CSV upload via dashboard
@@ -45,12 +61,12 @@
 ## Current Status
 
 ### Project Phase
-Dashboard UI improvements completed. All 3 schedule modes functional with preview workflow.
+Measurement file management system completed. Dashboard plots enhanced with all traces.
 
 ### Code Quality
-- Dashboard callbacks verified, no duplicate output errors
-- Preview workflow tested and working
-- Responsive CSS media queries for mobile support
+- Measurement agent uses three independent timers (filename, measurement, CSV write)
+- Thread-safe filename change detection
+- All 7 measurement traces plotted in consistent order
 
 ### Documentation Status
 - [x] Memory Bank initialized with core files
@@ -59,6 +75,37 @@ Dashboard UI improvements completed. All 3 schedule modes functional with previe
 - [x] activeContext.md updated with current focus
 
 ## Recent Changes (2026-02-01)
+
+### Measurement File Management System
+Implemented dynamic measurement file handling:
+
+**Files Modified:**
+1. `hil_scheduler.py`: Added `measurements_filename` to shared_data
+2. `dashboard_agent.py`: Start generates timestamped filename, Stop clears it
+3. `measurement_agent.py`: Complete rewrite with filename polling
+
+**Features:**
+- Timestamped filenames: `data/YYYYMMDD_HHMMSS_data.csv`
+- Filename stored in shared_data
+- Poll every 1 second for changes
+- Automatic file rotation on new Start
+- Stop clears filename (sets to None)
+
+### Dashboard Plot Enhancements
+Enhanced live graph with all measurement traces:
+
+**Active Power (kW):**
+- P Setpoint (schedule) - blue solid
+- P POI (measurement) - cyan dotted
+- P Battery (measurement) - green solid
+
+**State of Charge (pu):**
+- SoC (measurement) - purple solid
+
+**Reactive Power (kvar):**
+- Q Setpoint (schedule) - orange solid
+- Q POI (measurement) - cyan dotted
+- Q Battery (measurement) - green solid
 
 ### Thread Locking Optimizations Implemented
 Comprehensive analysis and optimization of all thread locking patterns:

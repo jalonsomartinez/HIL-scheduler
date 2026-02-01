@@ -739,9 +739,24 @@ def dashboard_agent(config, shared_data):
         if button_id == 'start-button':
             value_to_write = 1
             logging.info("Dashboard: Start button clicked.")
+            
+            # Generate timestamped filename for measurements
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"data/{timestamp}_data.csv"
+            
+            with shared_data['lock']:
+                shared_data['measurements_filename'] = filename
+            
+            logging.info(f"Dashboard: Measurements filename set to {filename}")
         elif button_id == 'stop-button':
             value_to_write = 0
             logging.info("Dashboard: Stop button clicked.")
+            
+            # Clear the measurements filename to stop writing to disk
+            with shared_data['lock']:
+                shared_data['measurements_filename'] = None
+            
+            logging.info("Dashboard: Measurements filename cleared.")
         else:
             raise PreventUpdate
         
@@ -860,17 +875,13 @@ def dashboard_agent(config, shared_data):
         else:
             schedule_df = local_state['manual_schedule']
         
-        if measurements_df.empty:
-            fig = create_empty_fig("No measurement data available")
-            return fig, status_class, [html.Span(className='status-dot'), status_text], source_text, df_text, last_update, start_disabled, stop_disabled
-        
         # Create figure with subplots
         fig = make_subplots(
             rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.08,
             subplot_titles=('Active Power (kW)', 'State of Charge (pu)', 'Reactive Power (kvar)')
         )
         
-        # Active Power
+        # Active Power - plot in order: setpoint, POI, battery
         if not schedule_df.empty:
             fig.add_trace(go.Scatter(
                 x=schedule_df.index, y=schedule_df['power_setpoint_kw'],
@@ -878,25 +889,49 @@ def dashboard_agent(config, shared_data):
                 line=dict(color='#2563eb', width=2)
             ), row=1, col=1)
         
-        fig.add_trace(go.Scatter(
-            x=measurements_df['datetime'], y=measurements_df['battery_active_power_kw'],
-            mode='lines', line_shape='hv', name='P Battery',
-            line=dict(color='#16a34a', width=2)
-        ), row=1, col=1)
+        if not measurements_df.empty:
+            # P POI (second in legend order)
+            fig.add_trace(go.Scatter(
+                x=measurements_df['datetime'], y=measurements_df['p_poi_kw'],
+                mode='lines', line_shape='hv', name='P POI',
+                line=dict(color='#0891b2', width=2, dash='dot')
+            ), row=1, col=1)
+            
+            # P Battery (third in legend order)
+            fig.add_trace(go.Scatter(
+                x=measurements_df['datetime'], y=measurements_df['battery_active_power_kw'],
+                mode='lines', line_shape='hv', name='P Battery',
+                line=dict(color='#16a34a', width=2)
+            ), row=1, col=1)
+            
+            # SoC
+            fig.add_trace(go.Scatter(
+                x=measurements_df['datetime'], y=measurements_df['soc_pu'],
+                mode='lines', name='SoC',
+                line=dict(color='#9333ea', width=2)
+            ), row=2, col=1)
         
-        # SoC
-        fig.add_trace(go.Scatter(
-            x=measurements_df['datetime'], y=measurements_df['soc_pu'],
-            mode='lines', name='SoC',
-            line=dict(color='#9333ea', width=2)
-        ), row=2, col=1)
-        
-        # Reactive Power
+        # Reactive Power - plot in order: setpoint, POI, battery
         if not schedule_df.empty and 'reactive_power_setpoint_kvar' in schedule_df.columns:
             fig.add_trace(go.Scatter(
                 x=schedule_df.index, y=schedule_df['reactive_power_setpoint_kvar'],
                 mode='lines', line_shape='hv', name='Q Setpoint',
                 line=dict(color='#ea580c', width=2)
+            ), row=3, col=1)
+        
+        if not measurements_df.empty:
+            # Q POI (second in legend order)
+            fig.add_trace(go.Scatter(
+                x=measurements_df['datetime'], y=measurements_df['q_poi_kvar'],
+                mode='lines', line_shape='hv', name='Q POI',
+                line=dict(color='#0891b2', width=2, dash='dot')
+            ), row=3, col=1)
+            
+            # Q Battery (third in legend order)
+            fig.add_trace(go.Scatter(
+                x=measurements_df['datetime'], y=measurements_df['battery_reactive_power_kvar'],
+                mode='lines', line_shape='hv', name='Q Battery',
+                line=dict(color='#16a34a', width=2)
             ), row=3, col=1)
         
         fig.update_layout(

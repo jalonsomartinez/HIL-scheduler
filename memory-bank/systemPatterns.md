@@ -67,12 +67,98 @@ shared_data = {
         "error": None,
     },
     
+    # Measurement file management (NEW)
+    "measurements_filename": None,             # Dashboard sets, Measurement Agent polls
+    
     # Existing data
     "measurements_df": pd.DataFrame(),
     "lock": threading.Lock(),
     "shutdown_event": threading.Event(),
 }
 ```
+
+### Measurement Filename Pattern (New)
+
+Dynamic filename management for measurement files:
+
+```python
+# Dashboard (Start button)
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+filename = f"data/{timestamp}_data.csv"
+with shared_data['lock']:
+    shared_data['measurements_filename'] = filename
+
+# Dashboard (Stop button)
+with shared_data['lock']:
+    shared_data['measurements_filename'] = None
+
+# Measurement Agent (poll every 1 second)
+def poll_filename():
+    with shared_data['lock']:
+        new_filename = shared_data.get('measurements_filename')
+    
+    if new_filename != current_filename:
+        if new_filename is not None:
+            handle_filename_change(new_filename)
+        else:
+            # Flush and stop writing
+            flush_buffer_to_dataframe()
+            write_measurements_to_csv(current_filename)
+            current_filename = None
+```
+
+**Key Design Decisions:**
+1. **Filename in shared_data**: Dashboard sets it, agent polls it (no notification needed)
+2. **Poll every 1 second**: Independent from measurement rate
+3. **None = stop writing**: Agent stops disk I/O when filename is None
+4. **Automatic rotation**: New Start → new file, old data flushed automatically
+5. **data/ folder**: All measurement files stored in subdirectory
+
+**Filename Change Handler:**
+```python
+def handle_filename_change(new_filename):
+    # 1. Flush buffer to DataFrame
+    flush_buffer_to_dataframe()
+    
+    # 2. Write existing DataFrame to old file
+    if current_filename is not None:
+        write_measurements_to_csv(current_filename)
+    
+    # 3. Clear DataFrame for new file
+    with shared_data['lock']:
+        shared_data['measurements_df'] = pd.DataFrame()
+    
+    # 4. Update current filename
+    current_filename = new_filename
+```
+
+**Three Independent Timers in Measurement Agent:**
+```python
+# 1. Filename poll (every 1 second)
+if current_time - last_filename_poll_time >= 1.0:
+    poll_filename()
+
+# 2. Measurement (according to config)
+if current_time - last_measurement_time >= config["MEASUREMENT_PERIOD_S"]:
+    take_measurement()
+
+# 3. CSV write (according to config)
+if current_time - last_write_time >= config["MEASUREMENTS_WRITE_PERIOD_S"]:
+    write_measurements_to_csv(current_filename)
+```
+
+| Timer | Period | Purpose |
+|-------|--------|---------|
+| Filename poll | 1 second | Detect filename changes quickly |
+| Measurement | `MEASUREMENT_PERIOD_S` | Read from Modbus at configured rate |
+| CSV write | `MEASUREMENTS_WRITE_PERIOD_S` | Persist data to disk periodically |
+
+**Benefits:**
+- Dashboard doesn't need to notify agent of filename changes
+- Agent responds to filename changes within 1 second
+- Measurement rate independent from file management
+- Clean separation of concerns
+- Multiple Start/Stop cycles create separate files automatically
 
 ## Data Flow Patterns
 
