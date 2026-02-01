@@ -50,7 +50,6 @@ def configure_scheduler(remote_plant=False, remote_data=False):
 
             # Measurement Agent
             "MEASUREMENT_PERIOD_S": 2,
-            "MEASUREMENTS_CSV": "measurements.csv",
             "MEASUREMENTS_WRITE_PERIOD_S": 2,
         }
 
@@ -92,7 +91,6 @@ def configure_scheduler(remote_plant=False, remote_data=False):
 
             # Measurement Agent
             "MEASUREMENT_PERIOD_S": 2,
-            "MEASUREMENTS_CSV": "measurements.csv",
             "MEASUREMENTS_WRITE_PERIOD_S": 2,
         }          
 

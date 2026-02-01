@@ -2,6 +2,16 @@
 
 ## What Works
 
+### Configuration Cleanup (2026-02-01)
+- [x] Removed unused `MEASUREMENTS_CSV` from config.yaml
+- [x] Removed unused `MEASUREMENTS_CSV` from config.py
+- [x] Removed unused `MEASUREMENTS_CSV` from config_loader.py
+- [x] Removed unused `MEASUREMENTS_CSV` from dashboard_agent.py
+- [x] Renamed `p_battery_actual` → `p_battery` in config.yaml
+- [x] Renamed `q_battery_actual` → `q_battery` in config.yaml
+- [x] Updated config_loader.py to use new names
+- [x] Updated memory bank documentation
+
 ### Data Fetcher Timing Simplification (2026-02-01)
 - [x] Single polling interval from config (`DATA_FETCHER_PERIOD_S: 120`)
 - [x] Single error backoff (30s hardcoded for all error conditions)
@@ -82,6 +92,32 @@ Measurement file management system completed. Dashboard plots enhanced with all 
 - [x] activeContext.md updated with current focus
 
 ## Recent Changes (2026-02-01)
+
+### Configuration Cleanup
+Removed unused configuration and simplified register names:
+
+**Removed MEASUREMENTS_CSV:**
+- Static config no longer needed with dynamic filename system
+- Files modified: `config.yaml`, `config.py`, `config_loader.py`, `dashboard_agent.py`
+
+**Renamed Registers:**
+- `p_battery_actual` → `p_battery`
+- `q_battery_actual` → `q_battery`
+- Config dictionary keys remain unchanged for backward compatibility
+
+### Register Naming Cleanup
+Renamed Modbus register names in YAML configuration for consistency:
+
+**Changes:**
+- `p_battery_actual` → `p_battery` 
+- `q_battery_actual` → `q_battery`
+
+**Files Modified:**
+- `config.yaml`: Updated register names
+- `config_loader.py`: Updated to read new names
+- `memory-bank/systemPatterns.md`: Updated register map table
+
+Note: Config dictionary keys (`PLANT_P_BATTERY_ACTUAL_REGISTER`, `PLANT_Q_BATTERY_ACTUAL_REGISTER`) remain unchanged for backward compatibility.
 
 ### Data Fetcher Timing Simplification
 Simplified data fetcher timing to use single config value with unified error backoff:

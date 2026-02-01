@@ -56,18 +56,16 @@ modbus:
   registers:
     # Active Power
     p_setpoint_in: 0        # 32-bit signed: Active power setpoint from scheduler (hW)
-    p_battery_actual: 2    # 32-bit signed: Actual battery active power after SoC limiting (hW)
+    p_poi: 14               # 32-bit signed: Active power at POI (hW)
+    p_battery: 2            # 32-bit signed: Actual battery active power after SoC limiting (hW)
     # Reactive Power
     q_setpoint_in: 4        # 32-bit signed: Reactive power setpoint from scheduler (hW)
-    q_battery_actual: 6    # 32-bit signed: Actual battery reactive power (hW)
+    q_poi: 16               # 32-bit signed: Reactive power at POI (hW)
+    q_battery: 6            # 32-bit signed: Actual battery reactive power (hW)
+    # Voltage
+    v_poi: 18               # 16-bit unsigned: Voltage at POI (per-unit x100)
     # Control and Status
     enable: 10              # 16-bit: Enable flag (0=disabled, 1=enabled)
     soc: 12                 # 16-bit unsigned: State of Charge (per-unit x10000)
-    # POI Measurements
-    p_poi: 14               # 32-bit signed: Active power at POI (hW)
-    q_poi: 16               # 32-bit signed: Reactive power at POI (hW)
-    v_poi: 18               # 16-bit unsigned: Voltage at POI (per-unit x100)
 
-# Output Configuration
-output:
-  measurements_csv: "measurements.csv"
+

@@ -3,6 +3,35 @@
 ## Current Focus
 Simplified data fetcher timing strategy. Now uses single polling interval from config with unified error backoff.
 
+## Recent Changes (2026-02-01) - Configuration Cleanup
+
+### Removed Unused MEASUREMENTS_CSV Config
+The static `MEASUREMENTS_CSV` configuration was no longer needed since implementing dynamic filename generation:
+
+**Files Modified:**
+- [`config.yaml`](config.yaml): Removed `output:` section with `measurements_csv`
+- [`config.py`](config.py): Removed `MEASUREMENTS_CSV` from both remote and local configs
+- [`config_loader.py`](config_loader.py): Removed output section parsing
+- [`dashboard_agent.py`](dashboard_agent.py): Removed from test config
+
+**Why:** The dashboard now generates timestamped filenames (e.g., `data/20260201_154500_data.csv`) and stores them in `shared_data['measurements_filename']`. The measurement agent polls this value rather than using a static config.
+
+---
+
+### Renamed YAML Register Names
+Simplified register names in [`config.yaml`](config.yaml):
+- `p_battery_actual` → `p_battery`
+- `q_battery_actual` → `q_battery`
+
+**Files Modified:**
+- [`config.yaml`](config.yaml): Updated register names in modbus.registers section
+- [`config_loader.py`](config_loader.py): Updated to read new register names
+- [`memory-bank/systemPatterns.md`](memory-bank/systemPatterns.md): Updated register map table
+
+The config keys `PLANT_P_BATTERY_ACTUAL_REGISTER` and `PLANT_Q_BATTERY_ACTUAL_REGISTER` remain unchanged in the flat config dictionary for backward compatibility.
+
+---
+
 ## Recent Changes (2026-02-01) - Data Fetcher Timing Simplification
 
 ### Problem Identified

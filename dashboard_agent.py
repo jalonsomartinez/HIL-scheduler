@@ -1001,7 +1001,6 @@ if __name__ == "__main__":
         'PLANT_MODBUS_HOST': 'localhost',
         'PLANT_MODBUS_PORT': 5020,
         'PLANT_ENABLE_REGISTER': 10,
-        'MEASUREMENTS_CSV': 'measurements.csv',
     }
     shared_data = {
         'lock': threading.Lock(),

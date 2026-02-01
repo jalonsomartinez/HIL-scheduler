@@ -74,19 +74,16 @@ def load_config(config_path="config.yaml"):
     # Modbus registers
     registers = modbus.get('registers', {})
     config['PLANT_P_SETPOINT_REGISTER'] = registers.get('p_setpoint_in', 0)
-    config['PLANT_P_BATTERY_ACTUAL_REGISTER'] = registers.get('p_battery_actual', 2)
+    config['PLANT_P_BATTERY_ACTUAL_REGISTER'] = registers.get('p_battery', 2)
     config['PLANT_Q_SETPOINT_REGISTER'] = registers.get('q_setpoint_in', 4)
-    config['PLANT_Q_BATTERY_ACTUAL_REGISTER'] = registers.get('q_battery_actual', 6)
+    config['PLANT_Q_BATTERY_ACTUAL_REGISTER'] = registers.get('q_battery', 6)
     config['PLANT_ENABLE_REGISTER'] = registers.get('enable', 10)
     config['PLANT_SOC_REGISTER'] = registers.get('soc', 12)
     config['PLANT_P_POI_REGISTER'] = registers.get('p_poi', 14)
     config['PLANT_Q_POI_REGISTER'] = registers.get('q_poi', 16)
     config['PLANT_V_POI_REGISTER'] = registers.get('v_poi', 18)
     
-    # Output settings
-    output = yaml_config.get('output', {})
-    config['MEASUREMENTS_CSV'] = output.get('measurements_csv', 'measurements.csv')
-    
+
     # Istentore API settings
     istentore_api = yaml_config.get('istentore_api', {})
     config['ISTENTORE_BASE_URL'] = istentore_api.get('base_url', 'https://3mku48kfxf.execute-api.eu-south-2.amazonaws.com/default')
