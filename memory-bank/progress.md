@@ -2,6 +2,13 @@
 
 ## What Works
 
+### Data Fetcher Timing Simplification (2026-02-01)
+- [x] Single polling interval from config (`DATA_FETCHER_PERIOD_S: 120`)
+- [x] Single error backoff (30s hardcoded for all error conditions)
+- [x] Removed unused `ISTENTORE_POLL_INTERVAL_MIN` config
+- [x] Consistent timing behavior (no more 300s hardcoded override)
+- [x] Startup logging shows timing configuration
+
 ### Core Agents (New Architecture)
 - [x] **Director Agent** (`hil_scheduler.py`): Updated shared data structure with two schedules + measurements_filename
 - [x] **Data Fetcher Agent** (`data_fetcher_agent.py`): **REWRITTEN** - Decoupled API-only fetcher
@@ -75,6 +82,25 @@ Measurement file management system completed. Dashboard plots enhanced with all 
 - [x] activeContext.md updated with current focus
 
 ## Recent Changes (2026-02-01)
+
+### Data Fetcher Timing Simplification
+Simplified data fetcher timing to use single config value with unified error backoff:
+
+**Problem:**
+- Multiple hardcoded sleep times (5s, 30s, 300s) overrode config values
+- `ISTENTORE_POLL_INTERVAL_MIN: 10` config was defined but never used
+- Timing logic was complex: different sleeps for password state, auth errors, first fetch status
+
+**Solution:**
+- Normal polling: Uses `DATA_FETCHER_PERIOD_S` from config (120s)
+- All errors: Use hardcoded 30s backoff
+- Removed unused config value
+- Added startup logging for timing transparency
+
+**Files Modified:**
+- `data_fetcher_agent.py`: Replaced complex timing with simple two-value approach
+- `config.yaml`: Removed `poll_interval_min`
+- `config.py`: Updated `DATA_FETCHER_PERIOD_S` from 1s to 120s
 
 ### Eliminated Buffer and Local State (Simplified Architecture)
 Removed unnecessary buffering and local state caching to reduce latency:

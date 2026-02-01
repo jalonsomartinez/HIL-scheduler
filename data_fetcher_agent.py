@@ -9,7 +9,7 @@ from istentore_api import IstentoreAPI, AuthenticationError
 def data_fetcher_agent(config, shared_data):
     """
     Data fetcher agent that fetches schedules from the Istentore API.
-    
+
     This agent runs independently in a loop:
     1. Waits for an API password to be set in shared_data
     2. Once password is set, connects to the API
@@ -17,17 +17,24 @@ def data_fetcher_agent(config, shared_data):
     4. Polls for tomorrow's schedule starting at configured time
     5. Updates the shared api_schedule_df with fetched data
     6. Updates data_fetcher_status for dashboard display
-    
+
     The agent is completely decoupled from the dashboard and scheduler.
     It only reads api_password and writes to api_schedule_df and data_fetcher_status.
+
+    Timing Strategy:
+    - Uses DATA_FETCHER_PERIOD_S from config for normal polling (default: 120s)
+    - Uses hardcoded 30s backoff for all error conditions
     """
     logging.info("Data fetcher agent started.")
-    
+
     api = None
     password_checked = False
     poll_start_time = config.get('ISTENTORE_POLL_START_TIME', '17:30')
-    poll_interval_min = config.get('ISTENTORE_POLL_INTERVAL_MIN', 10)
+    poll_interval_s = config.get('DATA_FETCHER_PERIOD_S', 120)
+    error_backoff_s = 30  # Single backoff for all errors
     first_fetch_done = False  # Track if first fetch was successful
+
+    logging.info(f"Data fetcher: poll_interval={poll_interval_s}s, error_backoff={error_backoff_s}s, poll_start_time={poll_start_time}")
     
     while not shared_data['shutdown_event'].is_set():
         try:
@@ -42,7 +49,7 @@ def data_fetcher_agent(config, shared_data):
                     api = None
                     password_checked = False
                     _update_status(shared_data, connected=False)
-                time.sleep(5)
+                time.sleep(error_backoff_s)
                 continue
             
             password_checked = True
@@ -96,7 +103,7 @@ def data_fetcher_agent(config, shared_data):
                     _update_status(shared_data, connected=False, error=f"Authentication failed: {e}")
                     logging.error(f"Data fetcher: Authentication failed: {e}")
                     api = None
-                    time.sleep(30)  # Wait longer on auth error
+                    time.sleep(error_backoff_s)
                     continue
                 except Exception as e:
                     _update_status(shared_data, error=str(e))
@@ -154,16 +161,12 @@ def data_fetcher_agent(config, shared_data):
             # Update last attempt timestamp
             _update_status(shared_data, last_attempt=now.isoformat())
 
-            # Sleep until next check - use 5 minutes after first fetch, otherwise 60 seconds
-            if first_fetch_done:
-                sleep_time = 300  # 5 minutes
-            else:
-                sleep_time = config.get("DATA_FETCHER_PERIOD_S", 60)
-            time.sleep(sleep_time)
+            # Sleep until next check
+            time.sleep(poll_interval_s)
             
         except Exception as e:
             logging.error(f"Data fetcher: Unexpected error: {e}")
-            time.sleep(5)
+            time.sleep(error_backoff_s)
     
     logging.info("Data fetcher agent stopped.")
 
@@ -183,7 +186,6 @@ if __name__ == "__main__":
     # Create a mock config
     config = {
         'DATA_FETCHER_PERIOD_S': 5,
-        'ISTENTORE_POLL_INTERVAL_MIN': 1,
         'ISTENTORE_POLL_START_TIME': '00:00',
     }
     

@@ -20,7 +20,7 @@ def configure_scheduler(remote_plant=False, remote_data=False):
             "SCHEDULE_DURATION_H": 0.5,
             "SCHEDULE_POWER_MIN_KW": -1000,
             "SCHEDULE_POWER_MAX_KW": 1000,
-            "DATA_FETCHER_PERIOD_S": 1,
+            "DATA_FETCHER_PERIOD_S": 120,
 
             # Scheduler
             "SCHEDULER_PERIOD_S": 1,
@@ -68,7 +68,7 @@ def configure_scheduler(remote_plant=False, remote_data=False):
             "SCHEDULE_DURATION_H": 0.5,
             "SCHEDULE_POWER_MIN_KW": -1000,
             "SCHEDULE_POWER_MAX_KW": 1000,
-            "DATA_FETCHER_PERIOD_S": 1,
+            "DATA_FETCHER_PERIOD_S": 120,
 
             # Scheduler
             "SCHEDULER_PERIOD_S": 1,

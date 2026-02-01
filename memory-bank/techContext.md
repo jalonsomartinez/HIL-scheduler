@@ -93,8 +93,42 @@ general:
   schedule_duration_h: 0.5
 
 timing:
-  plant_period_s: 5
-  measurement_period_s: 2
+  data_fetcher_period_s: 120  # API polling interval (seconds)
+  scheduler_period_s: 1       # Setpoint dispatch interval
+  plant_period_s: 1           # Battery simulation interval
+  measurement_period_s: 1     # Measurement sampling interval
+  measurements_write_period_s: 60  # CSV write interval
+
+istentore_api:
+  poll_start_time: "17:30"    # When to start polling for tomorrow's schedule
+```
+
+**Timing Configuration Notes:**
+- `data_fetcher_period_s`: How often to poll Istentore API for schedule updates (default 120s = 2 minutes)
+- All error conditions use hardcoded 30s backoff (not configurable)
+- `poll_start_time`: Time of day (HH:MM) to start fetching tomorrow's schedule
+- Other agents use their respective `_PERIOD_S` config values consistently
+
+### Agent Timing Strategy
+
+**Data Fetcher Agent:**
+- Uses single polling interval from `DATA_FETCHER_PERIOD_S` config (default: 120s)
+- Uses hardcoded 30s backoff for all error conditions (no password, auth error, fetch error, unexpected error)
+- Logs timing configuration at startup for transparency
+
+**Other Agents (Consistent Pattern):**
+- Scheduler: Uses `SCHEDULER_PERIOD_S` config
+- Plant: Uses `PLANT_PERIOD_S` config  
+- Measurement: Uses `MEASUREMENT_PERIOD_S` and `MEASUREMENTS_WRITE_PERIOD_S` config
+
+**Before (Inconsistent):**
+- Data fetcher had hardcoded values (5s, 30s, 300s) that overrode config
+- `ISTENTORE_POLL_INTERVAL_MIN` config was defined but never used
+
+**After (Simplified):**
+- Single config value for normal operation
+- Single hardcoded value for all errors
+- Predictable, documented behavior
 
 plant:
   capacity_kwh: 50.0

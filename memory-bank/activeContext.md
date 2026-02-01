@@ -1,7 +1,57 @@
 # Active Context: HIL Scheduler
 
 ## Current Focus
-Simplified architecture by eliminating buffer and local state. Measurements now appear immediately in dashboard with no latency.
+Simplified data fetcher timing strategy. Now uses single polling interval from config with unified error backoff.
+
+## Recent Changes (2026-02-01) - Data Fetcher Timing Simplification
+
+### Problem Identified
+The data fetcher had multiple hardcoded sleep times that overrode config values:
+- 5s when no password set
+- 30s on authentication error  
+- 300s after first fetch (hardcoded, ignored config)
+- 60s before first fetch (from config)
+- 5s on unexpected error
+- Unused config: `ISTENTORE_POLL_INTERVAL_MIN: 10` (never referenced in code)
+
+### Solution Implemented
+**Simplified to two timing values:**
+1. **Normal polling**: Uses `DATA_FETCHER_PERIOD_S` from config (default: 120s)
+2. **Error backoff**: Single hardcoded value of 30s for all error conditions
+
+**Files Modified:**
+1. **[`data_fetcher_agent.py`](data_fetcher_agent.py)**:
+   - Replaced multiple hardcoded sleeps with `poll_interval_s` variable
+   - Added `error_backoff_s = 30` constant for all errors
+   - Removed conditional logic that changed sleep time based on first_fetch_done
+   - Added startup logging showing timing configuration
+   - Updated docstring with timing strategy documentation
+
+2. **[`config.yaml`](config.yaml)**:
+   - Removed unused `poll_interval_min: 10` 
+   - Kept `poll_start_time: "17:30"` (still used for tomorrow's schedule timing)
+
+3. **[`config.py`](config.py)**:
+   - Changed `DATA_FETCHER_PERIOD_S` from 1s to 120s (matches config.yaml)
+
+**New Timing Behavior:**
+| Condition | Sleep Time | Source |
+|-----------|------------|--------|
+| Normal operation | 120s | Config (`DATA_FETCHER_PERIOD_S`) |
+| No password | 30s | Hardcoded error backoff |
+| Auth error | 30s | Hardcoded error backoff |
+| Fetch error | 30s | Hardcoded error backoff |
+| Unexpected error | 30s | Hardcoded error backoff |
+
+**Benefits:**
+- Predictable timing behavior
+- Single source of truth for polling interval
+- Simpler code (removed first_fetch_done tracking for timing)
+- Clear separation: config for normal, hardcoded for errors
+
+---
+
+## Previous: Eliminated Buffer and Local State
 
 ## Recent Changes (2026-02-01)
 
