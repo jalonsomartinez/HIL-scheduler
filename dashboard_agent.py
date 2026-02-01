@@ -78,20 +78,11 @@ def dashboard_agent(config, shared_data):
                             html.Div(className='mode-selector', children=[
                                 html.Label(
                                     className='mode-option selected',
-                                    id='mode-random-option',
+                                    id='mode-manual-option',
                                     n_clicks=0,
                                     children=[
-                                        html.Span(className='mode-label', children="Random Schedule"),
-                                        html.Span(className='mode-description', children="Generate random power setpoints"),
-                                    ]
-                                ),
-                                html.Label(
-                                    className='mode-option',
-                                    id='mode-csv-option',
-                                    n_clicks=0,
-                                    children=[
-                                        html.Span(className='mode-label', children="CSV Upload"),
-                                        html.Span(className='mode-description', children="Load schedule from CSV file"),
+                                        html.Span(className='mode-label', children="Manual"),
+                                        html.Span(className='mode-description', children="Generate random or load from CSV"),
                                     ]
                                 ),
                                 html.Label(
@@ -107,158 +98,190 @@ def dashboard_agent(config, shared_data):
                             dcc.RadioItems(
                                 id='mode-selector',
                                 options=[
-                                    {'label': ' Random Schedule', 'value': 'random'},
-                                    {'label': ' CSV File Upload', 'value': 'csv'},
+                                    {'label': ' Manual', 'value': 'manual'},
                                     {'label': ' Istentore API', 'value': 'api'}
                                 ],
-                                value='random',
+                                value='manual',
                                 style={'display': 'none'}
                             ),
                         ]),
                         
-                        # Random Mode Controls
-                        html.Div(id='random-mode-controls', className='card', children=[
+                        # Manual Mode Controls (contains Random and CSV sub-options)
+                        html.Div(id='manual-mode-controls', className='card', children=[
                             html.Div(className='card-header', children=[
-                                html.H3(className='card-title', children="Random Schedule Settings"),
+                                html.H3(className='card-title', children="Manual Schedule Configuration"),
                             ]),
-                            html.Div(className='form-row', children=[
-                                html.Div(className='form-group', style={'width': '80px'}, children=[
-                                    html.Label("Start Hour"),
-                                    dcc.Dropdown(
-                                        id='random-start-hour',
-                                        options=[{'label': f'{h:02d}', 'value': h} for h in range(24)],
-                                        value=datetime.now().hour,
-                                        clearable=False,
-                                        className='form-control'
-                                    ),
-                                ]),
-                                html.Div(className='form-group', style={'width': '70px'}, children=[
-                                    html.Label("Min"),
-                                    dcc.Dropdown(
-                                        id='random-start-minute',
-                                        options=[{'label': f'{m:02d}', 'value': m} for m in range(0, 60, 5)],
-                                        value=0,
-                                        clearable=False,
-                                        className='form-control'
-                                    ),
-                                ]),
-                                html.Div(className='form-group', style={'width': '80px'}, children=[
-                                    html.Label("End Hour"),
-                                    dcc.Dropdown(
-                                        id='random-end-hour',
-                                        options=[{'label': f'{h:02d}', 'value': h} for h in range(24)],
-                                        value=(datetime.now().hour + 1) % 24,
-                                        clearable=False,
-                                        className='form-control'
-                                    ),
-                                ]),
-                                html.Div(className='form-group', style={'width': '70px'}, children=[
-                                    html.Label("Min"),
-                                    dcc.Dropdown(
-                                        id='random-end-minute',
-                                        options=[{'label': f'{m:02d}', 'value': m} for m in range(0, 60, 5)],
-                                        value=0,
-                                        clearable=False,
-                                        className='form-control'
-                                    ),
-                                ]),
-                                html.Div(className='form-group', style={'width': '90px'}, children=[
-                                    html.Label("Step (min)"),
-                                    dcc.Dropdown(
-                                        id='random-step',
-                                        options=[{'label': f'{m}', 'value': m} for m in [5, 10, 15, 30, 60]],
-                                        value=5,
-                                        clearable=False,
-                                        className='form-control'
-                                    ),
-                                ]),
-                            ]),
-                            html.Div(className='form-row', children=[
+                            
+                            # Sub-method selector for Manual mode
+                            html.Div(className='form-row', style={'marginBottom': '16px', 'borderBottom': '1px solid #e2e8f0', 'paddingBottom': '16px'}, children=[
                                 html.Div(className='form-group', children=[
-                                    html.Label("Min Power (kW)"),
-                                    dcc.Input(
-                                        id='random-min-power',
-                                        type='number',
-                                        value=-1000,
-                                        step=10,
-                                        className='form-control'
-                                    ),
-                                ]),
-                                html.Div(className='form-group', children=[
-                                    html.Label("Max Power (kW)"),
-                                    dcc.Input(
-                                        id='random-max-power',
-                                        type='number',
-                                        value=1000,
-                                        step=10,
-                                        className='form-control'
-                                    ),
-                                ]),
-                                html.Div(className='form-group', children=[
-                                    html.Label(""),
-                                    html.Button(
-                                        'Preview',
-                                        id='random-generate-btn',
-                                        n_clicks=0,
-                                        className='btn btn-primary btn-block'
-                                    ),
-                                ]),
-                            ]),
-                        ]),
-                        
-                        # CSV Mode Controls
-                        html.Div(id='csv-mode-controls', className='card hidden', children=[
-                            html.Div(className='card-header', children=[
-                                html.H3(className='card-title', children="CSV Upload"),
-                            ]),
-                            html.Div(className='form-row', style={'flexWrap': 'wrap'}, children=[
-                                html.Div(className='form-group', style={'flex': '2', 'minWidth': '200px'}, children=[
-                                    html.Label("Schedule File"),
-                                    dcc.Upload(
-                                        id='csv-upload',
-                                        children=html.Div(
-                                            className='file-upload',
-                                            children=[
-                                                html.Span(className='file-upload-text', children=[
-                                                    "Drag and drop or ", html.A("select file"), " (CSV)"
-                                                ])
-                                            ]
+                                    html.Label("Method"),
+                                    html.Div(className='sub-mode-selector', children=[
+                                        html.Button(
+                                            'Random Schedule',
+                                            id='manual-sub-random-btn',
+                                            n_clicks=0,
+                                            className='btn btn-secondary btn-sm active'
                                         ),
-                                        multiple=False
-                                    ),
-                                ]),
-                                html.Div(className='form-group', style={'flex': '1', 'minWidth': '150px'}, children=[
-                                    html.Label("Start Date"),
-                                    dcc.DatePickerSingle(
-                                        id='csv-start-date',
-                                        date=datetime.now().date(),
-                                        min_date_allowed=datetime(2020, 1, 1),
-                                        max_date_allowed=datetime(2030, 12, 31),
-                                        className='form-control'
-                                    ),
-                                ]),
-                                html.Div(className='form-group', style={'width': '80px'}, children=[
-                                    html.Label("Hour"),
-                                    dcc.Dropdown(
-                                        id='csv-start-hour',
-                                        options=[{'label': f'{h:02d}', 'value': h} for h in range(24)],
-                                        value=datetime.now().hour,
-                                        clearable=False,
-                                        className='form-control'
-                                    ),
-                                ]),
-                                html.Div(className='form-group', style={'width': '70px'}, children=[
-                                    html.Label("Min"),
-                                    dcc.Dropdown(
-                                        id='csv-start-minute',
-                                        options=[{'label': f'{m:02d}', 'value': m} for m in range(0, 60, 5)],
-                                        value=0,
-                                        clearable=False,
-                                        className='form-control'
-                                    ),
+                                        html.Button(
+                                            'CSV Upload',
+                                            id='manual-sub-csv-btn',
+                                            n_clicks=0,
+                                            className='btn btn-secondary btn-sm'
+                                        ),
+                                    ]),
                                 ]),
                             ]),
-                            html.Div(id='csv-filename-display', style={'fontSize': '13px', 'color': '#64748b'}),
+                            
+                            # Hidden radio for sub-mode state
+                            dcc.RadioItems(
+                                id='manual-sub-mode',
+                                options=[
+                                    {'label': 'Random', 'value': 'random'},
+                                    {'label': 'CSV', 'value': 'csv'}
+                                ],
+                                value='random',
+                                style={'display': 'none'}
+                            ),
+                            
+                            # Random Schedule Controls (shown when sub-mode is 'random')
+                            html.Div(id='manual-random-controls', children=[
+                                html.Div(className='form-row', children=[
+                                    html.Div(className='form-group', style={'width': '80px'}, children=[
+                                        html.Label("Start Hour"),
+                                        dcc.Dropdown(
+                                            id='random-start-hour',
+                                            options=[{'label': f'{h:02d}', 'value': h} for h in range(24)],
+                                            value=datetime.now().hour,
+                                            clearable=False,
+                                            className='form-control'
+                                        ),
+                                    ]),
+                                    html.Div(className='form-group', style={'width': '70px'}, children=[
+                                        html.Label("Min"),
+                                        dcc.Dropdown(
+                                            id='random-start-minute',
+                                            options=[{'label': f'{m:02d}', 'value': m} for m in range(0, 60, 5)],
+                                            value=0,
+                                            clearable=False,
+                                            className='form-control'
+                                        ),
+                                    ]),
+                                    html.Div(className='form-group', style={'width': '80px'}, children=[
+                                        html.Label("End Hour"),
+                                        dcc.Dropdown(
+                                            id='random-end-hour',
+                                            options=[{'label': f'{h:02d}', 'value': h} for h in range(24)],
+                                            value=(datetime.now().hour + 1) % 24,
+                                            clearable=False,
+                                            className='form-control'
+                                        ),
+                                    ]),
+                                    html.Div(className='form-group', style={'width': '70px'}, children=[
+                                        html.Label("Min"),
+                                        dcc.Dropdown(
+                                            id='random-end-minute',
+                                            options=[{'label': f'{m:02d}', 'value': m} for m in range(0, 60, 5)],
+                                            value=0,
+                                            clearable=False,
+                                            className='form-control'
+                                        ),
+                                    ]),
+                                    html.Div(className='form-group', style={'width': '90px'}, children=[
+                                        html.Label("Step (min)"),
+                                        dcc.Dropdown(
+                                            id='random-step',
+                                            options=[{'label': f'{m}', 'value': m} for m in [5, 10, 15, 30, 60]],
+                                            value=5,
+                                            clearable=False,
+                                            className='form-control'
+                                        ),
+                                    ]),
+                                ]),
+                                html.Div(className='form-row', children=[
+                                    html.Div(className='form-group', children=[
+                                        html.Label("Min Power (kW)"),
+                                        dcc.Input(
+                                            id='random-min-power',
+                                            type='number',
+                                            value=-1000,
+                                            step=10,
+                                            className='form-control'
+                                        ),
+                                    ]),
+                                    html.Div(className='form-group', children=[
+                                        html.Label("Max Power (kW)"),
+                                        dcc.Input(
+                                            id='random-max-power',
+                                            type='number',
+                                            value=1000,
+                                            step=10,
+                                            className='form-control'
+                                        ),
+                                    ]),
+                                    html.Div(className='form-group', children=[
+                                        html.Label(""),
+                                        html.Button(
+                                            'Preview',
+                                            id='random-generate-btn',
+                                            n_clicks=0,
+                                            className='btn btn-primary btn-block'
+                                        ),
+                                    ]),
+                                ]),
+                            ]),
+                            
+                            # CSV Upload Controls (shown when sub-mode is 'csv')
+                            html.Div(id='manual-csv-controls', className='hidden', children=[
+                                html.Div(className='form-row', style={'flexWrap': 'wrap'}, children=[
+                                    html.Div(className='form-group', style={'flex': '2', 'minWidth': '200px'}, children=[
+                                        html.Label("Schedule File"),
+                                        dcc.Upload(
+                                            id='csv-upload',
+                                            children=html.Div(
+                                                className='file-upload',
+                                                children=[
+                                                    html.Span(className='file-upload-text', children=[
+                                                        "Drag and drop or ", html.A("select file"), " (CSV)"
+                                                    ])
+                                                ]
+                                            ),
+                                            multiple=False
+                                        ),
+                                    ]),
+                                    html.Div(className='form-group', style={'flex': '1', 'minWidth': '150px'}, children=[
+                                        html.Label("Start Date"),
+                                        dcc.DatePickerSingle(
+                                            id='csv-start-date',
+                                            date=datetime.now().date(),
+                                            min_date_allowed=datetime(2020, 1, 1),
+                                            max_date_allowed=datetime(2030, 12, 31),
+                                            className='form-control'
+                                        ),
+                                    ]),
+                                    html.Div(className='form-group', style={'width': '80px'}, children=[
+                                        html.Label("Hour"),
+                                        dcc.Dropdown(
+                                            id='csv-start-hour',
+                                            options=[{'label': f'{h:02d}', 'value': h} for h in range(24)],
+                                            value=datetime.now().hour,
+                                            clearable=False,
+                                            className='form-control'
+                                        ),
+                                    ]),
+                                    html.Div(className='form-group', style={'width': '70px'}, children=[
+                                        html.Label("Min"),
+                                        dcc.Dropdown(
+                                            id='csv-start-minute',
+                                            options=[{'label': f'{m:02d}', 'value': m} for m in range(0, 60, 5)],
+                                            value=0,
+                                            clearable=False,
+                                            className='form-control'
+                                        ),
+                                    ]),
+                                ]),
+                            ]),
+                            html.Div(id='csv-filename-display', style={'fontSize': '13px', 'color': '#64748b', 'marginTop': '8px'}),
                         ]),
                         
                         # API Mode Controls
@@ -412,11 +435,9 @@ def dashboard_agent(config, shared_data):
     # MODE SELECTION CALLBACKS
     # ============================================================
     @app.callback(
-        [Output('random-mode-controls', 'className'),
-         Output('csv-mode-controls', 'className'),
+        [Output('manual-mode-controls', 'className'),
          Output('api-mode-controls', 'className'),
-         Output('mode-random-option', 'className'),
-         Output('mode-csv-option', 'className'),
+         Output('mode-manual-option', 'className'),
          Output('mode-api-option', 'className')],
         Input('mode-selector', 'value')
     )
@@ -426,40 +447,64 @@ def dashboard_agent(config, shared_data):
         option_base = 'mode-option'
         option_selected = 'mode-option selected'
         
-        random_card = card_base if selected_mode == 'random' else card_hidden
-        csv_card = card_base if selected_mode == 'csv' else card_hidden
+        manual_card = card_base if selected_mode == 'manual' else card_hidden
         api_card = card_base if selected_mode == 'api' else card_hidden
         
-        random_opt = option_selected if selected_mode == 'random' else option_base
-        csv_opt = option_selected if selected_mode == 'csv' else option_base
+        manual_opt = option_selected if selected_mode == 'manual' else option_base
         api_opt = option_selected if selected_mode == 'api' else option_base
         
-        return random_card, csv_card, api_card, random_opt, csv_opt, api_opt
+        return manual_card, api_card, manual_opt, api_opt
+    
+    # ============================================================
+    # MANUAL SUB-MODE SELECTION CALLBACKS
+    # ============================================================
+    @app.callback(
+        [Output('manual-sub-mode', 'value'),
+         Output('manual-random-controls', 'className'),
+         Output('manual-csv-controls', 'className'),
+         Output('manual-sub-random-btn', 'className'),
+         Output('manual-sub-csv-btn', 'className')],
+        [Input('manual-sub-random-btn', 'n_clicks'),
+         Input('manual-sub-csv-btn', 'n_clicks')]
+    )
+    def update_manual_sub_mode(random_clicks, csv_clicks):
+        ctx = callback_context
+        if not ctx.triggered:
+            return 'random', '', 'hidden', 'btn btn-secondary btn-sm active', 'btn btn-secondary btn-sm'
+        
+        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        
+        btn_active_random = 'btn btn-secondary btn-sm active'
+        btn_inactive_random = 'btn btn-secondary btn-sm'
+        btn_active_csv = 'btn btn-secondary btn-sm active'
+        btn_inactive_csv = 'btn btn-secondary btn-sm'
+        
+        if trigger_id == 'manual-sub-csv-btn':
+            return 'csv', 'hidden', '', btn_inactive_random, btn_active_csv
+        else:
+            return 'random', '', 'hidden', btn_active_random, btn_inactive_csv
     
     # ============================================================
     # MODE BUTTON CLICK HANDLERS
     # ============================================================
     @app.callback(
         Output('mode-selector', 'value'),
-        [Input('mode-random-option', 'n_clicks'),
-         Input('mode-csv-option', 'n_clicks'),
+        [Input('mode-manual-option', 'n_clicks'),
          Input('mode-api-option', 'n_clicks')]
     )
-    def handle_mode_clicks(random_clicks, csv_clicks, api_clicks):
+    def handle_mode_clicks(manual_clicks, api_clicks):
         ctx = callback_context
         if not ctx.triggered:
-            return 'random'
+            return 'manual'
         
         # Get which option was clicked
         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-        if 'random' in trigger_id:
-            return 'random'
-        elif 'csv' in trigger_id:
-            return 'csv'
+        if 'manual' in trigger_id:
+            return 'manual'
         elif 'api' in trigger_id:
             return 'api'
         
-        return 'random'
+        return 'manual'
     
     # ============================================================
     # CSV UPLOAD CALLBACK - Simplified, just stores the file content
@@ -488,15 +533,14 @@ def dashboard_agent(config, shared_data):
          Input('preview-schedule', 'data'),
          Input('random-generate-btn', 'n_clicks'),
          Input('clear-schedule-btn', 'n_clicks'),
-         Input('accept-schedule-btn', 'n_clicks')],
+         Input('accept-schedule-btn', 'n_clicks'),
+         Input('mode-selector', 'value')],
         prevent_initial_call=False
     )
-    def update_schedule_preview(n, preview_data, random_clicks, clear_clicks, accept_clicks):
-        # Check if we're in API mode - hide preview if so
-        if 'schedule_manager' in shared_data:
-            sm = shared_data['schedule_manager']
-            if sm.mode == ScheduleMode.API:
-                return create_empty_fig("API mode: Data loaded directly from API"), "hidden", "hidden", "hidden"
+    def update_schedule_preview(n, preview_data, random_clicks, clear_clicks, accept_clicks, selected_mode):
+        # Check if we're in API mode - show message instead of preview controls
+        if selected_mode == 'api':
+            return create_empty_fig("API mode: Data loaded directly from API"), "hidden", "hidden", "hidden"
         
         # Get existing schedule
         existing_df = pd.DataFrame()
@@ -592,6 +636,8 @@ def dashboard_agent(config, shared_data):
                 dict(zip(preview_df['datetime'].dt.strftime('%Y-%m-%dT%H:%M:%S'), preview_df['power_setpoint_kw'])),
                 default_q_kvar=0.0
             )
+            # Set mode to MANUAL when accepting from Manual tab
+            sm._mode = ScheduleMode.MANUAL
         
         return None, f"Schedule accepted ({len(preview_df)} points)"
     

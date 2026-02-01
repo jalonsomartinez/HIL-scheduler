@@ -15,6 +15,7 @@
 - [x] **Mode 1: Random Schedule**: Generates random schedules at configurable resolution (default 5-min)
 - [x] **Mode 2: CSV Upload**: Upload CSV files with custom start time via dashboard
 - [x] **Mode 3: Istentore API**: Fetch day-ahead schedules with automatic polling for next day
+- [x] **Mode Simplification**: Merged Random and CSV into single "Manual" mode with sub-selector
 - [x] **Flexible Resolution**: Schedule DataFrame preserves original time resolution (5-min from API, any from CSV)
 - [x] **Smart Data Replacement**: New data replaces only overlapping periods, preserving non-overlapping data
 - [x] **asof() Lookup**: Scheduler uses pandas asof() to find value just before current time
@@ -56,7 +57,16 @@ Dashboard UI improvements completed. All 3 schedule modes functional with previe
 - [x] Plan documents created for major features
 - [x] activeContext.md updated with current focus
 
-## Recent Changes (2026-01-31)
+## Recent Changes (2026-02-01)
+
+### Schedule Creation Simplification
+- Merged Random Schedule and CSV Upload into single "Manual" mode
+- Mode selector now shows 2 options: Manual | API
+- Manual mode has sub-selector: Random Schedule | CSV Upload
+- Same preview/accept workflow preserved
+- Added MANUAL to ScheduleMode enum
+
+## Previous Changes (2026-01-31)
 
 ### Dashboard UI Redesign
 - Complete UI overhaul with modern professional light theme
@@ -66,8 +76,8 @@ Dashboard UI improvements completed. All 3 schedule modes functional with previe
 - Fixed duplicate callback outputs error
 
 ### Preview Workflow Implementation
-- Random Mode: Configure start/end/step → Preview → Accept
-- CSV Mode: Upload file → Adjust start date/time → Preview updates → Accept
+- Manual → Random: Configure start/end/step → Preview → Accept
+- Manual → CSV: Upload file → Adjust start date/time → Preview updates → Accept
 - API Mode: Enter password → Connect & Fetch
 - Diff visualization: Existing (dashed gray) vs Preview (solid blue fill)
 

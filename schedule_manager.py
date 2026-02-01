@@ -29,6 +29,7 @@ from istentore_api import IstentoreAPI
 
 class ScheduleMode(Enum):
     """Enumeration of schedule source modes."""
+    MANUAL = "manual"
     RANDOM = "random"
     CSV = "csv"
     API = "api"

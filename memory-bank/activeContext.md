@@ -1,9 +1,32 @@
 # Active Context: HIL Scheduler
 
 ## Current Focus
-Dashboard UI improvements with modern light theme, tabbed interface, and preview workflow.
+Simplified schedule creation with merged Manual mode containing Random and CSV options.
 
-## Recent Changes (2026-01-31)
+## Recent Changes (2026-02-01)
+
+### Schedule Creation Simplification
+Merged Random Schedule and CSV Upload into a single "Manual" mode:
+- **Before**: 3 mode options (Random, CSV, API)
+- **After**: 2 mode options (Manual, API)
+- Manual mode contains sub-selector: Random Schedule | CSV Upload
+- Same preview/accept workflow preserved for both sub-methods
+
+### Technical Changes
+1. **dashboard_agent.py**:
+   - Mode selector reduced to 2 options: `['manual', 'api']`
+   - Added `manual-sub-mode` radio for Random/CSV selection
+   - Merged control sections into single Manual mode card
+   - Updated all callbacks to handle new structure
+
+2. **schedule_manager.py**:
+   - Added `MANUAL` to `ScheduleMode` enum
+   - Accept callback sets mode to `MANUAL` when schedule accepted
+
+3. **assets/custom.css**:
+   - Added `.sub-mode-selector` styles for the sub-method buttons
+
+## Previous Changes (2026-01-31)
 
 ### Dashboard UI Redesign
 - Complete UI overhaul with professional light theme
@@ -17,8 +40,8 @@ Dashboard UI improvements with modern light theme, tabbed interface, and preview
    - Tab 2: Status & Plots - Real-time status, control buttons, live graphs
 
 2. **Schedule Preview Workflow**:
-   - Random Mode: Configure start/end/step → Preview → Accept
-   - CSV Mode: Upload file → Adjust start date/time → Preview updates → Accept
+   - Manual → Random: Configure start/end/step → Preview → Accept
+   - Manual → CSV: Upload file → Adjust start date/time → Preview → Accept
    - API Mode: Enter password → Connect & Fetch → Schedule loaded
    - Diff visualization: Existing schedule (dashed gray) vs Preview (solid blue)
    - Accept button commits preview to active schedule
@@ -30,15 +53,10 @@ Dashboard UI improvements with modern light theme, tabbed interface, and preview
    - Uniform spacing scale (4px-24px)
    - Responsive CSS media queries
 
-### Fixed Issues
-- Duplicate callback outputs error (allow_duplicate=True added)
-- CSV upload now uses preview workflow instead of immediate load
-- Removed conflicting callback inputs
-
 ## Next Steps
-- Test all preview workflows end-to-end
+- Test Manual mode with both Random and CSV sub-options
+- Verify API mode still works correctly
 - Consider adding CSV validation before preview
-- Consider adding schedule validation warnings
 
 ## Architecture Notes
 
