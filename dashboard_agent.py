@@ -256,43 +256,104 @@ def dashboard_agent(config, shared_data):
                 # =========================================
                 html.Div(id='status-tab', className='hidden', children=[
                     
-                    # Plant Selection
-                    html.Div(className='card', children=[
-                        html.Div(className='card-header', children=[
-                            html.H3(className='card-title', children="Plant Selection"),
-                            html.P("Select which plant to connect to", className='card-subtitle'),
+                    # Control Panel - Two Rows
+                    html.Div(className='control-panel', children=[
+                        
+                        # Row 1: Controls (Buttons + Toggles) - 1/3 width each on medium+
+                        html.Div(className='controls-row', children=[
+                            # Start/Stop Buttons (1/3)
+                            html.Div(className='control-section', children=[
+                                html.Div(className='control-group', children=[
+                                    html.Button(
+                                        children=["▶ Start"], 
+                                        id='start-button', 
+                                        n_clicks=0, 
+                                        className='control-btn control-btn-start', 
+                                        disabled=True
+                                    ),
+                                    html.Button(
+                                        children=["■ Stop"], 
+                                        id='stop-button', 
+                                        n_clicks=0, 
+                                        className='control-btn control-btn-stop'
+                                    ),
+                                ]),
+                            ]),
+                            
+                            # Schedule Toggle (1/3)
+                            html.Div(className='control-section', children=[
+                                html.Div(className='toggle-wrapper', children=[
+                                    html.Span(className='toggle-label', children="Schedule:"),
+                                    html.Div(className='compact-toggle', children=[
+                                        html.Button(
+                                            "Manual", 
+                                            id='source-manual-btn', 
+                                            className='toggle-option active',
+                                            n_clicks=0
+                                        ),
+                                        html.Button(
+                                            "API", 
+                                            id='source-api-btn', 
+                                            className='toggle-option',
+                                            n_clicks=0
+                                        ),
+                                    ]),
+                                ]),
+                            ]),
+                            
+                            # Plant Toggle (1/3)
+                            html.Div(className='control-section', children=[
+                                html.Div(className='toggle-wrapper', children=[
+                                    html.Span(className='toggle-label', children="Plant:"),
+                                    html.Div(className='compact-toggle', children=[
+                                        html.Button(
+                                            "Local", 
+                                            id='plant-local-btn', 
+                                            className='toggle-option active',
+                                            n_clicks=0
+                                        ),
+                                        html.Button(
+                                            "Remote", 
+                                            id='plant-remote-btn', 
+                                            className='toggle-option',
+                                            n_clicks=0
+                                        ),
+                                    ]),
+                                ]),
+                            ]),
                         ]),
-                        html.Div(className='mode-selector', style={'marginTop': '12px'}, children=[
-                            html.Label(
-                                className='mode-option selected',
-                                id='plant-local-option',
-                                n_clicks=0,
-                                children=[
-                                    html.Span(className='mode-label', children="Local Plant"),
-                                    html.Span(className='mode-description', children="Emulated plant (localhost:5020)"),
-                                ]
-                            ),
-                            html.Label(
-                                className='mode-option',
-                                id='plant-remote-option',
-                                n_clicks=0,
-                                children=[
-                                    html.Span(className='mode-label', children="Remote Plant"),
-                                    html.Span(className='mode-description', children="Real hardware (10.117.133.21:502)"),
-                                ]
-                            ),
+                        
+                        # Row 2: Status Info
+                        html.Div(className='status-row', children=[
+                            html.Div(id='status-indicator', className='status-badge status-badge-unknown', children=[
+                                html.Span(className='status-dot'),
+                                "Unknown"
+                            ]),
+                            html.Div(id='active-source-display', className='status-text', children="Source: Manual"),
+                            html.Div(id='data-fetcher-status-display', className='status-text', children="API: Not connected"),
+                            html.Div(id='last-update', className='status-text', children=""),
                         ]),
-                        dcc.RadioItems(
-                            id='selected-plant-selector',
-                            options=[
-                                {'label': ' Local', 'value': 'local'},
-                                {'label': ' Remote', 'value': 'remote'}
-                            ],
-                            value='local',
-                            style={'display': 'none'}
-                        ),
-                        html.Div(id='plant-status-display', style={'marginTop': '12px', 'fontSize': '13px', 'color': '#64748b'}),
                     ]),
+                    
+                    # Hidden RadioItems for state management
+                    dcc.RadioItems(
+                        id='active-source-selector',
+                        options=[
+                            {'label': ' Manual', 'value': 'manual'},
+                            {'label': ' API', 'value': 'api'}
+                        ],
+                        value='manual',
+                        style={'display': 'none'}
+                    ),
+                    dcc.RadioItems(
+                        id='selected-plant-selector',
+                        options=[
+                            {'label': ' Local', 'value': 'local'},
+                            {'label': ' Remote', 'value': 'remote'}
+                        ],
+                        value='local',
+                        style={'display': 'none'}
+                    ),
                     
                     # Plant Switch Confirmation Modal
                     html.Div(id='plant-switch-modal', className='hidden', style={
@@ -305,67 +366,11 @@ def dashboard_agent(config, shared_data):
                             'maxWidth': '400px', 'boxShadow': '0 4px 12px rgba(0,0,0,0.15)'
                         }, children=[
                             html.H3("Confirm Plant Switch", style={'marginTop': '0'}),
-                            html.P(id='plant-switch-message', children="Switching plants will stop the current plant. Continue?"),
+                            html.P("Switching plants will stop the current plant first. Continue?"),
                             html.Div(style={'display': 'flex', 'gap': '12px', 'marginTop': '20px', 'justifyContent': 'flex-end'}, children=[
                                 html.Button('Cancel', id='plant-switch-cancel', className='btn btn-secondary'),
                                 html.Button('Confirm', id='plant-switch-confirm', className='btn btn-primary'),
                             ]),
-                        ]),
-                    ]),
-                    
-                    # Active Schedule Selector
-                    html.Div(className='card', children=[
-                        html.Div(className='card-header', children=[
-                            html.H3(className='card-title', children="Active Schedule"),
-                            html.P("Select which schedule is used for setpoints", className='card-subtitle'),
-                        ]),
-                        html.Div(className='mode-selector', style={'marginTop': '12px'}, children=[
-                            html.Label(
-                                className='mode-option selected',
-                                id='source-manual-option',
-                                n_clicks=0,
-                                children=[
-                                    html.Span(className='mode-label', children="Manual Schedule"),
-                                    html.Span(className='mode-description', children="Random or CSV-generated schedule"),
-                                ]
-                            ),
-                            html.Label(
-                                className='mode-option',
-                                id='source-api-option',
-                                n_clicks=0,
-                                children=[
-                                    html.Span(className='mode-label', children="API Schedule"),
-                                    html.Span(className='mode-description', children="Fetched from Istentore API"),
-                                ]
-                            ),
-                        ]),
-                        dcc.RadioItems(
-                            id='active-source-selector',
-                            options=[
-                                {'label': ' Manual', 'value': 'manual'},
-                                {'label': ' API', 'value': 'api'}
-                            ],
-                            value='manual',
-                            style={'display': 'none'}
-                        ),
-                    ]),
-                    
-                    # System Status
-                    html.Div(className='status-bar', children=[
-                        html.Div(id='status-indicator', className='status-indicator status-unknown', children=[
-                            html.Span(className='status-dot'),
-                            "Unknown"
-                        ]),
-                        html.Div(id='active-source-display', className='status-info', children="Source: Manual"),
-                        html.Div(id='data-fetcher-status-display', className='status-info', children="API: Not connected"),
-                        html.Div(id='last-update', className='status-info', children=""),
-                    ]),
-                    
-                    # Control Buttons
-                    html.Div(className='card', children=[
-                        html.Div(className='form-row', children=[
-                            html.Button(children=[html.Span("▶"), " Start"], id='start-button', n_clicks=0, className='btn btn-success', disabled=True),
-                            html.Button(children=[html.Span("■"), " Stop"], id='stop-button', n_clicks=0, className='btn btn-danger'),
                         ]),
                     ]),
                     
@@ -727,42 +732,41 @@ def dashboard_agent(config, shared_data):
     # ============================================================
     @app.callback(
         [Output('active-source-selector', 'value'),
-         Output('source-manual-option', 'className'),
-         Output('source-api-option', 'className')],
-        [Input('source-manual-option', 'n_clicks'),
-         Input('source-api-option', 'n_clicks')]
+         Output('source-manual-btn', 'className'),
+         Output('source-api-btn', 'className')],
+        [Input('source-manual-btn', 'n_clicks'),
+         Input('source-api-btn', 'n_clicks')]
     )
     def select_active_source(manual_clicks, api_clicks):
         ctx = callback_context
         if not ctx.triggered:
-            return 'manual', 'mode-option selected', 'mode-option'
+            return 'manual', 'toggle-option active', 'toggle-option'
         
         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
         
         try:
-            if trigger_id == 'source-api-option':
+            if trigger_id == 'source-api-btn':
                 with shared_data['lock']:
                     shared_data['active_schedule_source'] = 'api'
-                return 'api', 'mode-option', 'mode-option selected'
+                return 'api', 'toggle-option', 'toggle-option active'
             else:
                 with shared_data['lock']:
                     shared_data['active_schedule_source'] = 'manual'
-                return 'manual', 'mode-option selected', 'mode-option'
+                return 'manual', 'toggle-option active', 'toggle-option'
         except Exception as e:
             logging.error(f"Error selecting source: {e}")
-            return 'manual', 'mode-option selected', 'mode-option'
+            return 'manual', 'toggle-option active', 'toggle-option'
     
     # ============================================================
     # PLANT SELECTION
     # ============================================================
     @app.callback(
         [Output('selected-plant-selector', 'value'),
-         Output('plant-local-option', 'className'),
-         Output('plant-remote-option', 'className'),
-         Output('plant-switch-modal', 'className'),
-         Output('plant-status-display', 'children')],
-        [Input('plant-local-option', 'n_clicks'),
-         Input('plant-remote-option', 'n_clicks'),
+         Output('plant-local-btn', 'className'),
+         Output('plant-remote-btn', 'className'),
+         Output('plant-switch-modal', 'className')],
+        [Input('plant-local-btn', 'n_clicks'),
+         Input('plant-remote-btn', 'n_clicks'),
          Input('plant-switch-cancel', 'n_clicks'),
          Input('plant-switch-confirm', 'n_clicks')],
         [State('selected-plant-selector', 'value')],
@@ -775,9 +779,9 @@ def dashboard_agent(config, shared_data):
             with shared_data['lock']:
                 stored_plant = shared_data.get('selected_plant', 'local')
             if stored_plant == 'remote':
-                return 'remote', 'mode-option', 'mode-option selected', 'hidden', f"Connected to: Remote Plant ({config.get('PLANT_REMOTE_MODBUS_HOST', '10.117.133.21')}:{config.get('PLANT_REMOTE_MODBUS_PORT', 502)})"
+                return 'remote', 'toggle-option', 'toggle-option active', 'hidden'
             else:
-                return 'local', 'mode-option selected', 'mode-option', 'hidden', f"Connected to: Local Plant ({config.get('PLANT_LOCAL_MODBUS_HOST', 'localhost')}:{config.get('PLANT_LOCAL_MODBUS_PORT', 5020)})"
+                return 'local', 'toggle-option active', 'toggle-option', 'hidden'
         
         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
         
@@ -787,9 +791,9 @@ def dashboard_agent(config, shared_data):
             with shared_data['lock']:
                 stored_plant = shared_data.get('selected_plant', 'local')
             if stored_plant == 'remote':
-                return 'remote', 'mode-option', 'mode-option selected', 'hidden', f"Connected to: Remote Plant ({config.get('PLANT_REMOTE_MODBUS_HOST', '10.117.133.21')}:{config.get('PLANT_REMOTE_MODBUS_PORT', 502)})"
+                return 'remote', 'toggle-option', 'toggle-option active', 'hidden'
             else:
-                return 'local', 'mode-option selected', 'mode-option', 'hidden', f"Connected to: Local Plant ({config.get('PLANT_LOCAL_MODBUS_HOST', 'localhost')}:{config.get('PLANT_LOCAL_MODBUS_PORT', 5020)})"
+                return 'local', 'toggle-option active', 'toggle-option', 'hidden'
         
         # Handle confirm button - perform the actual switch
         if trigger_id == 'plant-switch-confirm':
@@ -840,23 +844,23 @@ def dashboard_agent(config, shared_data):
             
             # Return the new selection (will update after switch completes)
             if requested_plant == 'remote':
-                return 'remote', 'mode-option', 'mode-option selected', 'hidden', f"Switching to: Remote Plant..."
+                return 'remote', 'toggle-option', 'toggle-option active', 'hidden'
             else:
-                return 'local', 'mode-option selected', 'mode-option', 'hidden', f"Switching to: Local Plant..."
+                return 'local', 'toggle-option active', 'toggle-option', 'hidden'
         
         # Handle plant option clicks - show confirmation modal
-        if trigger_id == 'plant-remote-option' and current_plant != 'remote':
-            return current_plant, 'mode-option selected', 'mode-option', '', "Confirm switch to Remote Plant..."
-        elif trigger_id == 'plant-local-option' and current_plant != 'local':
-            return current_plant, 'mode-option', 'mode-option selected', '', "Confirm switch to Local Plant..."
+        if trigger_id == 'plant-remote-btn' and current_plant != 'remote':
+            return current_plant, 'toggle-option active', 'toggle-option', ''
+        elif trigger_id == 'plant-local-btn' and current_plant != 'local':
+            return current_plant, 'toggle-option', 'toggle-option active', ''
         
         # Default: no change
         with shared_data['lock']:
             stored_plant = shared_data.get('selected_plant', 'local')
         if stored_plant == 'remote':
-            return 'remote', 'mode-option', 'mode-option selected', 'hidden', f"Connected to: Remote Plant ({config.get('PLANT_REMOTE_MODBUS_HOST', '10.117.133.21')}:{config.get('PLANT_REMOTE_MODBUS_PORT', 502)})"
+            return 'remote', 'toggle-option', 'toggle-option active', 'hidden'
         else:
-            return 'local', 'mode-option selected', 'mode-option', 'hidden', f"Connected to: Local Plant ({config.get('PLANT_LOCAL_MODBUS_HOST', 'localhost')}:{config.get('PLANT_LOCAL_MODBUS_PORT', 5020)})"
+            return 'local', 'toggle-option active', 'toggle-option', 'hidden'
     
     # ============================================================
     # START/STOP BUTTONS - RUN IN BACKGROUND THREAD
@@ -994,33 +998,33 @@ def dashboard_agent(config, shared_data):
         # Determine status display
         if actual_status == 1:
             status_text = "Running"
-            status_class = "status-indicator status-running"
+            status_class = "status-badge status-badge-running"
             start_disabled = True
             stop_disabled = False
         elif actual_status == 0:
             status_text = "Stopped"
-            status_class = "status-indicator status-stopped"
+            status_class = "status-badge status-badge-stopped"
             start_disabled = False
             stop_disabled = True
         else:
             status_text = "Unknown"
-            status_class = "status-indicator status-unknown"
+            status_class = "status-badge status-badge-unknown"
             start_disabled = False
             stop_disabled = False
         
         # Read all shared data with brief locks
         with shared_data['lock']:
+            measurements_df = shared_data.get('measurements_df', pd.DataFrame()).copy()
             active_source = shared_data.get('active_schedule_source', 'manual')
             df_status = shared_data.get('data_fetcher_status', {}).copy()
-            measurements_df = shared_data.get('measurements_df', pd.DataFrame()).copy()
             if active_source == 'api':
                 schedule_df = shared_data.get('api_schedule_df', pd.DataFrame()).copy()
             else:
                 schedule_df = shared_data.get('manual_schedule_df', pd.DataFrame()).copy()
         
+        # Status text messages
         source_text = f"Source: {'API' if active_source == 'api' else 'Manual'}"
         
-        # Data fetcher status
         if df_status.get('connected'):
             df_text = f"API: Connected"
             if df_status.get('today_fetched'):

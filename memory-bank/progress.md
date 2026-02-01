@@ -68,10 +68,54 @@
 ### Dashboard UI (Three-Tab Structure)
 - [x] **Tab 1: Manual Schedule** - Random generation, CSV upload, preview/accept
 - [x] **Tab 2: API Schedule** - Password input, connection status, API schedule preview
-- [x] **Tab 3: Status & Plots** - Active source selector, live graphs, system status
+- [x] **Tab 3: Status & Plots** - Unified control card with toggles, live graphs, system status
 - [x] Modern professional light theme with clean white surfaces
 - [x] Schedule preview with diff visualization (existing vs preview)
 - [x] Responsive design with CSS media queries
+
+### Two-Row Control Panel (2026-02-01)
+- [x] Two-row compact control panel replacing scattered cards
+- [x] **Row 1**: Start/Stop buttons, Schedule toggle, Plant toggle (1/3 width each on medium+)
+- [x] **Row 2**: Status badge + messages (Source, API, Last update)
+- [x] Full-width buttons and toggles on small screens (≤640px)
+- [x] Status messages flow with wrapping on small screens
+- [x] Responsive design with 2 breakpoints
+
+**CSS Classes Added:**
+- `.control-panel` - Main container with two rows
+- `.controls-row` - Row 1 with 3-column layout
+- `.control-section` - Each 1/3 section (flex: 1)
+- `.control-group` - Start/Stop button container
+- `.control-btn` - Compact buttons (flex: 1 on small screens)
+- `.toggle-wrapper` - Label + toggle container
+- `.compact-toggle` - Horizontal toggle switch (flex: 1 on small screens)
+- `.toggle-option` - Individual toggle button
+- `.status-row` - Row 2 with flowing status messages
+- `.status-badge` - Compact pill-style status indicator
+- `.status-text` - Status message text
+
+**Layout Structure:**
+```
+Row 1 (Controls):
+┌─────────────┬──────────────┬──────────────┐
+│ ▶Start ■Stop│ Schedule:[M A]│ Plant:[L R]  │
+└─────────────┴──────────────┴──────────────┘
+
+Row 2 (Status):
+● Running | Source: Manual | API: Connected | 21:30
+```
+
+**Responsive Breakpoints:**
+- Desktop (>768px): 3-column controls, status in single row
+- Tablet (≤768px): Same layout, smaller elements  
+- Mobile (≤640px): Full-width stacked controls, flowing status with wrap
+
+**Key Features:**
+- Plant switch confirmation modal preserved
+- Status messages restored (Source, API status, Last update)
+- Clean visual hierarchy with uppercase labels
+- All controls stretch to full width on mobile
+- Status messages wrap naturally on small screens
 
 ## What's Left to Build
 

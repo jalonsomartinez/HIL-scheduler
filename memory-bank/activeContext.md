@@ -1,9 +1,95 @@
 # Active Context: HIL Scheduler
 
 ## Current Focus
-Dual plant support implementation complete. Application now supports switching between local (emulated) and remote (real hardware) plants via dashboard UI with modal confirmation.
+Compact Status & Plots tab UI implemented. Unified control card with simple toggle switches for Schedule and Plant selection, integrated Start/Stop buttons, and responsive layout for small screens.
 
-## Recent Changes (2026-02-01) - Dual Plant Support
+## Recent Changes (2026-02-01) - Two-Row Control Panel
+
+### Overview
+Redesigned the Status & Plots tab with a compact two-row control panel:
+
+**Before:**
+- Separate cards for Plant Selection, Active Schedule, Control Buttons
+- Large mode-option labels taking significant space
+- Status bar separate from controls
+- Multiple visual elements scattered across the tab
+
+**After:**
+- Two-row control panel with all controls organized
+- **Row 1**: Start/Stop buttons, Schedule toggle, Plant toggle (1/3 width each on medium+)
+- **Row 2**: Status badge and status messages (flowing with wrap on small screens)
+- Responsive: full-width stacking on small screens
+
+### Visual Structure (Medium+ Screens):
+```
+┌───────────────────────────────────────────────────────────────────┐
+│  [▶ Start ■ Stop]  [Schedule: Manual API]  [Plant: Local Remote]  │
+├───────────────────────────────────────────────────────────────────┤
+│     ● Running | Source: Manual | API: Not connected | 21:30       │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+### Visual Structure (Small Screens):
+```
+┌──────────────────────────────────────┐
+│        [▶ Start] [■ Stop]            │
+│  Schedule: [    Manual    API    ]   │
+│  Plant:    [    Local    Remote  ]   │
+├──────────────────────────────────────┤
+│  ● Running | Source: Manual | API:   │
+│  Not connected | 21:30               │
+└──────────────────────────────────────┘
+```
+
+### Layout Structure:
+- **Row 1 - Controls (1/3 width each on medium+)**:
+  1. **Control Section (1/3)**: Start/Stop buttons (full-width on small screens)
+  2. **Control Section (1/3)**: Schedule label + Manual/API toggle
+  3. **Control Section (1/3)**: Plant label + Local/Remote toggle
+
+- **Row 2 - Status (flowing with wrap)**:
+  - Status badge (Running/Stopped/Unknown)
+  - Source: Manual/API
+  - API connection status with point counts
+  - Last update timestamp
+
+### Responsive Behavior:
+- **Desktop (>768px)**: Controls in 3 columns, status in single row
+- **Tablet (≤768px)**: Same layout, smaller padding/fonts
+- **Mobile (≤640px)**: Controls full-width stacked, status flows with wrap
+
+### CSS Classes:
+- `.control-panel` - Main container with two rows
+- `.controls-row` - Row 1: buttons + toggles (3-column layout)
+- `.control-section` - Each 1/3 section
+- `.control-group` - Start/Stop button container
+- `.control-btn` - Compact buttons (flex: 1 on small screens)
+- `.toggle-wrapper` - Label + toggle container
+- `.compact-toggle` - Horizontal toggle switch (flex: 1 on small screens)
+- `.toggle-option` - Individual toggle button
+- `.status-row` - Row 2: status messages (wrap on small screens)
+- `.status-badge` - Compact status indicator (pill style)
+- `.status-text` - Status message text
+
+### Files Modified:
+- [`dashboard_agent.py`](dashboard_agent.py): Two-row control panel layout
+- [`assets/custom.css`](assets/custom.css): Control panel styles with responsive breakpoints
+
+### Responsive Breakpoints:
+- Desktop (>768px): 3-column controls, status in row
+- Tablet (≤768px): Same layout, smaller elements
+- Mobile (≤640px): Full-width stacked controls, flowing status messages
+
+### Key Features:
+- Full-width buttons and toggles on small screens
+- Status messages flow horizontally with wrapping
+- Clean visual hierarchy with labeled sections
+- Plant switch confirmation modal preserved
+- Status messages restored (Source, API, Last update)
+
+---
+
+## Previous: Dual Plant Support
 
 ### Overview
 Implemented support for communicating with two different plants:

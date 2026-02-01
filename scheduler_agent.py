@@ -111,7 +111,7 @@ def scheduler_agent(config, shared_data):
             
             # Handle None or empty schedule - send 0 setpoint
             if schedule_df is None or schedule_df.empty:
-                logging.info("No schedule available, sending 0 setpoint")
+                # logging.info("No schedule available, sending 0 setpoint")
                 p_reg_val = long_list_to_word([0], big_endian=False)
                 q_reg_val = long_list_to_word([0], big_endian=False)
                 client.write_multiple_registers(plant_config['p_setpoint_reg'], p_reg_val)
