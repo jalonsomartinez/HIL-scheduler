@@ -40,44 +40,50 @@ def scheduler_agent(config, shared_data):
             logging.info("Scheduler connected to Plant Modbus server.")
         
         try:
+            # Get schedule reference with minimal lock time
+            # In Python, reading a dict key is atomic due to GIL, but we use lock for consistency
             with shared_data['lock']:
-                # Determine which schedule is active
                 active_source = shared_data.get('active_schedule_source', 'manual')
                 
-                # Log when source changes
-                if active_source != last_active_source:
-                    logging.info(f"Scheduler: Active schedule source changed to '{active_source}'")
-                    last_active_source = active_source
-                
-                # Get the appropriate schedule
+                # Get the appropriate schedule reference (just the reference, not a copy)
                 if active_source == 'api':
                     schedule_df = shared_data.get('api_schedule_df')
                 else:  # default to manual
                     schedule_df = shared_data.get('manual_schedule_df')
-                
-                # Handle None case - send 0 setpoint when no schedule available
-                if schedule_df is None or schedule_df.empty:
-                    # Send 0 setpoint for both P and Q
-                    logging.info("No schedule available, sending 0 setpoint")
-                    p_reg_val = long_list_to_word([0], big_endian=False)
-                    q_reg_val = long_list_to_word([0], big_endian=False)
-                    client.write_multiple_registers(config["PLANT_P_SETPOINT_REGISTER"], p_reg_val)
-                    client.write_multiple_registers(config["PLANT_Q_SETPOINT_REGISTER"], q_reg_val)
-                    time.sleep(config["SCHEDULER_PERIOD_S"])
-                    continue
-                
-                # Use asof for robust lookup
-                current_row = schedule_df.asof(datetime.now())
+            
+            # Log when source changes (outside lock)
+            if active_source != last_active_source:
+                logging.info(f"Scheduler: Active schedule source changed to '{active_source}'")
+                last_active_source = active_source
+            
+            # Handle None or empty schedule - send 0 setpoint
+            if schedule_df is None or schedule_df.empty:
+                logging.info("No schedule available, sending 0 setpoint")
+                p_reg_val = long_list_to_word([0], big_endian=False)
+                q_reg_val = long_list_to_word([0], big_endian=False)
+                client.write_multiple_registers(config["PLANT_P_SETPOINT_REGISTER"], p_reg_val)
+                client.write_multiple_registers(config["PLANT_Q_SETPOINT_REGISTER"], q_reg_val)
+                time.sleep(config["SCHEDULER_PERIOD_S"])
+                continue
+            
+            # Use asof for robust lookup (outside lock - DataFrame is not being modified)
+            current_row = schedule_df.asof(datetime.now())
+            
+            if current_row is None or current_row.empty:
+                logging.info("No current row found in schedule, sending 0 setpoint")
+                current_p_setpoint = 0.0
+                current_q_setpoint = 0.0
+            else:
                 current_p_setpoint = current_row['power_setpoint_kw']
                 current_q_setpoint = current_row.get('reactive_power_setpoint_kvar', 0.0)
-
+                
                 # Check for NaN values and send 0 instead
                 if pd.isna(current_p_setpoint) or pd.isna(current_q_setpoint):
                     logging.warning(f"NaN setpoint found in schedule, sending 0 instead")
                     current_p_setpoint = 0.0
                     current_q_setpoint = 0.0
             
-            # Send active power setpoint if changed
+            # Send active power setpoint if changed (outside lock)
             if current_p_setpoint != previous_p_setpoint:
                 logging.info(
                     f"New active power setpoint: {current_p_setpoint:.2f} kW. Sending to Plant."
@@ -95,7 +101,7 @@ def scheduler_agent(config, shared_data):
                 )
                 previous_p_setpoint = current_p_setpoint
             
-            # Send reactive power setpoint if changed
+            # Send reactive power setpoint if changed (outside lock)
             if current_q_setpoint != previous_q_setpoint:
                 logging.info(
                     f"New reactive power setpoint: {current_q_setpoint:.2f} kvar. Sending to Plant."

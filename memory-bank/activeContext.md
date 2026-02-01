@@ -5,6 +5,21 @@ Split schedule management into two independent schedules: Manual and API.
 
 ## Recent Changes (2026-02-01)
 
+### Critical Bug Fix: Lock Contention Resolved
+**Problem:** Dashboard UI freezing with "Updating" status, slow tab switching and button response.
+
+**Root Cause:** `scheduler_agent.py` held the shared data lock for too long:
+- Lock held during `asof()` DataFrame lookup
+- Lock held during Modbus write operations
+- This blocked the dashboard callbacks from accessing shared data
+
+**Solution:** Minimized lock time in scheduler_agent.py:
+- Lock now only held to get schedule reference (~microseconds)
+- All operations (asof lookup, Modbus writes) happen outside lock
+- Multiple threads can safely read DataFrames simultaneously
+
+**Result:** UI is now responsive, no more "Updating" delays.
+
 ### Major Architecture Refactoring
 Split the monolithic schedule management into two decoupled schedules:
 

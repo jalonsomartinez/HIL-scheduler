@@ -177,17 +177,44 @@ server.stop()
 ## Thread Safety Patterns
 
 ### Shared Data Access
-All access to shared DataFrames uses the lock:
+Minimize lock time - only hold lock for reference operations, not data processing:
 
+```python
+# WRONG: Holding lock during slow operations
+with shared_data['lock']:
+    schedule_df = shared_data['schedule_df']
+    result = schedule_df.asof(timestamp)  # SLOW - don't hold lock!
+    client.write_registers(...)  # SLOW - don't hold lock!
+
+# CORRECT: Get reference quickly, then release lock
+with shared_data['lock']:
+    schedule_df = shared_data['schedule_df']  # Just get reference
+
+# Do all work outside lock
+result = schedule_df.asof(timestamp)  # DataFrame read is thread-safe
+client.write_registers(...)
+```
+
+### Lock Usage Guidelines
+| Operation | Lock Needed? | Notes |
+|-----------|--------------|-------|
+| Read dict reference | Yes (brief) | `shared_data['key']` |
+| Write dict reference | Yes (brief) | `shared_data['key'] = value` |
+| Read DataFrame | No | DataFrames are read-only for consumers |
+| Write DataFrame | Yes | Replace entire DataFrame reference |
+| DataFrame operations | No | `asof()`, indexing, etc. |
+| Modbus/network I/O | No | Never hold lock during I/O |
+
+### Shared Data Access (Legacy Pattern - Keep for Reference)
 ```python
 # Writing
 with shared_data['lock']:
     shared_data['schedule_final_df'] = new_df
 
-# Reading
+# Reading - only get reference, don't copy unless modifying
 with shared_data['lock']:
-    local_copy = shared_data['schedule_final_df'].copy()
-# Work with local_copy outside lock
+    schedule_df = shared_data['schedule_df']
+# Work with schedule_df outside lock
 ```
 
 ### Shutdown Coordination

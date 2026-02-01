@@ -60,6 +60,18 @@ Dashboard UI improvements completed. All 3 schedule modes functional with previe
 
 ## Recent Changes (2026-02-01)
 
+### Critical Bug Fix: Dashboard UI Freezing Resolved
+**Issue:** Dashboard showed "Updating" status for long periods, tab switching was slow.
+
+**Root Cause:** `scheduler_agent.py` held shared data lock during slow operations (asof lookup, Modbus writes).
+
+**Fix:** Refactored scheduler_agent.py to minimize lock time:
+- Lock only held for dictionary lookups (microseconds)
+- All DataFrame operations and Modbus writes happen outside lock
+- Safe because DataFrames are read-only from scheduler perspective
+
+**Verification:** Dashboard is now responsive with no "Updating" delays.
+
 ### Major Architecture Refactoring
 Split schedule management into two independent schedules:
 

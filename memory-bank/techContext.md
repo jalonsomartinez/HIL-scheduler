@@ -182,6 +182,19 @@ Each thread:
 3. Sleeps for configured period
 4. Handles cleanup on exit
 
+### Lock Contention Best Practices
+**Critical Lesson Learned (2026-02-01):**
+- Holding locks during I/O or slow operations causes UI freezing
+- Scheduler agent was holding lock during `asof()` lookup and Modbus writes
+- Fixed by minimizing lock time to just dictionary reference operations
+- Result: Dashboard is now responsive with no "Updating" delays
+
+**Performance Impact:**
+| Lock Strategy | Dashboard Response | Status |
+|---------------|-------------------|---------|
+| Hold during I/O | 1-10 seconds "Updating" | ❌ Bad |
+| Minimal lock time | Instant response | ✅ Good |
+
 ## Plant Model
 
 ### Impedance Model
