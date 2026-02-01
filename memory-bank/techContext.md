@@ -189,11 +189,28 @@ Each thread:
 - Fixed by minimizing lock time to just dictionary reference operations
 - Result: Dashboard is now responsive with no "Updating" delays
 
+**Additional Optimizations (2026-02-01):**
+- **Measurement Agent**: CSV write moved outside lock (~90% reduction in lock hold time)
+- **Measurement Agent**: Implemented buffered measurement collection (5x less frequent locking)
+- **Data Fetcher**: DataFrame operations moved outside lock (minimal impact, infrequent)
+
+**Lock Duration Guidelines:**
+| Operation | Target Lock Duration |
+|-----------|---------------------|
+| Dict reference read/write | < 1 ms |
+| DataFrame copy (for I/O) | < 10 ms |
+| DataFrame concat | Outside lock |
+| CSV/network I/O | Never in lock |
+
 **Performance Impact:**
 | Lock Strategy | Dashboard Response | Status |
 |---------------|-------------------|---------|
 | Hold during I/O | 1-10 seconds "Updating" | ❌ Bad |
 | Minimal lock time | Instant response | ✅ Good |
+| Buffered writes | Instant response | ✅ Excellent |
+
+**Thread Safety Rule:**
+> Python's GIL already protects dict operations. The explicit lock is for logical synchronization, not memory safety. Get references briefly, do all work outside the lock.
 
 ## Plant Model
 

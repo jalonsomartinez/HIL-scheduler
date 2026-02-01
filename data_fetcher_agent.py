@@ -120,16 +120,22 @@ def data_fetcher_agent(config, shared_data):
                     
                     if schedule:
                         df = api.schedule_to_dataframe(schedule)
+                        
+                        # Get existing schedule reference (brief lock)
                         with shared_data['lock']:
-                            # Append to existing schedule
                             existing_df = shared_data['api_schedule_df']
-                            if not existing_df.empty:
-                                # Remove overlapping periods
-                                non_overlapping = existing_df.index.difference(df.index)
-                                existing_df = existing_df.loc[non_overlapping]
-                                combined_df = pd.concat([existing_df, df]).sort_index()
-                            else:
-                                combined_df = df
+                        
+                        # DataFrame operations outside lock
+                        if not existing_df.empty:
+                            # Remove overlapping periods
+                            non_overlapping = existing_df.index.difference(df.index)
+                            existing_df = existing_df.loc[non_overlapping]
+                            combined_df = pd.concat([existing_df, df]).sort_index()
+                        else:
+                            combined_df = df
+                        
+                        # Brief lock only for assignment
+                        with shared_data['lock']:
                             shared_data['api_schedule_df'] = combined_df
                         
                         _update_status(shared_data, 

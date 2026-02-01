@@ -204,6 +204,62 @@ client.write_registers(...)
 | Write DataFrame | Yes | Replace entire DataFrame reference |
 | DataFrame operations | No | `asof()`, indexing, etc. |
 | Modbus/network I/O | No | Never hold lock during I/O |
+| Disk I/O (CSV write) | No | Copy DataFrame, write outside lock |
+| DataFrame concat/merge | No | Prepare outside lock, assign with brief lock |
+
+### Measurement Agent Pattern (Buffer for Efficiency)
+Use a local buffer to batch updates and reduce lock frequency:
+
+```python
+# Initialize buffer
+measurement_buffer = []
+FLUSH_INTERVAL_S = 10
+BUFFER_SIZE_LIMIT = 100
+
+# Collect measurements (no lock needed)
+measurement_buffer.append({
+    "timestamp": datetime.now(),
+    "value": measurement_value,
+    # ...
+})
+
+# Flush periodically
+if len(measurement_buffer) >= BUFFER_SIZE_LIMIT:
+    buffer_df = pd.DataFrame(measurement_buffer)
+    with shared_data['lock']:
+        shared_data['measurements_df'] = pd.concat([...])
+    measurement_buffer = []
+```
+
+### CSV Write Pattern (Avoid I/O in Lock)
+```python
+# WRONG: Disk I/O inside lock
+with shared_data['lock']:
+    shared_data['measurements_df'].to_csv('file.csv')  # Blocks all threads!
+
+# CORRECT: Copy reference, write outside lock
+with shared_data['lock']:
+    df = shared_data['measurements_df'].copy()
+df.to_csv('file.csv')  # Other threads not blocked
+```
+
+### Data Fetcher Pattern (Prepare Outside Lock)
+```python
+# Get reference with brief lock
+with shared_data['lock']:
+    existing_df = shared_data['api_schedule_df']
+
+# DataFrame operations outside lock
+if not existing_df.empty:
+    non_overlapping = existing_df.index.difference(df.index)
+    combined_df = pd.concat([existing_df.loc[non_overlapping], df])
+else:
+    combined_df = df
+
+# Brief lock only for assignment
+with shared_data['lock']:
+    shared_data['api_schedule_df'] = combined_df
+```
 
 ### Shared Data Access (Legacy Pattern - Keep for Reference)
 ```python

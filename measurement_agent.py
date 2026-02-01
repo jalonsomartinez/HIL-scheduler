@@ -20,17 +20,27 @@ def measurement_agent(config, shared_data):
         port=config["PLANT_MODBUS_PORT"]
     )
     
+    # Buffer for measurements to reduce lock contention
+    # Collect measurements in a list and flush periodically
+    measurement_buffer = []
+    last_flush_time = time.time()
+    FLUSH_INTERVAL_S = 10  # Flush buffer to shared DataFrame every 10 seconds
+    BUFFER_SIZE_LIMIT = 100  # Or when buffer reaches this size
+    
     last_write_time = time.time()
     
     def write_measurements_to_csv():
+        # Get reference to DataFrame with brief lock, then write outside lock
+        # This prevents disk I/O from blocking other threads
         with shared_data['lock']:
-            measurements_df = shared_data['measurements_df']
-            if not measurements_df.empty:
-                logging.debug(
-                    f"Writing {len(measurements_df)} measurements to "
-                    f"{config['MEASUREMENTS_CSV']}"
-                )
-                measurements_df.to_csv(config['MEASUREMENTS_CSV'], index=False)
+            measurements_df = shared_data['measurements_df'].copy()
+        
+        if not measurements_df.empty:
+            logging.debug(
+                f"Writing {len(measurements_df)} measurements to "
+                f"{config['MEASUREMENTS_CSV']}"
+            )
+            measurements_df.to_csv(config['MEASUREMENTS_CSV'], index=False)
     
     while not shared_data['shutdown_event'].is_set():
         start_loop_time = time.time()
@@ -158,8 +168,8 @@ def measurement_agent(config, shared_data):
                 f"V_poi={v_poi_pu:.4f}pu"
             )
             
-            # Append to shared dataframe
-            new_row = pd.DataFrame([{
+            # Add to buffer (no lock needed for local list)
+            measurement_buffer.append({
                 "timestamp": datetime.now(),
                 "p_setpoint_kw": p_setpoint_kw,
                 "battery_active_power_kw": battery_active_power_kw,
@@ -169,16 +179,29 @@ def measurement_agent(config, shared_data):
                 "p_poi_kw": p_poi_kw,
                 "q_poi_kvar": q_poi_kvar,
                 "v_poi_pu": v_poi_pu
-            }])
+            })
             
-            with shared_data['lock']:
-                if shared_data['measurements_df'].empty:
-                    shared_data['measurements_df'] = new_row
-                else:
-                    shared_data['measurements_df'] = pd.concat(
-                        [shared_data['measurements_df'], new_row],
-                        ignore_index=True
-                    )
+            # Flush buffer to shared DataFrame periodically
+            current_time = time.time()
+            should_flush = (
+                len(measurement_buffer) >= BUFFER_SIZE_LIMIT or
+                (current_time - last_flush_time) >= FLUSH_INTERVAL_S
+            )
+            
+            if should_flush and measurement_buffer:
+                buffer_df = pd.DataFrame(measurement_buffer)
+                
+                with shared_data['lock']:
+                    if shared_data['measurements_df'].empty:
+                        shared_data['measurements_df'] = buffer_df
+                    else:
+                        shared_data['measurements_df'] = pd.concat(
+                            [shared_data['measurements_df'], buffer_df],
+                            ignore_index=True
+                        )
+                
+                measurement_buffer = []
+                last_flush_time = current_time
             
             # Periodically write to CSV
             if time.time() - last_write_time >= config["MEASUREMENTS_WRITE_PERIOD_S"]:
@@ -190,8 +213,20 @@ def measurement_agent(config, shared_data):
         
         time.sleep(max(0, config["MEASUREMENT_PERIOD_S"] - (time.time() - start_loop_time)))
     
-    # Cleanup
-    logging.info("Measurement agent stopping. Performing final write to CSV...")
+    # Cleanup - flush any remaining buffered measurements
+    logging.info("Measurement agent stopping. Flushing remaining measurements...")
+    if measurement_buffer:
+        buffer_df = pd.DataFrame(measurement_buffer)
+        with shared_data['lock']:
+            if shared_data['measurements_df'].empty:
+                shared_data['measurements_df'] = buffer_df
+            else:
+                shared_data['measurements_df'] = pd.concat(
+                    [shared_data['measurements_df'], buffer_df],
+                    ignore_index=True
+                )
+    
+    logging.info("Performing final write to CSV...")
     write_measurements_to_csv()
     plant_client.close()
     logging.info("Measurement agent stopped.")
