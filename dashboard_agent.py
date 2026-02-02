@@ -1224,7 +1224,7 @@ def dashboard_agent(config, shared_data):
             uirevision='constant', showlegend=True,
             legend=dict(orientation="h", yanchor="bottom", y=1.12, xanchor="center", x=0.5),
             margin=dict(l=60, r=20, t=100, b=40),
-            plot_bgcolor='#f5f5ff', paper_bgcolor='#ffffff',
+            plot_bgcolor='#f8f8ff', paper_bgcolor='#ffffff',
         )
         fig.update_yaxes(title_text="Power (kW)", row=1, col=1, gridcolor='#e2e8f0')
         fig.update_yaxes(title_text="SoC (pu)", row=2, col=1, gridcolor='#e2e8f0')
