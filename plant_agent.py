@@ -2,8 +2,7 @@ import logging
 import time
 import numpy as np
 from pyModbusTCP.server import ModbusServer
-from pyModbusTCP.utils import get_2comp, word_list_to_long, long_list_to_word
-from utils import kw_to_hw, hw_to_kw
+from utils import kw_to_hw, hw_to_kw, int_to_uint16, uint16_to_int
 
 
 def plant_agent(config, shared_data):
@@ -46,51 +45,33 @@ def plant_agent(config, shared_data):
     was_limited_previously = False
     previous_limited_power_kw = None
     
-    # Initialize Modbus registers with default values
+    # Initialize Modbus registers with default values (all 16-bit registers)
     plant_server.data_bank.set_holding_registers(config["PLANT_ENABLE_REGISTER"], [0])  # Disabled by default
     plant_server.data_bank.set_holding_registers(config["PLANT_SOC_REGISTER"], [int(soc_pu * 10000)])
     
-    # Active power setpoint registers
-    plant_server.data_bank.set_holding_registers(
-        config["PLANT_P_SETPOINT_REGISTER"],
-        long_list_to_word([0], big_endian=False)
-    )
-    plant_server.data_bank.set_holding_registers(
-        config["PLANT_P_BATTERY_ACTUAL_REGISTER"],
-        long_list_to_word([0], big_endian=False)
-    )
+    # Active power setpoint registers (16-bit)
+    plant_server.data_bank.set_holding_registers(config["PLANT_P_SETPOINT_REGISTER"], [0])
+    plant_server.data_bank.set_holding_registers(config["PLANT_P_BATTERY_ACTUAL_REGISTER"], [0])
     
-    # Reactive power setpoint registers
-    plant_server.data_bank.set_holding_registers(
-        config["PLANT_Q_SETPOINT_REGISTER"],
-        long_list_to_word([0], big_endian=False)
-    )
-    plant_server.data_bank.set_holding_registers(
-        config["PLANT_Q_BATTERY_ACTUAL_REGISTER"],
-        long_list_to_word([0], big_endian=False)
-    )
+    # Reactive power setpoint registers (16-bit)
+    plant_server.data_bank.set_holding_registers(config["PLANT_Q_SETPOINT_REGISTER"], [0])
+    plant_server.data_bank.set_holding_registers(config["PLANT_Q_BATTERY_ACTUAL_REGISTER"], [0])
     
-    # POI measurement registers
-    plant_server.data_bank.set_holding_registers(
-        config["PLANT_P_POI_REGISTER"],
-        long_list_to_word([0], big_endian=False)
-    )
-    plant_server.data_bank.set_holding_registers(
-        config["PLANT_Q_POI_REGISTER"],
-        long_list_to_word([0], big_endian=False)
-    )
+    # POI measurement registers (16-bit)
+    plant_server.data_bank.set_holding_registers(config["PLANT_P_POI_REGISTER"], [0])
+    plant_server.data_bank.set_holding_registers(config["PLANT_Q_POI_REGISTER"], [0])
     plant_server.data_bank.set_holding_registers(config["PLANT_V_POI_REGISTER"], [10000])  # 1.0 pu
     
     while not shared_data['shutdown_event'].is_set():
         start_loop_time = time.time()
         
         try:
-            # --- Read inputs from Modbus ---
+            # --- Read inputs from Modbus (all 16-bit registers) ---
             regs_p_setpoint = plant_server.data_bank.get_holding_registers(
-                config["PLANT_P_SETPOINT_REGISTER"], 2
+                config["PLANT_P_SETPOINT_REGISTER"], 1
             )
             regs_q_setpoint = plant_server.data_bank.get_holding_registers(
-                config["PLANT_Q_SETPOINT_REGISTER"], 2
+                config["PLANT_Q_SETPOINT_REGISTER"], 1
             )
             regs_enable = plant_server.data_bank.get_holding_registers(
                 config["PLANT_ENABLE_REGISTER"], 1
@@ -101,15 +82,11 @@ def plant_agent(config, shared_data):
                 time.sleep(max(0.1, dt_s - (time.time() - start_loop_time)))
                 continue
             
-            # Decode active power setpoint
-            original_p_kw = hw_to_kw(
-                get_2comp(word_list_to_long(regs_p_setpoint, big_endian=False)[0], 32)
-            )
+            # Decode active power setpoint (16-bit signed)
+            original_p_kw = hw_to_kw(uint16_to_int(regs_p_setpoint[0]))
             
-            # Decode reactive power setpoint
-            original_q_kvar = hw_to_kw(
-                get_2comp(word_list_to_long(regs_q_setpoint, big_endian=False)[0], 32)
-            )
+            # Decode reactive power setpoint (16-bit signed)
+            original_q_kvar = hw_to_kw(uint16_to_int(regs_q_setpoint[0]))
             
             # Check enable flag
             is_enabled = regs_enable[0] == 1
@@ -178,42 +155,38 @@ def plant_agent(config, shared_data):
             # Convert to per-unit for Modbus register (assuming 20 kV nominal)
             v_poi_pu = poi_voltage_v / 20000.0
             
-            # --- Update Modbus Registers ---
-            # Active power battery actual
-            p_actual_reg = long_list_to_word(
-                [kw_to_hw(actual_p_kw)], big_endian=False
-            )
+            # --- Update Modbus Registers (all 16-bit) ---
+            # Active power battery actual (16-bit signed)
+            p_actual_reg = int_to_uint16(kw_to_hw(actual_p_kw))
             plant_server.data_bank.set_holding_registers(
-                config["PLANT_P_BATTERY_ACTUAL_REGISTER"], p_actual_reg
+                config["PLANT_P_BATTERY_ACTUAL_REGISTER"], [p_actual_reg]
             )
             
-            # Reactive power battery actual
-            q_actual_reg = long_list_to_word(
-                [kw_to_hw(actual_q_kvar)], big_endian=False
-            )
+            # Reactive power battery actual (16-bit signed)
+            q_actual_reg = int_to_uint16(kw_to_hw(actual_q_kvar))
             plant_server.data_bank.set_holding_registers(
-                config["PLANT_Q_BATTERY_ACTUAL_REGISTER"], q_actual_reg
+                config["PLANT_Q_BATTERY_ACTUAL_REGISTER"], [q_actual_reg]
             )
             
-            # SoC
+            # SoC (16-bit unsigned)
             soc_reg = int(soc_pu * 10000)
             plant_server.data_bank.set_holding_registers(
                 config["PLANT_SOC_REGISTER"], [soc_reg]
             )
             
-            # P at POI
-            p_poi_reg = long_list_to_word([kw_to_hw(p_poi_kw)], big_endian=False)
+            # P at POI (16-bit signed)
+            p_poi_reg = int_to_uint16(kw_to_hw(p_poi_kw))
             plant_server.data_bank.set_holding_registers(
-                config["PLANT_P_POI_REGISTER"], p_poi_reg
+                config["PLANT_P_POI_REGISTER"], [p_poi_reg]
             )
             
-            # Q at POI
-            q_poi_reg = long_list_to_word([kw_to_hw(q_poi_kvar)], big_endian=False)
+            # Q at POI (16-bit signed)
+            q_poi_reg = int_to_uint16(kw_to_hw(q_poi_kvar))
             plant_server.data_bank.set_holding_registers(
-                config["PLANT_Q_POI_REGISTER"], q_poi_reg
+                config["PLANT_Q_POI_REGISTER"], [q_poi_reg]
             )
             
-            # V at POI
+            # V at POI (16-bit unsigned)
             v_poi_reg = int(v_poi_pu * 100)
             plant_server.data_bank.set_holding_registers(
                 config["PLANT_V_POI_REGISTER"], [v_poi_reg]

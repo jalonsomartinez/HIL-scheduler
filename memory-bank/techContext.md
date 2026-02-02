@@ -29,13 +29,27 @@ Each agent runs in its own thread with:
 - Exception handling to prevent thread crashes
 
 ### Modbus Communication Pattern
+All registers are 16-bit. For signed values, two's complement encoding is used.
+
 ```
-Python Float (kW/kWh) 
-    ↓ [convert_units]
-Modbus Value (hW/hWh or encoded)
-    ↓ [write_to_register]
+Python Float (kW/kvar) 
+    ↓ [kw_to_hw] - Convert to hectowatts (×10)
+Signed Integer (hW)
+    ↓ [int_to_uint16] - Two's complement for negatives
 16-bit Unsigned Register
+
+16-bit Unsigned Register
+    ↓ [uint16_to_int] - Two's complement decode
+Signed Integer (hW)
+    ↓ [hw_to_kw] - Convert to kilowatts (÷10)
+Python Float (kW/kvar)
 ```
+
+**Key utility functions** (in [`utils.py`](../utils.py)):
+- [`kw_to_hw()`](utils.py:5): Convert kW to hW (hectowatts)
+- [`hw_to_kw()`](utils.py:8): Convert hW to kW
+- [`int_to_uint16()`](utils.py:20): Encode signed int to 16-bit register
+- [`uint16_to_int()`](utils.py:35): Decode 16-bit register to signed int
 
 ### Unit Conversions
 | Type | Python Variable | Modbus Register | Conversion |
@@ -311,16 +325,20 @@ The [`config.py`](config.py) file is retained for HIL (remote) plant configurati
 
 ## Modbus Register Map
 
-### Plant Agent (Unified Server)
-| Register | Address | Type | Description |
-|----------|---------|------|-------------|
-| SETPOINT_IN | 0 (local) | 32-bit signed | Power setpoint from scheduler (hW) |
-| SETPOINT_ACTUAL | 2 (local) | 32-bit signed | Actual power after limiting (hW) |
-| ENABLE | 10 (local) | 16-bit unsigned | 0=disabled, 1=enabled |
-| SOC | 12 (local) | 16-bit unsigned | State of Charge (×10000) |
-| P_POI | 14 (local) | 32-bit signed | Active power at POI (hW) |
-| Q_POI | 16 (local) | 32-bit signed | Reactive power at POI (hW) |
-| V_POI | 18 (local) | 16-bit unsigned | Voltage at POI (×100) |
+### Plant Agent (Unified Server - All 16-bit Registers)
+| Register | Local Addr | Remote Addr | Type | Description |
+|----------|------------|-------------|------|-------------|
+| P_SETPOINT_IN | 0 | 86 | 16-bit signed | Active power setpoint from scheduler (hW) |
+| P_BATTERY | 2 | 270 | 16-bit signed | Actual active power after SoC limiting (hW) |
+| Q_SETPOINT_IN | 4 | 88 | 16-bit signed | Reactive power setpoint from scheduler (hW) |
+| Q_BATTERY | 6 | 272 | 16-bit signed | Actual reactive power (hW) |
+| ENABLE | 10 | 1 | 16-bit unsigned | 0=disabled, 1=enabled |
+| SOC | 12 | 281 | 16-bit unsigned | State of Charge (×10000) |
+| P_POI | 14 | 290 | 16-bit signed | Active power at POI (hW) |
+| Q_POI | 16 | 292 | 16-bit signed | Reactive power at POI (hW) |
+| V_POI | 18 | 296 | 16-bit unsigned | Voltage at POI (×100) |
+
+**16-bit Signed Range:** -32768 to +32767 hW = ±3276.7 kW (sufficient for configured ±1000 kW limits)
 
 ## Data File Formats
 

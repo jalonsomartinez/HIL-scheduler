@@ -1,6 +1,78 @@
 # Active Context: HIL Scheduler
 
 ## Current Focus
+Unified all Modbus registers to 16-bit format to match the remote plant (RTDS HIL) configuration. Previously, the local emulated plant used 32-bit registers (2 words per power value) while the remote plant used 16-bit registers (1 word per value). Now both use 16-bit registers consistently.
+
+## Recent Changes (2026-02-02) - 16-bit Modbus Register Unification
+
+### Overview
+Changed all power register operations from 32-bit to 16-bit to match the remote plant configuration.
+
+**Problem:** Code used pyModbusTCP's `long_list_to_word()` / `word_list_to_long()` for 32-bit values, but remote plant uses 16-bit registers.
+
+**Solution:** Added new utility functions for 16-bit signed handling and updated all agents to use single-register reads/writes.
+
+### Files Modified
+
+1. **[`utils.py`](utils.py)**:
+   - Added `int_to_uint16()` - Convert signed int to unsigned 16-bit register value
+   - Added `uint16_to_int()` - Convert unsigned 16-bit register value to signed int
+
+2. **[`config.yaml`](config.yaml)**:
+   - Updated comments in `modbus_local` section to show "16-bit signed" for power registers
+
+3. **[`scheduler_agent.py`](scheduler_agent.py)**:
+   - Replaced `long_list_to_word()` import with `int_to_uint16`
+   - Changed `write_multiple_registers()` to `write_single_register()`
+   - Setpoints now write as single 16-bit values
+
+4. **[`measurement_agent.py`](measurement_agent.py)**:
+   - Removed `get_2comp` and `word_list_to_long` imports, added `uint16_to_int`
+   - Changed `read_holding_registers(..., 2)` to `read_holding_registers(..., 1)` for power values
+   - Decodes using `uint16_to_int()` instead of 32-bit conversion
+
+5. **[`plant_agent.py`](plant_agent.py)**:
+   - Removed 32-bit utility imports, added `int_to_uint16` and `uint16_to_int`
+   - Server initialization uses single-value lists instead of `long_list_to_word()`
+   - Reading/writing registers now uses 1 word instead of 2 for power values
+
+### Technical Details
+
+**16-bit Signed Handling:**
+```python
+def int_to_uint16(value):  # For writing
+    if value < 0:
+        return value + 65536  # Two's complement
+    return value & 0xFFFF
+
+def uint16_to_int(value):  # For reading
+    if value >= 32768:  # Negative (high bit set)
+        return value - 65536
+    return value
+```
+
+**Value Range:**
+- 16-bit signed: -32768 to +32767
+- In hW (hectowatts): ±3276.7 kW
+- Sufficient for configured limits (±1000 kW / ±600 kvar)
+
+### Register Map (After Change)
+
+| Register | Local | Remote | Size | Type |
+|----------|-------|--------|------|------|
+| p_setpoint_in | 0 | 86 | 1 word | signed |
+| p_battery | 2 | 270 | 1 word | signed |
+| q_setpoint_in | 4 | 88 | 1 word | signed |
+| q_battery | 6 | 272 | 1 word | signed |
+| enable | 10 | 1 | 1 word | unsigned |
+| soc | 12 | 281 | 1 word | unsigned |
+| p_poi | 14 | 290 | 1 word | signed |
+| q_poi | 16 | 292 | 1 word | signed |
+| v_poi | 18 | 296 | 1 word | unsigned |
+
+---
+
+## Previous Focus
 Implemented log file selector dropdown to replace the "Clear Display" button in the Logs tab. Users can now browse historical log files from the logs/ folder instead of only viewing current session logs.
 
 ## Recent Changes (2026-02-02) - Dashboard State Transition Improvements

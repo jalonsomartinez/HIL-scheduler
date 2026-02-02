@@ -3,8 +3,7 @@ import time
 import pandas as pd
 from datetime import datetime
 from pyModbusTCP.client import ModbusClient
-from pyModbusTCP.utils import get_2comp, word_list_to_long
-from utils import hw_to_kw
+from utils import hw_to_kw, uint16_to_int
 
 
 def measurement_agent(config, shared_data):
@@ -152,22 +151,20 @@ def measurement_agent(config, shared_data):
             logging.info("Measurement agent connected to Plant Modbus server.")
         
         try:
-            # Read all values from plant agent
+            # Read all values from plant agent (all 16-bit registers)
             # 1. Active power setpoint (what scheduler sent)
             regs_p_setpoint = plant_client.read_holding_registers(
-                plant_config['p_setpoint_reg'], 2
+                plant_config['p_setpoint_reg'], 1
             )
             if not regs_p_setpoint:
                 logging.warning("Measurement agent could not read P setpoint from Plant.")
                 return False
             
-            p_setpoint_kw = hw_to_kw(
-                get_2comp(word_list_to_long(regs_p_setpoint, big_endian=False)[0], 32)
-            )
+            p_setpoint_kw = hw_to_kw(uint16_to_int(regs_p_setpoint[0]))
             
             # 2. Actual active power (after SoC limiting)
             regs_p_actual = plant_client.read_holding_registers(
-                plant_config['p_battery_reg'], 2
+                plant_config['p_battery_reg'], 1
             )
             if not regs_p_actual:
                 logging.warning(
@@ -175,25 +172,21 @@ def measurement_agent(config, shared_data):
                 )
                 return False
             
-            battery_active_power_kw = hw_to_kw(
-                get_2comp(word_list_to_long(regs_p_actual, big_endian=False)[0], 32)
-            )
+            battery_active_power_kw = hw_to_kw(uint16_to_int(regs_p_actual[0]))
             
             # 3. Reactive power setpoint (what scheduler sent)
             regs_q_setpoint = plant_client.read_holding_registers(
-                plant_config['q_setpoint_reg'], 2
+                plant_config['q_setpoint_reg'], 1
             )
             if not regs_q_setpoint:
                 logging.warning("Measurement agent could not read Q setpoint from Plant.")
                 return False
             
-            q_setpoint_kvar = hw_to_kw(
-                get_2comp(word_list_to_long(regs_q_setpoint, big_endian=False)[0], 32)
-            )
+            q_setpoint_kvar = hw_to_kw(uint16_to_int(regs_q_setpoint[0]))
             
             # 4. Actual reactive power (after limit clamping)
             regs_q_actual = plant_client.read_holding_registers(
-                plant_config['q_battery_reg'], 2
+                plant_config['q_battery_reg'], 1
             )
             if not regs_q_actual:
                 logging.warning(
@@ -201,11 +194,9 @@ def measurement_agent(config, shared_data):
                 )
                 return False
             
-            battery_reactive_power_kvar = hw_to_kw(
-                get_2comp(word_list_to_long(regs_q_actual, big_endian=False)[0], 32)
-            )
+            battery_reactive_power_kvar = hw_to_kw(uint16_to_int(regs_q_actual[0]))
             
-            # 5. State of Charge
+            # 5. State of Charge (16-bit unsigned)
             regs_soc = plant_client.read_holding_registers(
                 plant_config['soc_reg'], 1
             )
@@ -217,29 +208,25 @@ def measurement_agent(config, shared_data):
             
             # 6. Active power at POI
             regs_p_poi = plant_client.read_holding_registers(
-                plant_config['p_poi_reg'], 2
+                plant_config['p_poi_reg'], 1
             )
             if not regs_p_poi:
                 logging.warning("Measurement agent could not read P_poi from Plant.")
                 return False
             
-            p_poi_kw = hw_to_kw(
-                get_2comp(word_list_to_long(regs_p_poi, big_endian=False)[0], 32)
-            )
+            p_poi_kw = hw_to_kw(uint16_to_int(regs_p_poi[0]))
             
             # 7. Reactive power at POI
             regs_q_poi = plant_client.read_holding_registers(
-                plant_config['q_poi_reg'], 2
+                plant_config['q_poi_reg'], 1
             )
             if not regs_q_poi:
                 logging.warning("Measurement agent could not read Q_poi from Plant.")
                 return False
             
-            q_poi_kvar = hw_to_kw(
-                get_2comp(word_list_to_long(regs_q_poi, big_endian=False)[0], 32)
-            )
+            q_poi_kvar = hw_to_kw(uint16_to_int(regs_q_poi[0]))
             
-            # 8. Voltage at POI
+            # 8. Voltage at POI (16-bit unsigned)
             regs_v_poi = plant_client.read_holding_registers(
                 plant_config['v_poi_reg'], 1
             )

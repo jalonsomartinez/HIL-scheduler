@@ -615,16 +615,18 @@ def load_config(path="config.yaml"):
 
 ## Register Map Pattern
 
-New unified register map for Plant Agent:
+Unified register map for Plant Agent (all 16-bit registers):
 
-| Address | Size | Register Name | Config Key |
-|---------|------|---------------|------------|
-| 0-1 | 2 words | P_SETPOINT_IN | PLANT_P_SETPOINT_REGISTER |
-| 2-3 | 2 words | P_BATTERY | PLANT_P_BATTERY_ACTUAL_REGISTER |
-| 4-5 | 2 words | Q_SETPOINT_IN | PLANT_Q_SETPOINT_REGISTER |
-| 6-7 | 2 words | Q_BATTERY | PLANT_Q_BATTERY_ACTUAL_REGISTER |
-| 10 | 1 word | ENABLE | PLANT_ENABLE_REGISTER |
-| 12 | 1 word | SOC | PLANT_SOC_REGISTER |
-| 14-15 | 2 words | P_POI | PLANT_P_POI_REGISTER |
-| 16-17 | 2 words | Q_POI | PLANT_Q_POI_REGISTER |
-| 18 | 1 word | V_POI | PLANT_V_POI_REGISTER |
+| Address | Size | Type | Register Name | Config Key |
+|---------|------|------|---------------|------------|
+| 0 | 1 word | signed | P_SETPOINT_IN | PLANT_P_SETPOINT_REGISTER |
+| 2 | 1 word | signed | P_BATTERY | PLANT_P_BATTERY_ACTUAL_REGISTER |
+| 4 | 1 word | signed | Q_SETPOINT_IN | PLANT_Q_SETPOINT_REGISTER |
+| 6 | 1 word | signed | Q_BATTERY | PLANT_Q_BATTERY_ACTUAL_REGISTER |
+| 10 | 1 word | unsigned | ENABLE | PLANT_ENABLE_REGISTER |
+| 12 | 1 word | unsigned | SOC | PLANT_SOC_REGISTER |
+| 14 | 1 word | signed | P_POI | PLANT_P_POI_REGISTER |
+| 16 | 1 word | signed | Q_POI | PLANT_Q_POI_REGISTER |
+| 18 | 1 word | unsigned | V_POI | PLANT_V_POI_REGISTER |
+
+**Note:** Power values are stored in hW (hectowatts) = 0.1 kW. Range: ±3276.7 kW for 16-bit signed.

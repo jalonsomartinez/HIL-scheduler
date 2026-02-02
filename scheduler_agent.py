@@ -3,8 +3,7 @@ import time
 import pandas as pd
 from datetime import datetime
 from pyModbusTCP.client import ModbusClient
-from pyModbusTCP.utils import long_list_to_word
-from utils import kw_to_hw
+from utils import kw_to_hw, int_to_uint16
 
 
 def scheduler_agent(config, shared_data):
@@ -112,10 +111,8 @@ def scheduler_agent(config, shared_data):
             # Handle None or empty schedule - send 0 setpoint
             if schedule_df is None or schedule_df.empty:
                 # logging.info("No schedule available, sending 0 setpoint")
-                p_reg_val = long_list_to_word([0], big_endian=False)
-                q_reg_val = long_list_to_word([0], big_endian=False)
-                client.write_multiple_registers(plant_config['p_setpoint_reg'], p_reg_val)
-                client.write_multiple_registers(plant_config['q_setpoint_reg'], q_reg_val)
+                client.write_single_register(plant_config['p_setpoint_reg'], 0)
+                client.write_single_register(plant_config['q_setpoint_reg'], 0)
                 time.sleep(config["SCHEDULER_PERIOD_S"])
                 continue
             
@@ -142,13 +139,10 @@ def scheduler_agent(config, shared_data):
                     f"New active power setpoint: {current_p_setpoint:.2f} kW. Sending to Plant."
                 )
                 
-                # Convert to hW and then to 32-bit signed integer for Modbus
-                p_reg_val = long_list_to_word(
-                    [kw_to_hw(current_p_setpoint)],
-                    big_endian=False
-                )
+                # Convert to hW and then to 16-bit signed integer for Modbus
+                p_reg_val = int_to_uint16(kw_to_hw(current_p_setpoint))
                 
-                client.write_multiple_registers(
+                client.write_single_register(
                     plant_config['p_setpoint_reg'],
                     p_reg_val
                 )
@@ -160,13 +154,10 @@ def scheduler_agent(config, shared_data):
                     f"New reactive power setpoint: {current_q_setpoint:.2f} kvar. Sending to Plant."
                 )
                 
-                # Convert to hW and then to 32-bit signed integer for Modbus
-                q_reg_val = long_list_to_word(
-                    [kw_to_hw(current_q_setpoint)],
-                    big_endian=False
-                )
+                # Convert to hW and then to 16-bit signed integer for Modbus
+                q_reg_val = int_to_uint16(kw_to_hw(current_q_setpoint))
                 
-                client.write_multiple_registers(
+                client.write_single_register(
                     plant_config['q_setpoint_reg'],
                     q_reg_val
                 )
