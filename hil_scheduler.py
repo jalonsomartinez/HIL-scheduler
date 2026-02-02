@@ -5,6 +5,7 @@ import time
 from datetime import datetime, timedelta
 
 from config_loader import load_config
+from logger_config import setup_logging
 from scheduler_agent import scheduler_agent
 from data_fetcher_agent import data_fetcher_agent
 from plant_agent import plant_agent
@@ -19,10 +20,15 @@ def main():
     
     # --- Configuration ---
     config = load_config("config.yaml")
-    logging.basicConfig(
-        level=config["LOG_LEVEL"],
-        format='%(asctime)s - %(levelname)s - %(message)s'
-    )
+    
+    # Pre-initialize shared data structures for logging
+    shared_data = {
+        "session_logs": [],
+        "log_lock": threading.Lock(),
+    }
+    
+    # Set up logging with console, file, and session handlers
+    setup_logging(config, shared_data)
     logging.info("Director agent starting the application.")
     
     # --- Create shared data ---
@@ -40,7 +46,8 @@ def main():
     
     logging.info(f"Startup configuration: schedule_source='{startup_schedule_source}', plant='{startup_plant}'")
     
-    shared_data = {
+    # Merge pre-initialized logging structures with the rest of shared_data
+    shared_data.update({
         # Dataframe that holds the manual schedule (random/CSV)
         "manual_schedule_df": pd.DataFrame(),
         # Dataframe that holds the API-fetched schedule
@@ -73,7 +80,13 @@ def main():
         "plant_switching": False,
         # Schedule switching status: True when a switch is in progress
         "schedule_switching": False,
-    }
+        # Log file path for the current session
+        "log_file_path": None,
+    })
+    
+    # Set the log file path after setup_logging has created it
+    import os
+    shared_data["log_file_path"] = os.path.join(os.path.dirname(__file__), 'logs', 'hil_scheduler.log')
     
     try:
         # --- Create and start agent threads ---

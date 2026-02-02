@@ -48,6 +48,7 @@ def dashboard_agent(config, shared_data):
                 html.Button("Manual Schedule", id='tab-manual-btn', className='tab-button active', n_clicks=0),
                 html.Button("API Schedule", id='tab-api-btn', className='tab-button', n_clicks=0),
                 html.Button("Status & Plots", id='tab-status-btn', className='tab-button', n_clicks=0),
+                html.Button("Logs", id='tab-logs-btn', className='tab-button', n_clicks=0),
             ]),
             
             # Tab content
@@ -400,6 +401,39 @@ def dashboard_agent(config, shared_data):
                     
                 ]),  # End status tab
                 
+                # =========================================
+                # TAB 4: LOGS
+                # =========================================
+                html.Div(id='logs-tab', className='hidden', children=[
+                    
+                    html.Div(className='card', children=[
+                        html.Div(className='card-header', style={'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center'}, children=[
+                            html.H3(className='card-title', children="Session Logs"),
+                            html.Div(style={'display': 'flex', 'gap': '12px', 'alignItems': 'center'}, children=[
+                                html.Div(id='log-file-path', style={'fontSize': '13px', 'color': '#64748b'}),
+                                html.Button('Clear Display', id='clear-logs-btn', n_clicks=0, className='btn btn-secondary'),
+                            ]),
+                        ]),
+                        html.Div(
+                            id='logs-display',
+                            style={
+                                'height': '500px',
+                                'overflowY': 'auto',
+                                'backgroundColor': '#1e293b',
+                                'color': '#e2e8f0',
+                                'padding': '16px',
+                                'fontFamily': 'monospace',
+                                'fontSize': '13px',
+                                'lineHeight': '1.5',
+                                'borderRadius': '8px',
+                                'whiteSpace': 'pre-wrap',
+                                'wordWrap': 'break-word'
+                            }
+                        ),
+                    ]),
+                    
+                ]),  # End logs tab
+                
             ]),  # End tab content
             
             # Hidden stores
@@ -479,26 +513,31 @@ def dashboard_agent(config, shared_data):
         [Output('tab-manual-btn', 'className'),
          Output('tab-api-btn', 'className'),
          Output('tab-status-btn', 'className'),
+         Output('tab-logs-btn', 'className'),
          Output('manual-tab', 'className'),
          Output('api-tab', 'className'),
          Output('status-tab', 'className'),
+         Output('logs-tab', 'className'),
          Output('active-tab', 'data')],
         [Input('tab-manual-btn', 'n_clicks'),
          Input('tab-api-btn', 'n_clicks'),
-         Input('tab-status-btn', 'n_clicks')]
+         Input('tab-status-btn', 'n_clicks'),
+         Input('tab-logs-btn', 'n_clicks')]
     )
-    def switch_tab(manual_clicks, api_clicks, status_clicks):
+    def switch_tab(manual_clicks, api_clicks, status_clicks, logs_clicks):
         ctx = callback_context
         if not ctx.triggered:
-            return ['tab-button active', 'tab-button', 'tab-button', '', 'hidden', 'hidden', 'manual']
+            return ['tab-button active', 'tab-button', 'tab-button', 'tab-button', '', 'hidden', 'hidden', 'hidden', 'manual']
         
         button_id = ctx.triggered[0]['prop_id'].split('.')[0]
         
         if button_id == 'tab-api-btn':
-            return ['tab-button', 'tab-button active', 'tab-button', 'hidden', '', 'hidden', 'api']
+            return ['tab-button', 'tab-button active', 'tab-button', 'tab-button', 'hidden', '', 'hidden', 'hidden', 'api']
         elif button_id == 'tab-status-btn':
-            return ['tab-button', 'tab-button', 'tab-button active', 'hidden', 'hidden', '', 'status']
-        return ['tab-button active', 'tab-button', 'tab-button', '', 'hidden', 'hidden', 'manual']
+            return ['tab-button', 'tab-button', 'tab-button active', 'tab-button', 'hidden', 'hidden', '', 'hidden', 'status']
+        elif button_id == 'tab-logs-btn':
+            return ['tab-button', 'tab-button', 'tab-button', 'tab-button active', 'hidden', 'hidden', 'hidden', '', 'logs']
+        return ['tab-button active', 'tab-button', 'tab-button', 'tab-button', '', 'hidden', 'hidden', 'hidden', 'manual']
     
     # ============================================================
     # RANDOM SCHEDULE PREVIEW
@@ -1232,6 +1271,57 @@ def dashboard_agent(config, shared_data):
         fig.update_xaxes(title_text="Time", row=3, col=1, gridcolor='#e2e8f0')
         
         return fig, status_class, [html.Span(className='status-dot'), status_text], source_text, df_text, last_update, start_disabled, stop_disabled
+    
+    # ============================================================
+    # LOGS DISPLAY CALLBACKS
+    # ============================================================
+    @app.callback(
+        [Output('logs-display', 'children'),
+         Output('log-file-path', 'children')],
+        [Input('interval-component', 'n_intervals'),
+         Input('clear-logs-btn', 'n_clicks')]
+    )
+    def update_logs_display(n_intervals, clear_clicks):
+        ctx = callback_context
+        
+        # Handle clear button
+        if ctx.triggered and ctx.triggered[0]['prop_id'].split('.')[0] == 'clear-logs-btn':
+            return [], "Display cleared"
+        
+        # Read session logs from shared data
+        with shared_data['log_lock']:
+            session_logs = shared_data.get('session_logs', []).copy()
+            log_file_path = shared_data.get('log_file_path', '')
+        
+        # Format log entries with color coding
+        log_entries = []
+        for log in session_logs:
+            level = log['level']
+            timestamp = log['timestamp']
+            message = log['message']
+            
+            # Color coding based on log level
+            if level == 'ERROR':
+                color = '#ef4444'  # Red
+            elif level == 'WARNING':
+                color = '#f97316'  # Orange
+            elif level == 'INFO':
+                color = '#22c55e'  # Green
+            else:
+                color = '#94a3b8'  # Gray for DEBUG
+            
+            log_entries.append(
+                html.Div([
+                    html.Span(f"[{timestamp}] ", style={'color': '#64748b'}),
+                    html.Span(f"{level}: ", style={'color': color, 'fontWeight': 'bold'}),
+                    html.Span(message, style={'color': '#e2e8f0'})
+                ])
+            )
+        
+        # Show log file path
+        path_display = f"Log file: {log_file_path}" if log_file_path else ""
+        
+        return log_entries, path_display
     
     # ============================================================
     # HELPER FUNCTIONS

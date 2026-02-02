@@ -56,7 +56,7 @@ shared_data = {
     "api_schedule_df": pd.DataFrame(),      # API-fetched schedule
     "active_schedule_source": "manual",     # 'manual' or 'api'
     
-    # Plant selection (NEW - dual plant support)
+    # Plant selection (dual plant support)
     "selected_plant": "local",              # 'local' or 'remote'
     "plant_switching": False,               # True during plant switch
     
@@ -76,11 +76,99 @@ shared_data = {
     "measurements_filename": None,          # Set by dashboard, polled by agent
     "measurements_df": pd.DataFrame(),      # Logged measurements
     
+    # Logging (session logs for dashboard display)
+    "session_logs": [],                     # List of log entries
+    "log_lock": threading.Lock(),           # Protects session_logs
+    "log_file_path": None,                  # Path to current log file
+    
     # Threading
     "lock": threading.Lock(),               # Thread synchronization
     "shutdown_event": threading.Event(),    # Graceful shutdown signal
 }
 ```
+
+## Logging System
+
+### Architecture
+Three-output logging system configured via [`logger_config.py`](logger_config.py):
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Python logging                           │
+└──────────────────────┬──────────────────────────────────────┘
+                       │
+        ┌──────────────┼──────────────┐
+        │              │              │
+        ▼              ▼              ▼
+   ┌─────────┐  ┌─────────────┐  ┌──────────────┐
+   │ Console │  │ File (Daily)│  │ Session      │
+   │ Handler │  │ Rotating    │  │ Handler      │
+   │         │  │ Handler     │  │ (Dashboard)  │
+   └─────────┘  └─────────────┘  └──────────────┘
+        │              │              │
+        ▼              ▼              ▼
+     stdout      logs/ folder     shared_data
+                 hil_scheduler    ['session_logs']
+                 _YYYY-MM-DD.log
+```
+
+### Log File Configuration
+- **Location**: `logs/hil_scheduler.log` (with date suffix)
+- **Rotation**: Daily at midnight (`TimedRotatingFileHandler`)
+- **Retention**: 30 days (`backupCount=30`)
+- **Format**: `%(asctime)s - %(levelname)s - %(message)s`
+- **Auto-create**: `logs/` directory created if missing
+- **Git ignore**: Log files not committed (in `.gitignore`)
+
+### Session Log Handler
+Custom [`SessionLogHandler`](logger_config.py:16) captures logs to shared_data for dashboard display:
+
+```python
+# Log entry format in shared_data['session_logs']
+{
+    'timestamp': '14:32:05',
+    'level': 'INFO',
+    'message': 'Director agent starting the application.'
+}
+```
+
+**Features:**
+- Max 1000 entries (prevents memory bloat)
+- Thread-safe with `log_lock`
+- Dashboard displays with color coding by level
+
+### Dashboard Logs Tab
+- **Location**: 4th tab in dashboard
+- **Auto-refresh**: Every 2 seconds (via interval component)
+- **Display**: Scrollable dark terminal-style area
+- **Color Coding**:
+  - ERROR: Red (#ef4444)
+  - WARNING: Orange (#f97316)
+  - INFO: Green (#22c55e)
+  - DEBUG: Gray (#94a3b8)
+- **Controls**: Clear Display button (clears view, not files)
+
+### Usage
+```python
+from config_loader import load_config
+from logger_config import setup_logging
+
+config = load_config("config.yaml")
+shared_data = {"session_logs": [], "log_lock": threading.Lock()}
+
+# Setup logging with all three handlers
+setup_logging(config, shared_data)
+
+# Use standard logging
+logging.info("Application started")
+logging.error("An error occurred")
+```
+
+### Thread Safety
+- Session logs use separate `log_lock` (not the main `lock`)
+- Lock held only for list append operation (microseconds)
+- Dashboard reads with brief lock, formats outside lock
+- No I/O operations inside lock (file handler writes independently)
 
 ### Manual Schedule Manager
 The [`manual_schedule_manager.py`](manual_schedule_manager.py) module provides utility functions:

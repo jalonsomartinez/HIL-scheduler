@@ -1,6 +1,75 @@
 # Active Context: HIL Scheduler
 
 ## Current Focus
+Enhanced logging system implemented with file output and dashboard display. Logs are now written to daily rotating files in logs/ folder and displayed in a new Logs tab in the dashboard.
+
+## Recent Changes (2026-02-02) - Enhanced Logging System
+
+### Overview
+Implemented a comprehensive logging system with three outputs:
+1. **Console**: Existing behavior maintained
+2. **File**: Daily rotating log files in `logs/` folder
+3. **Dashboard**: Real-time log display in new Logs tab
+
+### Features
+**Log File Management:**
+- Daily rotating files: `logs/hil_scheduler_YYYY-MM-DD.log`
+- 30-day retention (configurable backupCount)
+- Auto-creation of logs/ directory
+- Added to .gitignore (not committed)
+
+**Dashboard Logs Tab:**
+- New 4th tab in dashboard: "Logs"
+- Real-time display of session logs (auto-refresh every 2s)
+- Color-coded by level (ERROR=red, WARNING=orange, INFO=green, DEBUG=gray)
+- Shows log file path
+- Clear Display button (clears dashboard view, not file)
+- Maximum 1000 entries in session buffer (prevents memory bloat)
+
+### Files Modified
+- **[`logger_config.py`](logger_config.py)** (NEW): Logger configuration module
+  - `SessionLogHandler`: Custom handler capturing to shared_data
+  - `setup_logging()`: Configures console, file, and session handlers
+- **[`hil_scheduler.py`](hil_scheduler.py)**: 
+  - Replaced `logging.basicConfig()` with `setup_logging()`
+  - Added `session_logs` and `log_lock` to shared_data
+  - Added `log_file_path` to shared_data
+- **[`dashboard_agent.py`](dashboard_agent.py)**:
+  - Added "Logs" tab button and content area
+  - Updated tab switching callback for 4 tabs
+  - Added `update_logs_display()` callback with color coding
+- **[`.gitignore`](.gitignore)**: Added `logs/` directory
+
+### Implementation Details
+
+**Logger Architecture:**
+```python
+# Three handlers configured in setup_logging()
+1. Console Handler       → stdout
+2. TimedRotatingFileHandler → logs/hil_scheduler.log (rotates daily)
+3. SessionLogHandler     → shared_data['session_logs'] (for dashboard)
+```
+
+**Session Log Entry Format:**
+```python
+{
+    'timestamp': '14:32:05',
+    'level': 'INFO',
+    'message': 'Director agent starting the application.'
+}
+```
+
+**Shared Data Structure (Updated):**
+```python
+shared_data = {
+    # Existing fields...
+    "session_logs": [],          # List of log entries for dashboard
+    "log_lock": threading.Lock(),  # Protects session_logs
+    "log_file_path": None,       # Path to current log file
+}
+```
+
+### Previous Focus
 Schedule type switching confirmation modal implemented. Both plant and schedule switches now flush measurements to CSV and clear the measurements DataFrame before switching.
 
 ## Recent Changes (2026-02-02) - Schedule Switch Confirmation

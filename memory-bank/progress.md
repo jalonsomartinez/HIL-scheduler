@@ -2,6 +2,27 @@
 
 ## What Works
 
+### Enhanced Logging System (2026-02-02)
+- [x] **Daily Log Files**: Rotating log files in `logs/` folder with daily rotation
+- [x] **File Format**: `logs/hil_scheduler_YYYY-MM-DD.log`
+- [x] **30-Day Retention**: Configurable backup count for old log files
+- [x] **Auto-Creation**: logs/ directory created automatically if missing
+- [x] **Three Outputs**: Console, file, and dashboard session logs
+- [x] **Session Log Handler**: Custom handler captures logs to shared_data
+- [x] **Logs Tab in Dashboard**: New 4th tab displaying real-time session logs
+- [x] **Color Coding**: ERROR=red, WARNING=orange, INFO=green, DEBUG=gray
+- [x] **Auto-Refresh**: Dashboard logs update every 2 seconds
+- [x] **Clear Display Button**: Clears dashboard view (not file logs)
+- [x] **Memory Protection**: Max 1000 entries in session buffer
+- [x] **Log File Path Display**: Shows current log file location in dashboard
+- [x] **Git Ignore**: logs/ directory added to .gitignore
+
+**Files:**
+- [`logger_config.py`](logger_config.py): Logger configuration module with SessionLogHandler
+- [`hil_scheduler.py`](hil_scheduler.py): Updated to use new logging setup
+- [`dashboard_agent.py`](dashboard_agent.py): Added Logs tab and display callbacks
+- [`.gitignore`](.gitignore): Added logs/ directory
+
 ### Schedule Switch Confirmation (2026-02-02)
 - [x] **Confirmation Modal**: Modal appears when switching between Manual and API schedules
 - [x] **Stop System on Switch**: System is stopped via Modbus before switching
