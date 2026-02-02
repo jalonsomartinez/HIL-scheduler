@@ -1,7 +1,7 @@
 # Active Context: HIL Scheduler
 
 ## Current Focus
-Dashboard timing now uses `measurement_period_s` config for consistent updates. Added intermediate "Starting..." and "Stopping..." states with animated status badges to provide immediate visual feedback during state transitions.
+Implemented log file selector dropdown to replace the "Clear Display" button in the Logs tab. Users can now browse historical log files from the logs/ folder instead of only viewing current session logs.
 
 ## Recent Changes (2026-02-02) - Dashboard State Transition Improvements
 

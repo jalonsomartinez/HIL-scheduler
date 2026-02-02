@@ -405,13 +405,20 @@ def dashboard_agent(config, shared_data):
                 # TAB 4: LOGS
                 # =========================================
                 html.Div(id='logs-tab', className='hidden', children=[
-                    
+
                     html.Div(className='card', children=[
                         html.Div(className='card-header', style={'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center'}, children=[
                             html.H3(className='card-title', children="Session Logs"),
                             html.Div(style={'display': 'flex', 'gap': '12px', 'alignItems': 'center'}, children=[
                                 html.Div(id='log-file-path', style={'fontSize': '13px', 'color': '#64748b'}),
-                                html.Button('Clear Display', id='clear-logs-btn', n_clicks=0, className='btn btn-secondary'),
+                                dcc.Dropdown(
+                                    id='log-file-selector',
+                                    options=[],
+                                    value='current_session',
+                                    clearable=False,
+                                    style={'width': '200px', 'fontSize': '12px'},
+                                    className='compact-dropdown'
+                                ),
                             ]),
                         ]),
                         html.Div(
@@ -431,7 +438,7 @@ def dashboard_agent(config, shared_data):
                             }
                         ),
                     ]),
-                    
+
                 ]),  # End logs tab
                 
             ]),  # End tab content
@@ -1311,33 +1318,109 @@ def dashboard_agent(config, shared_data):
         return fig, status_class, [html.Span(className='status-dot'), status_text], source_text, df_text, last_update, start_disabled, stop_disabled
     
     # ============================================================
+    # LOG FILE SELECTOR OPTIONS
+    # ============================================================
+    @app.callback(
+        Output('log-file-selector', 'options'),
+        Input('interval-component', 'n_intervals')
+    )
+    def update_log_file_options(n):
+        """Scan logs/ folder and return available log files."""
+        import os
+
+        options = [{'label': 'Current Session', 'value': 'current_session'}]
+
+        try:
+            if os.path.exists('logs'):
+                log_files = []
+                for filename in os.listdir('logs'):
+                    if filename.endswith('.log'):
+                        # Extract date from filename (format: YYYY-MM-DD_hil_scheduler.log)
+                        try:
+                            date_str = filename.split('_')[0]  # Get YYYY-MM-DD part
+                            date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+                            display_name = date_obj.strftime('%Y-%m-%d')
+                            log_files.append((display_name, filename))
+                        except (ValueError, IndexError):
+                            # If parsing fails, use filename as-is
+                            log_files.append((filename, filename))
+
+                # Sort by date (newest first)
+                log_files.sort(key=lambda x: x[0], reverse=True)
+
+                for display_name, filename in log_files:
+                    options.append({'label': display_name, 'value': f'logs/{filename}'})
+
+        except Exception as e:
+            logging.error(f"Error scanning log files: {e}")
+
+        return options
+
+    # ============================================================
     # LOGS DISPLAY CALLBACKS
     # ============================================================
     @app.callback(
         [Output('logs-display', 'children'),
          Output('log-file-path', 'children')],
         [Input('interval-component', 'n_intervals'),
-         Input('clear-logs-btn', 'n_clicks')]
+         Input('log-file-selector', 'value')],
+        prevent_initial_call=True
     )
-    def update_logs_display(n_intervals, clear_clicks):
+    def update_logs_display(n_intervals, selected_file):
         ctx = callback_context
-        
-        # Handle clear button
-        if ctx.triggered and ctx.triggered[0]['prop_id'].split('.')[0] == 'clear-logs-btn':
-            return [], "Display cleared"
-        
-        # Read session logs from shared data
-        with shared_data['log_lock']:
-            session_logs = shared_data.get('session_logs', []).copy()
-            log_file_path = shared_data.get('log_file_path', '')
-        
-        # Format log entries with color coding
-        log_entries = []
-        for log in session_logs:
+        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
+
+        # Handle file selection (dropdown changes)
+        if trigger_id == 'log-file-selector':
+            if selected_file == 'current_session':
+                # Show current session logs
+                with shared_data['log_lock']:
+                    session_logs = shared_data.get('session_logs', []).copy()
+                    log_file_path = shared_data.get('log_file_path', '')
+
+                log_entries = format_log_entries(session_logs)
+                path_display = f"Log file: {log_file_path}" if log_file_path else "Current Session"
+                return log_entries, path_display
+            else:
+                # Show historical log file
+                try:
+                    with open(selected_file, 'r', encoding='utf-8', errors='replace') as f:
+                        file_content = f.read()
+
+                    # Parse and format historical log entries
+                    log_entries = parse_and_format_historical_logs(file_content)
+                    path_display = f"File: {selected_file}"
+                    return log_entries, path_display
+
+                except Exception as e:
+                    error_msg = f"Error reading log file: {str(e)}"
+                    logging.error(error_msg)
+                    return [html.Div(error_msg, style={'color': '#ef4444'})], f"Error: {selected_file}"
+
+        # Handle interval updates (only when current session is selected)
+        elif trigger_id == 'interval-component' and selected_file == 'current_session':
+            with shared_data['log_lock']:
+                session_logs = shared_data.get('session_logs', []).copy()
+                log_file_path = shared_data.get('log_file_path', '')
+
+            log_entries = format_log_entries(session_logs)
+            path_display = f"Log file: {log_file_path}" if log_file_path else "Current Session"
+            return log_entries, path_display
+
+        # For any other case (including interval when historical file is selected), do nothing
+        raise PreventUpdate
+    
+    # ============================================================
+    # LOG FORMATTING HELPER FUNCTIONS
+    # ============================================================
+    def format_log_entries(log_entries):
+        """Format session log entries with color coding for display."""
+        formatted_entries = []
+        for log in log_entries:
             level = log['level']
             timestamp = log['timestamp']
             message = log['message']
-            
+
             # Color coding based on log level
             if level == 'ERROR':
                 color = '#ef4444'  # Red
@@ -1347,20 +1430,66 @@ def dashboard_agent(config, shared_data):
                 color = '#22c55e'  # Green
             else:
                 color = '#94a3b8'  # Gray for DEBUG
-            
-            log_entries.append(
+
+            formatted_entries.append(
                 html.Div([
                     html.Span(f"[{timestamp}] ", style={'color': '#64748b'}),
                     html.Span(f"{level}: ", style={'color': color, 'fontWeight': 'bold'}),
                     html.Span(message, style={'color': '#e2e8f0'})
                 ])
             )
-        
-        # Show log file path
-        path_display = f"Log file: {log_file_path}" if log_file_path else ""
-        
-        return log_entries, path_display
-    
+        return formatted_entries
+
+    def parse_and_format_historical_logs(file_content):
+        """Parse historical log file content and format with color coding."""
+        import re
+
+        formatted_entries = []
+        lines = file_content.split('\n')
+
+        # Regex pattern to match log format: YYYY-MM-DD HH:MM:SS - LEVEL - message
+        log_pattern = r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) - (\w+) - (.+)'
+
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+
+            match = re.match(log_pattern, line)
+            if match:
+                timestamp_str, level, message = match.groups()
+
+                # Extract time part for display (HH:MM:SS)
+                try:
+                    display_time = timestamp_str.split(' ')[1]  # Get HH:MM:SS part
+                except:
+                    display_time = timestamp_str  # Fallback to full timestamp
+
+                # Color coding based on log level
+                if level == 'ERROR':
+                    color = '#ef4444'  # Red
+                elif level == 'WARNING':
+                    color = '#f97316'  # Orange
+                elif level == 'INFO':
+                    color = '#22c55e'  # Green
+                else:
+                    color = '#94a3b8'  # Gray for DEBUG
+
+                formatted_entries.append(
+                    html.Div([
+                        html.Span(f"[{display_time}] ", style={'color': '#64748b'}),
+                        html.Span(f"{level}: ", style={'color': color, 'fontWeight': 'bold'}),
+                        html.Span(message, style={'color': '#e2e8f0'})
+                    ])
+                )
+            else:
+                # If line doesn't match expected format, display as plain text
+                formatted_entries.append(
+                    html.Div(line, style={'color': '#e2e8f0'})
+                )
+
+        return formatted_entries
+
     # ============================================================
     # HELPER FUNCTIONS
     # ============================================================

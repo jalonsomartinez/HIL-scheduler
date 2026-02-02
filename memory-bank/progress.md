@@ -2,6 +2,19 @@
 
 ## What Works
 
+### Log File Selector Implementation (2026-02-02)
+- [x] **Dropdown Selector**: Replaced "Clear Display" button with log file dropdown
+- [x] **File Scanning**: Automatic scanning of `logs/` folder for `.log` files
+- [x] **Historical Log Display**: Color-coded parsing and display of historical log files
+- [x] **Auto-refresh Control**: Disabled auto-refresh when viewing historical files
+- [x] **Regex Pattern Fix**: Fixed regex to match actual log format without milliseconds
+- [x] **File Sorting**: Log files sorted by date (newest first)
+- [x] **Error Handling**: Graceful handling of file read errors and malformed lines
+- [x] **Current Session Option**: "Current Session" option for live logs with auto-refresh
+
+**Files Modified:**
+- [`dashboard_agent.py`](dashboard_agent.py): Added log file selector dropdown, file scanning, historical log parsing with color coding, auto-refresh control logic
+
 ### Dashboard State Transition Improvements (2026-02-02)
 - [x] **Config-Based Timing**: Dashboard refresh uses `measurement_period_s` from config (1s)
 - [x] **Frequent Status Checks**: Status check runs every interval instead of every 6 seconds
