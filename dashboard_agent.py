@@ -45,9 +45,9 @@ def dashboard_agent(config, shared_data):
             
             # Tab headers
             html.Div(className='tab-header', children=[
-                html.Button("Manual Schedule", id='tab-manual-btn', className='tab-button active', n_clicks=0),
+                html.Button("Status & Plots", id='tab-status-btn', className='tab-button active', n_clicks=0),
+                html.Button("Manual Schedule", id='tab-manual-btn', className='tab-button', n_clicks=0),
                 html.Button("API Schedule", id='tab-api-btn', className='tab-button', n_clicks=0),
-                html.Button("Status & Plots", id='tab-status-btn', className='tab-button', n_clicks=0),
                 html.Button("Logs", id='tab-logs-btn', className='tab-button', n_clicks=0),
             ]),
             
@@ -55,9 +55,9 @@ def dashboard_agent(config, shared_data):
             html.Div(id='tab-content', className='tab-content', children=[
                 
                 # =========================================
-                # TAB 1: MANUAL SCHEDULE
+                # TAB 1: STATUS & PLOTS
                 # =========================================
-                html.Div(id='manual-tab', children=[
+                html.Div(id='status-tab', children=[
                     
                     # Random Schedule Section
                     html.Div(className='card', children=[
@@ -201,7 +201,7 @@ def dashboard_agent(config, shared_data):
                 ]),  # End manual tab
                 
                 # =========================================
-                # TAB 2: API SCHEDULE
+                # TAB 3: API SCHEDULE
                 # =========================================
                 html.Div(id='api-tab', className='hidden', children=[
                     
@@ -253,9 +253,9 @@ def dashboard_agent(config, shared_data):
                 ]),  # End API tab
                 
                 # =========================================
-                # TAB 3: STATUS & PLOTS
+                # TAB 4: LOGS
                 # =========================================
-                html.Div(id='status-tab', className='hidden', children=[
+                html.Div(id='logs-tab', className='hidden', children=[
                     
                     # Control Panel - Two Rows
                     html.Div(className='control-panel', children=[
@@ -402,9 +402,9 @@ def dashboard_agent(config, shared_data):
                 ]),  # End status tab
                 
                 # =========================================
-                # TAB 4: LOGS
+                # TAB 2: MANUAL SCHEDULE
                 # =========================================
-                html.Div(id='logs-tab', className='hidden', children=[
+                html.Div(id='manual-tab', className='hidden', children=[
                     
                     html.Div(className='card', children=[
                         html.Div(className='card-header', style={'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center'}, children=[
@@ -438,7 +438,7 @@ def dashboard_agent(config, shared_data):
             
             # Hidden stores
             dcc.Store(id='preview-schedule'),
-            dcc.Store(id='active-tab', data='manual'),
+            dcc.Store(id='active-tab', data='status'),
             dcc.Store(id='system-status', data='stopped'),
             
             # Refresh interval - increased to 2 seconds for better performance
@@ -510,34 +510,34 @@ def dashboard_agent(config, shared_data):
     # TAB SWITCHING CALLBACK
     # ============================================================
     @app.callback(
-        [Output('tab-manual-btn', 'className'),
+        [Output('tab-status-btn', 'className'),
+         Output('tab-manual-btn', 'className'),
          Output('tab-api-btn', 'className'),
-         Output('tab-status-btn', 'className'),
          Output('tab-logs-btn', 'className'),
+         Output('status-tab', 'className'),
          Output('manual-tab', 'className'),
          Output('api-tab', 'className'),
-         Output('status-tab', 'className'),
          Output('logs-tab', 'className'),
          Output('active-tab', 'data')],
-        [Input('tab-manual-btn', 'n_clicks'),
+        [Input('tab-status-btn', 'n_clicks'),
+         Input('tab-manual-btn', 'n_clicks'),
          Input('tab-api-btn', 'n_clicks'),
-         Input('tab-status-btn', 'n_clicks'),
          Input('tab-logs-btn', 'n_clicks')]
     )
-    def switch_tab(manual_clicks, api_clicks, status_clicks, logs_clicks):
+    def switch_tab(status_clicks, manual_clicks, api_clicks, logs_clicks):
         ctx = callback_context
         if not ctx.triggered:
-            return ['tab-button active', 'tab-button', 'tab-button', 'tab-button', '', 'hidden', 'hidden', 'hidden', 'manual']
+            return ['tab-button active', 'tab-button', 'tab-button', 'tab-button', '', 'hidden', 'hidden', 'hidden', 'status']
         
         button_id = ctx.triggered[0]['prop_id'].split('.')[0]
         
-        if button_id == 'tab-api-btn':
-            return ['tab-button', 'tab-button active', 'tab-button', 'tab-button', 'hidden', '', 'hidden', 'hidden', 'api']
-        elif button_id == 'tab-status-btn':
-            return ['tab-button', 'tab-button', 'tab-button active', 'tab-button', 'hidden', 'hidden', '', 'hidden', 'status']
+        if button_id == 'tab-manual-btn':
+            return ['tab-button', 'tab-button active', 'tab-button', 'tab-button', 'hidden', '', 'hidden', 'hidden', 'manual']
+        elif button_id == 'tab-api-btn':
+            return ['tab-button', 'tab-button', 'tab-button active', 'tab-button', 'hidden', 'hidden', '', 'hidden', 'api']
         elif button_id == 'tab-logs-btn':
             return ['tab-button', 'tab-button', 'tab-button', 'tab-button active', 'hidden', 'hidden', 'hidden', '', 'logs']
-        return ['tab-button active', 'tab-button', 'tab-button', 'tab-button', '', 'hidden', 'hidden', 'hidden', 'manual']
+        return ['tab-button active', 'tab-button', 'tab-button', 'tab-button', '', 'hidden', 'hidden', 'hidden', 'status']
     
     # ============================================================
     # RANDOM SCHEDULE PREVIEW
