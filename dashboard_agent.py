@@ -441,8 +441,8 @@ def dashboard_agent(config, shared_data):
             dcc.Store(id='active-tab', data='status'),
             dcc.Store(id='system-status', data='stopped'),
             
-            # Refresh interval - increased to 2 seconds for better performance
-            dcc.Interval(id='interval-component', interval=2*1000, n_intervals=0),
+            # Refresh interval - uses measurement_period_s from config
+            dcc.Interval(id='interval-component', interval=config.get('MEASUREMENT_PERIOD_S', 1)*1000, n_intervals=0),
             
         ]),  # End app container
     ])
@@ -1109,53 +1109,67 @@ def dashboard_agent(config, shared_data):
          Output('last-update', 'children'),
          Output('start-button', 'disabled'),
          Output('stop-button', 'disabled')],
-        [Input('interval-component', 'n_intervals')]
+        [Input('interval-component', 'n_intervals'),
+         Input('system-status', 'data')]
     )
-    def update_status_and_graphs(n):
+    def update_status_and_graphs(n, system_status):
         nonlocal last_modbus_status
         
         # Modbus status check (with timeout to prevent blocking)
         actual_status = last_modbus_status
         
-        # Try to update modbus status occasionally
-        if n % 3 == 0:  # Every 6 seconds
-            def check_modbus():
-                nonlocal last_modbus_status
-                from pyModbusTCP.client import ModbusClient
-                
-                # Read selected plant to determine which one to check
-                with shared_data['lock']:
-                    selected_plant = shared_data.get('selected_plant', 'local')
-                
-                if selected_plant == 'remote':
-                    host = config.get('PLANT_REMOTE_MODBUS_HOST', '10.117.133.21')
-                    port = config.get('PLANT_REMOTE_MODBUS_PORT', 502)
-                    enable_reg = config.get('PLANT_REMOTE_ENABLE_REGISTER', 10)
-                else:
-                    host = config.get('PLANT_LOCAL_MODBUS_HOST', 'localhost')
-                    port = config.get('PLANT_LOCAL_MODBUS_PORT', 5020)
-                    enable_reg = config.get('PLANT_ENABLE_REGISTER', 10)
-                
-                client = ModbusClient(host=host, port=port)
+        # Try to update modbus status every interval (using measurement_period_s)
+        def check_modbus():
+            nonlocal last_modbus_status
+            from pyModbusTCP.client import ModbusClient
+            
+            # Read selected plant to determine which one to check
+            with shared_data['lock']:
+                selected_plant = shared_data.get('selected_plant', 'local')
+            
+            if selected_plant == 'remote':
+                host = config.get('PLANT_REMOTE_MODBUS_HOST', '10.117.133.21')
+                port = config.get('PLANT_REMOTE_MODBUS_PORT', 502)
+                enable_reg = config.get('PLANT_REMOTE_ENABLE_REGISTER', 10)
+            else:
+                host = config.get('PLANT_LOCAL_MODBUS_HOST', 'localhost')
+                port = config.get('PLANT_LOCAL_MODBUS_PORT', 5020)
+                enable_reg = config.get('PLANT_ENABLE_REGISTER', 10)
+            
+            client = ModbusClient(host=host, port=port)
+            try:
+                if client.open():
+                    regs = client.read_holding_registers(enable_reg, 1)
+                    if regs:
+                        last_modbus_status = regs[0]
+            except:
+                pass
+            finally:
                 try:
-                    if client.open():
-                        regs = client.read_holding_registers(enable_reg, 1)
-                        if regs:
-                            last_modbus_status = regs[0]
+                    client.close()
                 except:
                     pass
-                finally:
-                    try:
-                        client.close()
-                    except:
-                        pass
-            
-            check_thread = threading.Thread(target=check_modbus)
-            check_thread.daemon = True
-            check_thread.start()
         
-        # Determine status display
-        if actual_status == 1:
+        check_thread = threading.Thread(target=check_modbus)
+        check_thread.daemon = True
+        check_thread.start()
+        
+        # Determine status display with intermediate states
+        # system_status comes from button clicks ('starting', 'stopping', or None)
+        # Check if we've reached the target state, otherwise show transition state
+        if system_status == 'starting' and actual_status != 1:
+            # Still transitioning to running
+            status_text = "Starting..."
+            status_class = "status-badge status-badge-starting"
+            start_disabled = True
+            stop_disabled = True  # Disable both during transition
+        elif system_status == 'stopping' and actual_status != 0:
+            # Still transitioning to stopped
+            status_text = "Stopping..."
+            status_class = "status-badge status-badge-stopping"
+            start_disabled = True  # Disable both during transition
+            stop_disabled = True
+        elif actual_status == 1:
             status_text = "Running"
             status_class = "status-badge status-badge-running"
             start_disabled = True

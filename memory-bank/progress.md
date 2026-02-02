@@ -2,6 +2,19 @@
 
 ## What Works
 
+### Dashboard State Transition Improvements (2026-02-02)
+- [x] **Config-Based Timing**: Dashboard refresh uses `measurement_period_s` from config (1s)
+- [x] **Frequent Status Checks**: Status check runs every interval instead of every 6 seconds
+- [x] **Intermediate States**: "Starting..." and "Stopping..." states with animated badges
+- [x] **Instant Feedback**: Status updates immediately when Start/Stop buttons clicked
+- [x] **Transition Logic**: Automatically transitions to final state when Modbus confirms
+- [x] **Button Protection**: Both buttons disabled during transitions
+- [x] **CSS Animations**: Pulse animation for transition states (blue=starting, purple=stopping)
+
+**Files Modified:**
+- [`dashboard_agent.py`](dashboard_agent.py): Added intermediate state logic, config-based timing
+- [`assets/custom.css`](assets/custom.css): Added `.status-badge-starting`, `.status-badge-stopping`, `@keyframes pulse`
+
 ### Enhanced Logging System (2026-02-02)
 - [x] **Daily Log Files**: Rotating log files in `logs/` folder with daily rotation
 - [x] **File Format**: `logs/hil_scheduler_YYYY-MM-DD.log`

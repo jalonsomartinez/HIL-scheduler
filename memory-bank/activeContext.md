@@ -1,7 +1,69 @@
 # Active Context: HIL Scheduler
 
 ## Current Focus
-Enhanced logging system implemented with file output and dashboard display. Logs are now written to daily rotating files in logs/ folder and displayed in a new Logs tab in the dashboard.
+Dashboard timing now uses `measurement_period_s` config for consistent updates. Added intermediate "Starting..." and "Stopping..." states with animated status badges to provide immediate visual feedback during state transitions.
+
+## Recent Changes (2026-02-02) - Dashboard State Transition Improvements
+
+### Overview
+Fixed state transition delay and added intermediate states for better user feedback:
+1. **Dashboard refresh interval** now uses `measurement_period_s` from config (1s instead of 2s)
+2. **Status check** runs every interval instead of every 6 seconds
+3. **Intermediate states**: "Starting..." and "Stopping..." with animated badges
+4. **Instant feedback**: Status updates immediately when buttons are clicked
+
+### Files Modified
+- **[`dashboard_agent.py`](dashboard_agent.py)**:
+  - Dashboard interval uses `config.get('MEASUREMENT_PERIOD_S', 1)` instead of hardcoded 2s
+  - Status check runs on every interval (removed `if n % 3 == 0` condition)
+  - Added intermediate "Starting..." and "Stopping..." states
+  - Both buttons disabled during transitions
+  - Added `system-status` store as callback input for instant updates
+  
+- **[`assets/custom.css`](assets/custom.css)**:
+  - Added `.status-badge-starting` (blue with pulse animation)
+  - Added `.status-badge-stopping` (purple with pulse animation)
+  - Added `@keyframes pulse` animation
+
+### State Transition Flow
+```
+Stopped → [Click Start] → Starting... (blue, pulse, 1-2s) → Running (green)
+Running → [Click Stop]  → Stopping... (purple, pulse, 1-2s) → Stopped (red)
+```
+
+### Implementation Details
+
+**Intermediate State Logic:**
+```python
+if system_status == 'starting' and actual_status != 1:
+    # Show "Starting..." until Modbus confirms running
+    status_text = "Starting..."
+    status_class = "status-badge status-badge-starting"
+elif system_status == 'stopping' and actual_status != 0:
+    # Show "Stopping..." until Modbus confirms stopped
+    status_text = "Stopping..."
+    status_class = "status-badge status-badge-stopping"
+elif actual_status == 1:
+    status_text = "Running"  # Final state
+elif actual_status == 0:
+    status_text = "Stopped"  # Final state
+```
+
+**CSS Animations:**
+```css
+.status-badge-starting {
+    background: #dbeafe;
+    color: #2563eb;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+```
+
+---
 
 ## Recent Changes (2026-02-02) - Enhanced Logging System
 
