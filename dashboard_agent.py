@@ -851,15 +851,17 @@ def dashboard_agent(config, shared_data):
         [Output('active-source-selector', 'value'),
          Output('source-manual-btn', 'className'),
          Output('source-api-btn', 'className'),
-         Output('schedule-switch-modal', 'className')],
+         Output('schedule-switch-modal', 'className'),
+         Output('system-status', 'data', allow_duplicate=True)],
         [Input('source-manual-btn', 'n_clicks'),
          Input('source-api-btn', 'n_clicks'),
          Input('schedule-switch-cancel', 'n_clicks'),
          Input('schedule-switch-confirm', 'n_clicks')],
-        [State('active-source-selector', 'value')],
+        [State('active-source-selector', 'value'),
+         State('system-status', 'data')],
         prevent_initial_call=True
     )
-    def select_active_source(manual_clicks, api_clicks, cancel_clicks, confirm_clicks, current_source):
+    def select_active_source(manual_clicks, api_clicks, cancel_clicks, confirm_clicks, current_source, current_system_status):
         ctx = callback_context
         if not ctx.triggered:
             # Read current source from shared_data on initial load
@@ -872,14 +874,23 @@ def dashboard_agent(config, shared_data):
         
         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
         
+        # Handle initial load - no system_status change
+        if trigger_id == '':
+            with shared_data['lock']:
+                stored_source = shared_data.get('active_schedule_source', 'manual')
+            if stored_source == 'api':
+                return 'api', 'toggle-option', 'toggle-option active', 'hidden', current_system_status
+            else:
+                return 'manual', 'toggle-option active', 'toggle-option', 'hidden', current_system_status
+        
         # Handle cancel button - return to current selection without changing
         if trigger_id == 'schedule-switch-cancel':
             with shared_data['lock']:
                 stored_source = shared_data.get('active_schedule_source', 'manual')
             if stored_source == 'api':
-                return 'api', 'toggle-option', 'toggle-option active', 'hidden'
+                return 'api', 'toggle-option', 'toggle-option active', 'hidden', current_system_status
             else:
-                return 'manual', 'toggle-option active', 'toggle-option', 'hidden'
+                return 'manual', 'toggle-option active', 'toggle-option', 'hidden', current_system_status
         
         # Handle confirm button - perform the actual switch
         if trigger_id == 'schedule-switch-confirm':
@@ -916,24 +927,25 @@ def dashboard_agent(config, shared_data):
             switch_thread.start()
             
             # Return the new selection (will update after switch completes)
+            # Also set system-status to 'stopping' since the system is being stopped
             if requested_source == 'api':
-                return 'api', 'toggle-option', 'toggle-option active', 'hidden'
+                return 'api', 'toggle-option', 'toggle-option active', 'hidden', 'stopping'
             else:
-                return 'manual', 'toggle-option active', 'toggle-option', 'hidden'
+                return 'manual', 'toggle-option active', 'toggle-option', 'hidden', 'stopping'
         
         # Handle schedule option clicks - show confirmation modal when attempting to switch
         if trigger_id == 'source-api-btn' and current_source != 'api':
-            return current_source, 'toggle-option active', 'toggle-option', ''
+            return current_source, 'toggle-option active', 'toggle-option', '', current_system_status
         elif trigger_id == 'source-manual-btn' and current_source != 'manual':
-            return current_source, 'toggle-option', 'toggle-option active', ''
+            return current_source, 'toggle-option', 'toggle-option active', '', current_system_status
         
         # Default: no change (read from shared_data to ensure sync)
         with shared_data['lock']:
             stored_source = shared_data.get('active_schedule_source', 'manual')
         if stored_source == 'api':
-            return 'api', 'toggle-option', 'toggle-option active', 'hidden'
+            return 'api', 'toggle-option', 'toggle-option active', 'hidden', current_system_status
         else:
-            return 'manual', 'toggle-option active', 'toggle-option', 'hidden'
+            return 'manual', 'toggle-option active', 'toggle-option', 'hidden', current_system_status
     
     # ============================================================
     # PLANT SELECTION
@@ -942,15 +954,17 @@ def dashboard_agent(config, shared_data):
         [Output('selected-plant-selector', 'value'),
          Output('plant-local-btn', 'className'),
          Output('plant-remote-btn', 'className'),
-         Output('plant-switch-modal', 'className')],
+         Output('plant-switch-modal', 'className'),
+         Output('system-status', 'data', allow_duplicate=True)],
         [Input('plant-local-btn', 'n_clicks'),
          Input('plant-remote-btn', 'n_clicks'),
          Input('plant-switch-cancel', 'n_clicks'),
          Input('plant-switch-confirm', 'n_clicks')],
-        [State('selected-plant-selector', 'value')],
+        [State('selected-plant-selector', 'value'),
+         State('system-status', 'data')],
         prevent_initial_call=True
     )
-    def select_plant(local_clicks, remote_clicks, cancel_clicks, confirm_clicks, current_plant):
+    def select_plant(local_clicks, remote_clicks, cancel_clicks, confirm_clicks, current_plant, current_system_status):
         ctx = callback_context
         if not ctx.triggered:
             # Read current plant from shared_data on initial load
@@ -963,15 +977,24 @@ def dashboard_agent(config, shared_data):
         
         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
         
+        # Handle initial load - no system_status change
+        if trigger_id == '':
+            with shared_data['lock']:
+                stored_plant = shared_data.get('selected_plant', 'local')
+            if stored_plant == 'remote':
+                return 'remote', 'toggle-option', 'toggle-option active', 'hidden', current_system_status
+            else:
+                return 'local', 'toggle-option active', 'toggle-option', 'hidden', current_system_status
+        
         # Handle cancel button
         if trigger_id == 'plant-switch-cancel':
             # Return to current selection without changing
             with shared_data['lock']:
                 stored_plant = shared_data.get('selected_plant', 'local')
             if stored_plant == 'remote':
-                return 'remote', 'toggle-option', 'toggle-option active', 'hidden'
+                return 'remote', 'toggle-option', 'toggle-option active', 'hidden', current_system_status
             else:
-                return 'local', 'toggle-option active', 'toggle-option', 'hidden'
+                return 'local', 'toggle-option active', 'toggle-option', 'hidden', current_system_status
         
         # Handle confirm button - perform the actual switch
         if trigger_id == 'plant-switch-confirm':
@@ -1002,24 +1025,25 @@ def dashboard_agent(config, shared_data):
             switch_thread.start()
             
             # Return the new selection (will update after switch completes)
+            # Also set system-status to 'stopping' since the system is being stopped
             if requested_plant == 'remote':
-                return 'remote', 'toggle-option', 'toggle-option active', 'hidden'
+                return 'remote', 'toggle-option', 'toggle-option active', 'hidden', 'stopping'
             else:
-                return 'local', 'toggle-option active', 'toggle-option', 'hidden'
+                return 'local', 'toggle-option active', 'toggle-option', 'hidden', 'stopping'
         
         # Handle plant option clicks - show confirmation modal
         if trigger_id == 'plant-remote-btn' and current_plant != 'remote':
-            return current_plant, 'toggle-option active', 'toggle-option', ''
+            return current_plant, 'toggle-option active', 'toggle-option', '', current_system_status
         elif trigger_id == 'plant-local-btn' and current_plant != 'local':
-            return current_plant, 'toggle-option', 'toggle-option active', ''
+            return current_plant, 'toggle-option', 'toggle-option active', '', current_system_status
         
         # Default: no change
         with shared_data['lock']:
             stored_plant = shared_data.get('selected_plant', 'local')
         if stored_plant == 'remote':
-            return 'remote', 'toggle-option', 'toggle-option active', 'hidden'
+            return 'remote', 'toggle-option', 'toggle-option active', 'hidden', current_system_status
         else:
-            return 'local', 'toggle-option active', 'toggle-option', 'hidden'
+            return 'local', 'toggle-option active', 'toggle-option', 'hidden', current_system_status
     
     # ============================================================
     # START/STOP BUTTONS - RUN IN BACKGROUND THREAD
