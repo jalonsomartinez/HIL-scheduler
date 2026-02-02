@@ -59,6 +59,155 @@ def dashboard_agent(config, shared_data):
                 # =========================================
                 html.Div(id='status-tab', children=[
                     
+                    # Control Panel - Two Rows
+                    html.Div(className='control-panel', children=[
+                        
+                        # Row 1: Controls (Buttons + Toggles) - 1/3 width each on medium+
+                        html.Div(className='controls-row', children=[
+                            # Start/Stop Buttons (1/3)
+                            html.Div(className='control-section', children=[
+                                html.Div(className='control-group', children=[
+                                    html.Button(
+                                        children=["▶ Start"], 
+                                        id='start-button', 
+                                        n_clicks=0, 
+                                        className='control-btn control-btn-start', 
+                                        disabled=True
+                                    ),
+                                    html.Button(
+                                        children=["■ Stop"], 
+                                        id='stop-button', 
+                                        n_clicks=0, 
+                                        className='control-btn control-btn-stop'
+                                    ),
+                                ]),
+                            ]),
+                            
+                            # Schedule Toggle (1/3)
+                            html.Div(className='control-section', children=[
+                                html.Div(className='toggle-wrapper', children=[
+                                    html.Span(className='toggle-label', children="Schedule:"),
+                                    html.Div(className='compact-toggle', children=[
+                                        html.Button(
+                                            "Manual", 
+                                            id='source-manual-btn', 
+                                            className='toggle-option active',
+                                            n_clicks=0
+                                        ),
+                                        html.Button(
+                                            "API", 
+                                            id='source-api-btn', 
+                                            className='toggle-option',
+                                            n_clicks=0
+                                        ),
+                                    ]),
+                                ]),
+                            ]),
+                            
+                            # Plant Toggle (1/3)
+                            html.Div(className='control-section', children=[
+                                html.Div(className='toggle-wrapper', children=[
+                                    html.Span(className='toggle-label', children="Plant:"),
+                                    html.Div(className='compact-toggle', children=[
+                                        html.Button(
+                                            "Local", 
+                                            id='plant-local-btn', 
+                                            className='toggle-option active',
+                                            n_clicks=0
+                                        ),
+                                        html.Button(
+                                            "Remote", 
+                                            id='plant-remote-btn', 
+                                            className='toggle-option',
+                                            n_clicks=0
+                                        ),
+                                    ]),
+                                ]),
+                            ]),
+                        ]),
+                        
+                        # Row 2: Status Info
+                        html.Div(className='status-row', children=[
+                            html.Div(id='status-indicator', className='status-badge status-badge-unknown', children=[
+                                html.Span(className='status-dot'),
+                                "Unknown"
+                            ]),
+                            html.Div(id='active-source-display', className='status-text', children="Source: Manual"),
+                            html.Div(id='data-fetcher-status-display', className='status-text', children="API: Not connected"),
+                            html.Div(id='last-update', className='status-text', children=""),
+                        ]),
+                    ]),
+                    
+                    # Hidden RadioItems for state management
+                    dcc.RadioItems(
+                        id='active-source-selector',
+                        options=[
+                            {'label': ' Manual', 'value': 'manual'},
+                            {'label': ' API', 'value': 'api'}
+                        ],
+                        value='manual',
+                        style={'display': 'none'}
+                    ),
+                    dcc.RadioItems(
+                        id='selected-plant-selector',
+                        options=[
+                            {'label': ' Local', 'value': 'local'},
+                            {'label': ' Remote', 'value': 'remote'}
+                        ],
+                        value='local',
+                        style={'display': 'none'}
+                    ),
+                    
+                    # Plant Switch Confirmation Modal
+                    html.Div(id='plant-switch-modal', className='hidden', style={
+                        'position': 'fixed', 'top': '0', 'left': '0', 'width': '100%', 'height': '100%',
+                        'backgroundColor': 'rgba(0,0,0,0.5)', 'zIndex': '1000', 'display': 'flex',
+                        'justifyContent': 'center', 'alignItems': 'center'
+                    }, children=[
+                        html.Div(style={
+                            'backgroundColor': 'white', 'padding': '24px', 'borderRadius': '8px',
+                            'maxWidth': '400px', 'boxShadow': '0 4px 12px rgba(0,0,0,0.15)'
+                        }, children=[
+                            html.H3("Confirm Plant Switch", style={'marginTop': '0'}),
+                            html.P("Switching plants will stop the system and flush current measurements. Continue?"),
+                            html.Div(style={'display': 'flex', 'gap': '12px', 'marginTop': '20px', 'justifyContent': 'flex-end'}, children=[
+                                html.Button('Cancel', id='plant-switch-cancel', className='btn btn-secondary'),
+                                html.Button('Confirm', id='plant-switch-confirm', className='btn btn-primary'),
+                            ]),
+                        ]),
+                    ]),
+                    
+                    # Schedule Switch Confirmation Modal
+                    html.Div(id='schedule-switch-modal', className='hidden', style={
+                        'position': 'fixed', 'top': '0', 'left': '0', 'width': '100%', 'height': '100%',
+                        'backgroundColor': 'rgba(0,0,0,0.5)', 'zIndex': '1000', 'display': 'flex',
+                        'justifyContent': 'center', 'alignItems': 'center'
+                    }, children=[
+                        html.Div(style={
+                            'backgroundColor': 'white', 'padding': '24px', 'borderRadius': '8px',
+                            'maxWidth': '400px', 'boxShadow': '0 4px 12px rgba(0,0,0,0.15)'
+                        }, children=[
+                            html.H3("Confirm Schedule Switch", style={'marginTop': '0'}),
+                            html.P("Switching schedule source will stop the system and flush current measurements. Continue?"),
+                            html.Div(style={'display': 'flex', 'gap': '12px', 'marginTop': '20px', 'justifyContent': 'flex-end'}, children=[
+                                html.Button('Cancel', id='schedule-switch-cancel', className='btn btn-secondary'),
+                                html.Button('Confirm', id='schedule-switch-confirm', className='btn btn-primary'),
+                            ]),
+                        ]),
+                    ]),
+                    
+                    # Live Graph
+                    html.Div(className='graph-container', children=[
+                        dcc.Graph(id='live-graph', style={'height': '550px'}),
+                    ]),
+                    
+                ]),  # End status tab
+                
+                # =========================================
+                # TAB 2: MANUAL SCHEDULE
+                # =========================================
+                html.Div(id='manual-tab', className='hidden', children=[
+                    
                     # Random Schedule Section
                     html.Div(className='card', children=[
                         html.Div(className='card-header', children=[
@@ -256,155 +405,6 @@ def dashboard_agent(config, shared_data):
                 # TAB 4: LOGS
                 # =========================================
                 html.Div(id='logs-tab', className='hidden', children=[
-                    
-                    # Control Panel - Two Rows
-                    html.Div(className='control-panel', children=[
-                        
-                        # Row 1: Controls (Buttons + Toggles) - 1/3 width each on medium+
-                        html.Div(className='controls-row', children=[
-                            # Start/Stop Buttons (1/3)
-                            html.Div(className='control-section', children=[
-                                html.Div(className='control-group', children=[
-                                    html.Button(
-                                        children=["▶ Start"], 
-                                        id='start-button', 
-                                        n_clicks=0, 
-                                        className='control-btn control-btn-start', 
-                                        disabled=True
-                                    ),
-                                    html.Button(
-                                        children=["■ Stop"], 
-                                        id='stop-button', 
-                                        n_clicks=0, 
-                                        className='control-btn control-btn-stop'
-                                    ),
-                                ]),
-                            ]),
-                            
-                            # Schedule Toggle (1/3)
-                            html.Div(className='control-section', children=[
-                                html.Div(className='toggle-wrapper', children=[
-                                    html.Span(className='toggle-label', children="Schedule:"),
-                                    html.Div(className='compact-toggle', children=[
-                                        html.Button(
-                                            "Manual", 
-                                            id='source-manual-btn', 
-                                            className='toggle-option active',
-                                            n_clicks=0
-                                        ),
-                                        html.Button(
-                                            "API", 
-                                            id='source-api-btn', 
-                                            className='toggle-option',
-                                            n_clicks=0
-                                        ),
-                                    ]),
-                                ]),
-                            ]),
-                            
-                            # Plant Toggle (1/3)
-                            html.Div(className='control-section', children=[
-                                html.Div(className='toggle-wrapper', children=[
-                                    html.Span(className='toggle-label', children="Plant:"),
-                                    html.Div(className='compact-toggle', children=[
-                                        html.Button(
-                                            "Local", 
-                                            id='plant-local-btn', 
-                                            className='toggle-option active',
-                                            n_clicks=0
-                                        ),
-                                        html.Button(
-                                            "Remote", 
-                                            id='plant-remote-btn', 
-                                            className='toggle-option',
-                                            n_clicks=0
-                                        ),
-                                    ]),
-                                ]),
-                            ]),
-                        ]),
-                        
-                        # Row 2: Status Info
-                        html.Div(className='status-row', children=[
-                            html.Div(id='status-indicator', className='status-badge status-badge-unknown', children=[
-                                html.Span(className='status-dot'),
-                                "Unknown"
-                            ]),
-                            html.Div(id='active-source-display', className='status-text', children="Source: Manual"),
-                            html.Div(id='data-fetcher-status-display', className='status-text', children="API: Not connected"),
-                            html.Div(id='last-update', className='status-text', children=""),
-                        ]),
-                    ]),
-                    
-                    # Hidden RadioItems for state management
-                    dcc.RadioItems(
-                        id='active-source-selector',
-                        options=[
-                            {'label': ' Manual', 'value': 'manual'},
-                            {'label': ' API', 'value': 'api'}
-                        ],
-                        value='manual',
-                        style={'display': 'none'}
-                    ),
-                    dcc.RadioItems(
-                        id='selected-plant-selector',
-                        options=[
-                            {'label': ' Local', 'value': 'local'},
-                            {'label': ' Remote', 'value': 'remote'}
-                        ],
-                        value='local',
-                        style={'display': 'none'}
-                    ),
-                    
-                    # Plant Switch Confirmation Modal
-                    html.Div(id='plant-switch-modal', className='hidden', style={
-                        'position': 'fixed', 'top': '0', 'left': '0', 'width': '100%', 'height': '100%',
-                        'backgroundColor': 'rgba(0,0,0,0.5)', 'zIndex': '1000', 'display': 'flex',
-                        'justifyContent': 'center', 'alignItems': 'center'
-                    }, children=[
-                        html.Div(style={
-                            'backgroundColor': 'white', 'padding': '24px', 'borderRadius': '8px',
-                            'maxWidth': '400px', 'boxShadow': '0 4px 12px rgba(0,0,0,0.15)'
-                        }, children=[
-                            html.H3("Confirm Plant Switch", style={'marginTop': '0'}),
-                            html.P("Switching plants will stop the system and flush current measurements. Continue?"),
-                            html.Div(style={'display': 'flex', 'gap': '12px', 'marginTop': '20px', 'justifyContent': 'flex-end'}, children=[
-                                html.Button('Cancel', id='plant-switch-cancel', className='btn btn-secondary'),
-                                html.Button('Confirm', id='plant-switch-confirm', className='btn btn-primary'),
-                            ]),
-                        ]),
-                    ]),
-                    
-                    # Schedule Switch Confirmation Modal
-                    html.Div(id='schedule-switch-modal', className='hidden', style={
-                        'position': 'fixed', 'top': '0', 'left': '0', 'width': '100%', 'height': '100%',
-                        'backgroundColor': 'rgba(0,0,0,0.5)', 'zIndex': '1000', 'display': 'flex',
-                        'justifyContent': 'center', 'alignItems': 'center'
-                    }, children=[
-                        html.Div(style={
-                            'backgroundColor': 'white', 'padding': '24px', 'borderRadius': '8px',
-                            'maxWidth': '400px', 'boxShadow': '0 4px 12px rgba(0,0,0,0.15)'
-                        }, children=[
-                            html.H3("Confirm Schedule Switch", style={'marginTop': '0'}),
-                            html.P("Switching schedule source will stop the system and flush current measurements. Continue?"),
-                            html.Div(style={'display': 'flex', 'gap': '12px', 'marginTop': '20px', 'justifyContent': 'flex-end'}, children=[
-                                html.Button('Cancel', id='schedule-switch-cancel', className='btn btn-secondary'),
-                                html.Button('Confirm', id='schedule-switch-confirm', className='btn btn-primary'),
-                            ]),
-                        ]),
-                    ]),
-                    
-                    # Live Graph
-                    html.Div(className='graph-container', children=[
-                        dcc.Graph(id='live-graph', style={'height': '550px'}),
-                    ]),
-                    
-                ]),  # End status tab
-                
-                # =========================================
-                # TAB 2: MANUAL SCHEDULE
-                # =========================================
-                html.Div(id='manual-tab', className='hidden', children=[
                     
                     html.Div(className='card', children=[
                         html.Div(className='card-header', style={'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center'}, children=[
