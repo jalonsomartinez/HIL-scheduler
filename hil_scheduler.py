@@ -86,7 +86,9 @@ def main():
     
     # Set the log file path after setup_logging has created it
     import os
-    shared_data["log_file_path"] = os.path.join(os.path.dirname(__file__), 'logs', 'hil_scheduler.log')
+    from datetime import datetime
+    today = datetime.now().strftime('%Y-%m-%d')
+    shared_data["log_file_path"] = os.path.join(os.path.dirname(__file__), 'logs', f'{today}_hil_scheduler.log')
     
     try:
         # --- Create and start agent threads ---

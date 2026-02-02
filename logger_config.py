@@ -9,7 +9,6 @@ Configures logging to:
 
 import logging
 import os
-from logging.handlers import TimedRotatingFileHandler
 from datetime import datetime
 
 
@@ -77,19 +76,16 @@ def setup_logging(config, shared_data):
     console_handler.setFormatter(formatter)
     root_logger.addHandler(console_handler)
     
-    # 2. File Handler - Daily rotation at midnight
-    log_file_path = os.path.join(logs_dir, 'hil_scheduler.log')
-    file_handler = TimedRotatingFileHandler(
+    # 2. File Handler - Daily file with date in name
+    today = datetime.now().strftime('%Y-%m-%d')
+    log_file_path = os.path.join(logs_dir, f'{today}_hil_scheduler.log')
+    file_handler = logging.FileHandler(
         log_file_path,
-        when='midnight',
-        interval=1,
-        backupCount=30,  # Keep 30 days of logs
+        mode='a',  # Append mode (creates if doesn't exist)
         encoding='utf-8'
     )
     file_handler.setLevel(log_level)
     file_handler.setFormatter(formatter)
-    # Customize the suffix to include date
-    file_handler.suffix = "%Y-%m-%d.log"
     root_logger.addHandler(file_handler)
     
     # 3. Session Handler - Captures to shared_data for dashboard
