@@ -145,7 +145,6 @@ def dashboard_agent(config, shared_data):
                             {'label': ' Manual', 'value': 'manual'},
                             {'label': ' API', 'value': 'api'}
                         ],
-                        value='manual',
                         style={'display': 'none'}
                     ),
                     dcc.RadioItems(
@@ -154,7 +153,6 @@ def dashboard_agent(config, shared_data):
                             {'label': ' Local', 'value': 'local'},
                             {'label': ' Remote', 'value': 'remote'}
                         ],
-                        value='local',
                         style={'display': 'none'}
                     ),
                     
@@ -866,7 +864,7 @@ def dashboard_agent(config, shared_data):
          Input('schedule-switch-confirm', 'n_clicks')],
         [State('active-source-selector', 'value'),
          State('system-status', 'data')],
-        prevent_initial_call=True
+        prevent_initial_call='initial_duplicate'
     )
     def select_active_source(manual_clicks, api_clicks, cancel_clicks, confirm_clicks, current_source, current_system_status):
         ctx = callback_context
@@ -875,9 +873,9 @@ def dashboard_agent(config, shared_data):
             with shared_data['lock']:
                 stored_source = shared_data.get('active_schedule_source', 'manual')
             if stored_source == 'api':
-                return 'api', 'toggle-option', 'toggle-option active', 'hidden'
+                return 'api', 'toggle-option', 'toggle-option active', 'hidden', current_system_status
             else:
-                return 'manual', 'toggle-option active', 'toggle-option', 'hidden'
+                return 'manual', 'toggle-option active', 'toggle-option', 'hidden', current_system_status
         
         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
         
@@ -969,7 +967,7 @@ def dashboard_agent(config, shared_data):
          Input('plant-switch-confirm', 'n_clicks')],
         [State('selected-plant-selector', 'value'),
          State('system-status', 'data')],
-        prevent_initial_call=True
+        prevent_initial_call='initial_duplicate'
     )
     def select_plant(local_clicks, remote_clicks, cancel_clicks, confirm_clicks, current_plant, current_system_status):
         ctx = callback_context
@@ -978,9 +976,9 @@ def dashboard_agent(config, shared_data):
             with shared_data['lock']:
                 stored_plant = shared_data.get('selected_plant', 'local')
             if stored_plant == 'remote':
-                return 'remote', 'toggle-option', 'toggle-option active', 'hidden'
+                return 'remote', 'toggle-option', 'toggle-option active', 'hidden', current_system_status
             else:
-                return 'local', 'toggle-option active', 'toggle-option', 'hidden'
+                return 'local', 'toggle-option active', 'toggle-option', 'hidden', current_system_status
         
         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
         

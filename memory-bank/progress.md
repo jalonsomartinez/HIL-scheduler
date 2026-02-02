@@ -2,6 +2,33 @@
 
 ## What Works
 
+### Dashboard Initial State Loading Fix (2026-02-02)
+- [x] **Changed to prevent_initial_call='initial_duplicate'**: Plant and schedule source selection callbacks now execute on initial load while supporting duplicate outputs
+- [x] **Removed hardcoded values**: RadioItems no longer have hardcoded `value='local'` or `value='manual'`
+- [x] **Fixed callback return values**: Both callbacks now return all 5 values including `current_system_status`
+- [x] **Initial state from shared_data**: Dashboard now correctly reads `selected_plant` and `active_schedule_source` from shared_data on startup
+- [x] **Config-driven startup**: Dashboard reflects `startup.plant` and `startup.schedule_source` from config.yaml
+
+**Files Modified:**
+- [`dashboard_agent.py`](dashboard_agent.py): 
+  - Changed `prevent_initial_call=True` to `prevent_initial_call='initial_duplicate'` in `select_plant` and `select_active_source` callbacks
+  - Removed hardcoded `value='local'` from `selected-plant-selector` RadioItems
+  - Removed hardcoded `value='manual'` from `active-source-selector` RadioItems
+  - Fixed `select_plant` callback to return 5 values including `current_system_status`
+  - Fixed `select_active_source` callback to return 5 values including `current_system_status`
+
+**Behavior:**
+- When `startup.plant: "remote"` in config.yaml, dashboard shows "Remote" on startup
+- When `startup.schedule_source: "api"` in config.yaml, dashboard shows "API" on startup
+- User can still switch plants/schedules via UI with confirmation modal
+
+**Technical Note:**
+- `prevent_initial_call='initial_duplicate'` is required because callbacks have `allow_duplicate=True` outputs (for `system-status` store)
+- Dash requires either `prevent_initial_call=True` or `prevent_initial_call='initial_duplicate'` when using `allow_duplicate=True`
+- `initial_duplicate` allows callbacks to run on initial page load while still supporting duplicate outputs
+- Hardcoded `value` attributes in RadioItems were overriding callback outputs, preventing proper initialization
+- Callbacks must return exactly 5 values to match the output schema (selector value, button classes, modal class, system-status)
+
 ### Log File Selector Implementation (2026-02-02)
 - [x] **Dropdown Selector**: Replaced "Clear Display" button with log file dropdown
 - [x] **File Scanning**: Automatic scanning of `logs/` folder for `.log` files

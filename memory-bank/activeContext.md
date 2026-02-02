@@ -1,9 +1,79 @@
 # Active Context: HIL Scheduler
 
 ## Current Focus
-Unified all Modbus registers to 16-bit format to match the remote plant (RTDS HIL) configuration. Previously, the local emulated plant used 32-bit registers (2 words per power value) while the remote plant used 16-bit registers (1 word per value). Now both use 16-bit registers consistently.
+Fixed dashboard initial state loading issue where startup configuration (plant and schedule source) was not reflected in the UI.
 
-## Recent Changes (2026-02-02) - 16-bit Modbus Register Unification
+## Recent Changes (2026-02-02) - Dashboard Initial State Loading Fix
+
+## Recent Changes (2026-02-02) - Dashboard Initial State Loading Fix
+
+### Overview
+Fixed dashboard not reflecting startup configuration for plant and schedule source selection.
+
+**Problem:** When starting the app with `startup.plant: "remote"` in config.yaml, the dashboard showed "local" instead. Similarly, `startup.schedule_source: "api"` was not reflected.
+
+**Root Cause:** The `select_plant` and `select_active_source` callbacks had `prevent_initial_call=True`, which prevented them from running on initial page load. The `if not ctx.triggered:` block meant to handle initial load never executed.
+
+**Solution:** Changed `prevent_initial_call=True` to `prevent_initial_call='initial_duplicate'` in both callbacks. This allows callbacks to run on initial load while still supporting duplicate outputs (required for `system-status` store).
+
+### Files Modified
+
+1. **[`dashboard_agent.py`](dashboard_agent.py)**:
+   - Changed `prevent_initial_call=True` to `prevent_initial_call='initial_duplicate'` in `select_plant` callback (line 972)
+   - Changed `prevent_initial_call=True` to `prevent_initial_call='initial_duplicate'` in `select_active_source` callback (line 869)
+   - Removed hardcoded `value='local'` from `selected-plant-selector` RadioItems (line 157)
+   - Removed hardcoded `value='manual'` from `active-source-selector` RadioItems (line 148)
+   - Fixed `select_plant` callback to return 5 values including `current_system_status` (line 983, 992)
+   - Fixed `select_active_source` callback to return 5 values including `current_system_status` (line 880, 891)
+   - Both callbacks now execute on initial load and read from `shared_data`
+   - RadioItems no longer have hardcoded initial values
+
+### Technical Details
+
+**Before Fix:**
+```python
+@app.callback(
+    [...],
+    [...],
+    prevent_initial_call=True  # Prevents callback on initial load
+)
+def select_plant(...):
+    if not ctx.triggered:
+        # This block never executes due to prevent_initial_call=True
+        with shared_data['lock']:
+            stored_plant = shared_data.get('selected_plant', 'local')
+        return ...
+```
+
+**After Fix:**
+```python
+@app.callback(
+    [...],
+    [...],
+    prevent_initial_call='initial_duplicate'  # Allows initial call, supports duplicate outputs
+)
+def select_plant(...):
+    if not ctx.triggered:
+        # This block now executes on initial load
+        with shared_data['lock']:
+            stored_plant = shared_data.get('selected_plant', 'local')
+        return ...
+```
+
+**Why `initial_duplicate`:**
+- The callbacks have `allow_duplicate=True` outputs (e.g., `Output('system-status', 'data', allow_duplicate=True)`)
+- Dash requires `prevent_initial_call=True` or `prevent_initial_call='initial_duplicate'` when using `allow_duplicate=True`
+- `initial_duplicate` allows the callback to run on initial page load while still supporting duplicate outputs
+
+### Behavior After Fix
+- Dashboard now correctly shows "Remote" when `startup.plant: "remote"` in config.yaml
+- Dashboard now correctly shows "API" when `startup.schedule_source: "api"` in config.yaml
+- Initial state is loaded from `shared_data['selected_plant']` and `shared_data['active_schedule_source']`
+- User can still switch plants/schedules via UI with confirmation modal
+
+---
+
+## Previous Focus (2026-02-02) - 16-bit Modbus Register Unification
 
 ### Overview
 Changed all power register operations from 32-bit to 16-bit to match the remote plant configuration.

@@ -14,7 +14,7 @@ schedule:
 # Startup Configuration
 startup:
   schedule_source: "manual"    # Options: "manual" or "api"
-  plant: "local"               # Options: "local" or "remote"
+  plant: "remote"               # Options: "local" or "remote"
 
 # Istentore API Configuration
 istentore_api:
