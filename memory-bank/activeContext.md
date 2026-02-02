@@ -1,6 +1,50 @@
 # Active Context: HIL Scheduler
 
 ## Current Focus
+Schedule type switching confirmation modal implemented. Both plant and schedule switches now flush measurements to CSV and clear the measurements DataFrame before switching.
+
+## Recent Changes (2026-02-02) - Schedule Switch Confirmation
+
+### Overview
+Implemented confirmation modal for schedule type switching (Manual ↔ API) and ensured both plant and schedule switches properly flush and clear measurements.
+
+### Behavior
+**When switching schedule type:**
+1. Confirmation modal appears with message: "Switching schedule source will stop the system and flush current measurements. Continue?"
+2. On Cancel: Modal closes, no changes made
+3. On Confirm:
+   - System is stopped via Modbus
+   - Measurements flushed to current CSV file (if any)
+   - Measurements DataFrame cleared
+   - `measurements_filename` cleared
+   - `active_schedule_source` updated in shared_data
+   - Modal closes, UI updates
+
+**When switching plants (updated):**
+- Same behavior: stops system, flushes measurements, clears DataFrame, then switches
+
+### Files Modified
+- [`dashboard_agent.py`](dashboard_agent.py):
+  - Added schedule switch confirmation modal UI
+  - Added `stop_system()` helper function
+  - Added `flush_and_clear_measurements()` helper function
+  - Consolidated schedule selection into single callback with confirmation flow
+  - Updated plant switch to also flush and clear measurements
+- [`hil_scheduler.py`](hil_scheduler.py):
+  - Added `schedule_switching` flag to shared_data
+
+### Implementation Details
+
+**Helper Functions:**
+- `stop_system()`: Stops the system by writing 0 to enable register
+- `flush_and_clear_measurements()`: Flushes measurements to CSV and clears DataFrame
+
+**Callback Consolidation:**
+- Merged two conflicting callbacks into single `select_active_source` callback
+- Handles: initial load, schedule button clicks (show modal), cancel, confirm
+- Pattern matches the plant selection callback implementation
+
+### Previous Focus
 Compact Status & Plots tab UI implemented. Unified control card with simple toggle switches for Schedule and Plant selection, integrated Start/Stop buttons, and responsive layout for small screens.
 
 ## Recent Changes (2026-02-01) - Two-Row Control Panel

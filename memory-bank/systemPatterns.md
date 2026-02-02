@@ -67,8 +67,12 @@ shared_data = {
         "error": None,
     },
     
-    # Measurement file management (NEW)
+    # Measurement file management
     "measurements_filename": None,             # Dashboard sets, Measurement Agent polls
+    
+    # Switching flags
+    "plant_switching": False,                  # True when plant switch in progress
+    "schedule_switching": False,               # True when schedule switch in progress
     
     # Existing data
     "measurements_df": pd.DataFrame(),
@@ -145,6 +149,134 @@ if current_time - last_measurement_time >= config["MEASUREMENT_PERIOD_S"]:
 # 3. CSV write (according to config)
 if current_time - last_write_time >= config["MEASUREMENTS_WRITE_PERIOD_S"]:
     write_measurements_to_csv(current_filename)
+```
+
+## Confirmation Modal Pattern (Plant/Schedule Switching)
+
+Pattern for implementing confirmation dialogs before destructive operations:
+
+### Modal UI Structure
+```python
+html.Div(id='switch-modal', className='hidden', style={
+    'position': 'fixed', 'top': '0', 'left': '0', 'width': '100%', 'height': '100%',
+    'backgroundColor': 'rgba(0,0,0,0.5)', 'zIndex': '1000', 'display': 'flex',
+    'justifyContent': 'center', 'alignItems': 'center'
+}, children=[
+    html.Div(style={
+        'backgroundColor': 'white', 'padding': '24px', 'borderRadius': '8px',
+        'maxWidth': '400px', 'boxShadow': '0 4px 12px rgba(0,0,0,0.15)'
+    }, children=[
+        html.H3("Confirm Switch", style={'marginTop': '0'}),
+        html.P("Description of what will happen. Continue?"),
+        html.Div(style={'display': 'flex', 'gap': '12px', 'marginTop': '20px', 
+                       'justifyContent': 'flex-end'}, children=[
+            html.Button('Cancel', id='switch-cancel', className='btn btn-secondary'),
+            html.Button('Confirm', id='switch-confirm', className='btn btn-primary'),
+        ]),
+    ]),
+])
+```
+
+### Single Callback Pattern
+Consolidate all logic into one callback (prevents conflicts):
+
+```python
+@app.callback(
+    [Output('selector', 'value'),
+     Output('option1-btn', 'className'),
+     Output('option2-btn', 'className'),
+     Output('switch-modal', 'className')],
+    [Input('option1-btn', 'n_clicks'),
+     Input('option2-btn', 'n_clicks'),
+     Input('switch-cancel', 'n_clicks'),
+     Input('switch-confirm', 'n_clicks')],
+    [State('selector', 'value')],
+    prevent_initial_call=True
+)
+def handle_selection(opt1_clicks, opt2_clicks, cancel_clicks, confirm_clicks, current_value):
+    ctx = callback_context
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    # Handle cancel - return to current state, hide modal
+    if trigger_id == 'switch-cancel':
+        return current_value, 'active', 'inactive', 'hidden'
+    
+    # Handle confirm - perform switch in background thread
+    if trigger_id == 'switch-confirm':
+        requested_value = 'opt2' if current_value == 'opt1' else 'opt1'
+        
+        def perform_switch():
+            # 1. Stop system
+            stop_system()
+            # 2. Flush measurements
+            flush_and_clear_measurements()
+            # 3. Update shared_data
+            with shared_data['lock']:
+                shared_data['key'] = requested_value
+        
+        threading.Thread(target=perform_switch).start()
+        return requested_value, 'inactive', 'active', 'hidden'
+    
+    # Handle option click - show modal if different from current
+    if trigger_id == 'option2-btn' and current_value != 'opt2':
+        return current_value, 'active', 'inactive', ''  # Empty class shows modal
+    
+    # Default: no change
+    return current_value, 'active', 'inactive', 'hidden'
+```
+
+## System Stop and Measurement Flush Pattern
+
+Standard procedure before switching plants or schedules:
+
+```python
+def stop_system():
+    """Stop the system by writing 0 to enable register."""
+    with shared_data['lock']:
+        selected_plant = shared_data.get('selected_plant', 'local')
+    
+    # Get plant config
+    if selected_plant == 'remote':
+        host = config.get('PLANT_REMOTE_MODBUS_HOST', '10.117.133.21')
+        port = config.get('PLANT_REMOTE_MODBUS_PORT', 502)
+        enable_reg = config.get('PLANT_REMOTE_ENABLE_REGISTER', 10)
+    else:
+        host = config.get('PLANT_LOCAL_MODBUS_HOST', 'localhost')
+        port = config.get('PLANT_LOCAL_MODBUS_PORT', 5020)
+        enable_reg = config.get('PLANT_ENABLE_REGISTER', 10)
+    
+    # Send stop command
+    client = ModbusClient(host=host, port=port)
+    if client.open():
+        client.write_single_register(enable_reg, 0)
+        client.close()
+
+def flush_and_clear_measurements():
+    """Flush measurements to CSV and clear DataFrame."""
+    with shared_data['lock']:
+        filename = shared_data.get('measurements_filename')
+        df = shared_data.get('measurements_df', pd.DataFrame()).copy()
+    
+    # Write to CSV if data exists
+    if filename and not df.empty:
+        df.to_csv(filename, index=False)
+    
+    # Clear DataFrame and filename
+    with shared_data['lock']:
+        shared_data['measurements_df'] = pd.DataFrame()
+        shared_data['measurements_filename'] = None
+```
+
+**Usage in Switch Operations:**
+```python
+def perform_switch():
+    # Always stop and flush before switching
+    stop_system()
+    flush_and_clear_measurements()
+    
+    # Then perform the actual switch
+    with shared_data['lock']:
+        shared_data['selected_plant'] = new_plant
 ```
 
 | Timer | Period | Purpose |

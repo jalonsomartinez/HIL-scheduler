@@ -71,6 +71,8 @@ def main():
         "selected_plant": startup_plant,
         # Plant switching status: True when a switch is in progress
         "plant_switching": False,
+        # Schedule switching status: True when a switch is in progress
+        "schedule_switching": False,
     }
     
     try:

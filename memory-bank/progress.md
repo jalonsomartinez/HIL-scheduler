@@ -2,6 +2,16 @@
 
 ## What Works
 
+### Schedule Switch Confirmation (2026-02-02)
+- [x] **Confirmation Modal**: Modal appears when switching between Manual and API schedules
+- [x] **Stop System on Switch**: System is stopped via Modbus before switching
+- [x] **Flush Measurements**: Measurements flushed to CSV file before switching
+- [x] **Clear DataFrame**: Measurements DataFrame cleared after flushing
+- [x] **Plant Switch Updated**: Now also flushes and clears measurements (same as schedule switch)
+- [x] **API Connection Preserved**: API connection remains active during schedule switches
+- [x] **Schedule Data Preserved**: Both manual and API schedules remain intact
+- [x] **Helper Functions**: `stop_system()` and `flush_and_clear_measurements()` available for reuse
+
 ### Dual Plant Support (2026-02-01)
 - [x] **Local Plant**: Emulated plant running in `plant_agent.py` (localhost:5020)
 - [x] **Remote Plant**: Real hardware plant (10.117.133.21:502)

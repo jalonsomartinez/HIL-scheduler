@@ -76,7 +76,7 @@ modbus_remote:
   # Register Map - Same structure as local, customize values as needed
   registers:
     # Active Power
-    p_setpoint_in: 86       # 32-bit signed: Active power setpoint from scheduler (hW)
+    p_setpoint_in: 0       # 32-bit signed: Active power setpoint from scheduler (hW)
     p_poi: 14               # 32-bit signed: Active power at POI (hW)
     p_battery: 2            # 32-bit signed: Actual battery active power after SoC limiting (hW)
     # Reactive Power
@@ -86,7 +86,7 @@ modbus_remote:
     # Voltage
     v_poi: 18               # 16-bit unsigned: Voltage at POI (per-unit x100)
     # Control and Status
-    enable: 1               # 16-bit: Enable flag (0=disabled, 1=enabled)
-    soc: 281                # 16-bit unsigned: State of Charge (per-unit x10000)
+    enable: 10               # 16-bit: Enable flag (0=disabled, 1=enabled)
+    soc: 12                # 16-bit unsigned: State of Charge (per-unit x10000)
 
 

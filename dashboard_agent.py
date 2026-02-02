@@ -366,10 +366,29 @@ def dashboard_agent(config, shared_data):
                             'maxWidth': '400px', 'boxShadow': '0 4px 12px rgba(0,0,0,0.15)'
                         }, children=[
                             html.H3("Confirm Plant Switch", style={'marginTop': '0'}),
-                            html.P("Switching plants will stop the current plant first. Continue?"),
+                            html.P("Switching plants will stop the system and flush current measurements. Continue?"),
                             html.Div(style={'display': 'flex', 'gap': '12px', 'marginTop': '20px', 'justifyContent': 'flex-end'}, children=[
                                 html.Button('Cancel', id='plant-switch-cancel', className='btn btn-secondary'),
                                 html.Button('Confirm', id='plant-switch-confirm', className='btn btn-primary'),
+                            ]),
+                        ]),
+                    ]),
+                    
+                    # Schedule Switch Confirmation Modal
+                    html.Div(id='schedule-switch-modal', className='hidden', style={
+                        'position': 'fixed', 'top': '0', 'left': '0', 'width': '100%', 'height': '100%',
+                        'backgroundColor': 'rgba(0,0,0,0.5)', 'zIndex': '1000', 'display': 'flex',
+                        'justifyContent': 'center', 'alignItems': 'center'
+                    }, children=[
+                        html.Div(style={
+                            'backgroundColor': 'white', 'padding': '24px', 'borderRadius': '8px',
+                            'maxWidth': '400px', 'boxShadow': '0 4px 12px rgba(0,0,0,0.15)'
+                        }, children=[
+                            html.H3("Confirm Schedule Switch", style={'marginTop': '0'}),
+                            html.P("Switching schedule source will stop the system and flush current measurements. Continue?"),
+                            html.Div(style={'display': 'flex', 'gap': '12px', 'marginTop': '20px', 'justifyContent': 'flex-end'}, children=[
+                                html.Button('Cancel', id='schedule-switch-cancel', className='btn btn-secondary'),
+                                html.Button('Confirm', id='schedule-switch-confirm', className='btn btn-primary'),
                             ]),
                         ]),
                     ]),
@@ -393,6 +412,65 @@ def dashboard_agent(config, shared_data):
             
         ]),  # End app container
     ])
+    
+    # ============================================================
+    # HELPER FUNCTIONS FOR SYSTEM CONTROL AND MEASUREMENTS
+    # ============================================================
+    def stop_system():
+        """Stop the system by writing 0 to the enable register of the selected plant."""
+        try:
+            from pyModbusTCP.client import ModbusClient
+            
+            with shared_data['lock']:
+                selected_plant = shared_data.get('selected_plant', 'local')
+            
+            if selected_plant == 'remote':
+                host = config.get('PLANT_REMOTE_MODBUS_HOST', '10.117.133.21')
+                port = config.get('PLANT_REMOTE_MODBUS_PORT', 502)
+                enable_reg = config.get('PLANT_REMOTE_ENABLE_REGISTER', 10)
+            else:
+                host = config.get('PLANT_LOCAL_MODBUS_HOST', 'localhost')
+                port = config.get('PLANT_LOCAL_MODBUS_PORT', 5020)
+                enable_reg = config.get('PLANT_ENABLE_REGISTER', 10)
+            
+            client = ModbusClient(host=host, port=port)
+            if client.open():
+                client.write_single_register(enable_reg, 0)
+                client.close()
+                logging.info(f"Dashboard: System stopped (plant: {selected_plant})")
+                return True
+            else:
+                logging.warning(f"Dashboard: Could not connect to {selected_plant} plant to stop system")
+                return False
+        except Exception as e:
+            logging.error(f"Dashboard: Error stopping system: {e}")
+            return False
+    
+    def flush_and_clear_measurements():
+        """Flush measurements to CSV and clear the measurements DataFrame."""
+        try:
+            with shared_data['lock']:
+                measurements_filename = shared_data.get('measurements_filename')
+                measurements_df = shared_data.get('measurements_df', pd.DataFrame()).copy()
+            
+            # Write to CSV if filename exists and dataframe is not empty
+            if measurements_filename and not measurements_df.empty:
+                try:
+                    measurements_df.to_csv(measurements_filename, index=False)
+                    logging.info(f"Dashboard: Flushed {len(measurements_df)} measurements to {measurements_filename}")
+                except Exception as e:
+                    logging.error(f"Dashboard: Error flushing measurements to CSV: {e}")
+            
+            # Clear the measurements DataFrame and filename
+            with shared_data['lock']:
+                shared_data['measurements_df'] = pd.DataFrame()
+                shared_data['measurements_filename'] = None
+            
+            logging.info("Dashboard: Measurements DataFrame cleared")
+            return True
+        except Exception as e:
+            logging.error(f"Dashboard: Error clearing measurements: {e}")
+            return False
     
     # ============================================================
     # TAB SWITCHING CALLBACK
@@ -728,34 +806,95 @@ def dashboard_agent(config, shared_data):
         return fig
     
     # ============================================================
-    # ACTIVE SOURCE SELECTION
+    # SCHEDULE SOURCE SELECTION (with confirmation modal)
     # ============================================================
     @app.callback(
         [Output('active-source-selector', 'value'),
          Output('source-manual-btn', 'className'),
-         Output('source-api-btn', 'className')],
+         Output('source-api-btn', 'className'),
+         Output('schedule-switch-modal', 'className')],
         [Input('source-manual-btn', 'n_clicks'),
-         Input('source-api-btn', 'n_clicks')]
+         Input('source-api-btn', 'n_clicks'),
+         Input('schedule-switch-cancel', 'n_clicks'),
+         Input('schedule-switch-confirm', 'n_clicks')],
+        [State('active-source-selector', 'value')],
+        prevent_initial_call=True
     )
-    def select_active_source(manual_clicks, api_clicks):
+    def select_active_source(manual_clicks, api_clicks, cancel_clicks, confirm_clicks, current_source):
         ctx = callback_context
         if not ctx.triggered:
-            return 'manual', 'toggle-option active', 'toggle-option'
+            # Read current source from shared_data on initial load
+            with shared_data['lock']:
+                stored_source = shared_data.get('active_schedule_source', 'manual')
+            if stored_source == 'api':
+                return 'api', 'toggle-option', 'toggle-option active', 'hidden'
+            else:
+                return 'manual', 'toggle-option active', 'toggle-option', 'hidden'
         
         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
         
-        try:
-            if trigger_id == 'source-api-btn':
-                with shared_data['lock']:
-                    shared_data['active_schedule_source'] = 'api'
-                return 'api', 'toggle-option', 'toggle-option active'
+        # Handle cancel button - return to current selection without changing
+        if trigger_id == 'schedule-switch-cancel':
+            with shared_data['lock']:
+                stored_source = shared_data.get('active_schedule_source', 'manual')
+            if stored_source == 'api':
+                return 'api', 'toggle-option', 'toggle-option active', 'hidden'
             else:
-                with shared_data['lock']:
-                    shared_data['active_schedule_source'] = 'manual'
-                return 'manual', 'toggle-option active', 'toggle-option'
-        except Exception as e:
-            logging.error(f"Error selecting source: {e}")
-            return 'manual', 'toggle-option active', 'toggle-option'
+                return 'manual', 'toggle-option active', 'toggle-option', 'hidden'
+        
+        # Handle confirm button - perform the actual switch
+        if trigger_id == 'schedule-switch-confirm':
+            requested_source = 'api' if current_source == 'manual' else 'manual'
+            
+            def perform_schedule_switch():
+                try:
+                    # 1. Stop the system
+                    logging.info(f"Dashboard: Stopping system before switching to {requested_source} schedule...")
+                    stop_system()
+                    
+                    # 2. Flush measurements and clear DataFrame
+                    logging.info("Dashboard: Flushing and clearing measurements...")
+                    flush_and_clear_measurements()
+                    
+                    # 3. Update active_schedule_source in shared_data
+                    with shared_data['lock']:
+                        shared_data['active_schedule_source'] = requested_source
+                        shared_data['schedule_switching'] = False
+                    
+                    logging.info(f"Dashboard: Switched to {requested_source} schedule")
+                    
+                except Exception as e:
+                    logging.error(f"Dashboard: Error during schedule switch: {e}")
+                    with shared_data['lock']:
+                        shared_data['schedule_switching'] = False
+            
+            # Run switch in background thread
+            with shared_data['lock']:
+                shared_data['schedule_switching'] = True
+            
+            switch_thread = threading.Thread(target=perform_schedule_switch)
+            switch_thread.daemon = True
+            switch_thread.start()
+            
+            # Return the new selection (will update after switch completes)
+            if requested_source == 'api':
+                return 'api', 'toggle-option', 'toggle-option active', 'hidden'
+            else:
+                return 'manual', 'toggle-option active', 'toggle-option', 'hidden'
+        
+        # Handle schedule option clicks - show confirmation modal when attempting to switch
+        if trigger_id == 'source-api-btn' and current_source != 'api':
+            return current_source, 'toggle-option active', 'toggle-option', ''
+        elif trigger_id == 'source-manual-btn' and current_source != 'manual':
+            return current_source, 'toggle-option', 'toggle-option active', ''
+        
+        # Default: no change (read from shared_data to ensure sync)
+        with shared_data['lock']:
+            stored_source = shared_data.get('active_schedule_source', 'manual')
+        if stored_source == 'api':
+            return 'api', 'toggle-option', 'toggle-option active', 'hidden'
+        else:
+            return 'manual', 'toggle-option active', 'toggle-option', 'hidden'
     
     # ============================================================
     # PLANT SELECTION
@@ -801,31 +940,12 @@ def dashboard_agent(config, shared_data):
             
             def perform_plant_switch():
                 try:
-                    # First, stop the current plant
-                    logging.info(f"Dashboard: Stopping current plant before switching to {requested_plant}...")
+                    # 1. Stop the system and flush measurements
+                    logging.info(f"Dashboard: Stopping system and flushing measurements before switching to {requested_plant} plant...")
+                    stop_system()
+                    flush_and_clear_measurements()
                     
-                    # Get current plant config
-                    with shared_data['lock']:
-                        current_selected = shared_data.get('selected_plant', 'local')
-                    
-                    if current_selected == 'local':
-                        stop_host = config.get('PLANT_LOCAL_MODBUS_HOST', 'localhost')
-                        stop_port = config.get('PLANT_LOCAL_MODBUS_PORT', 5020)
-                        stop_enable_reg = config.get('PLANT_ENABLE_REGISTER', 10)
-                    else:
-                        stop_host = config.get('PLANT_REMOTE_MODBUS_HOST', '10.117.133.21')
-                        stop_port = config.get('PLANT_REMOTE_MODBUS_PORT', 502)
-                        stop_enable_reg = config.get('PLANT_REMOTE_ENABLE_REGISTER', 10)
-                    
-                    # Send stop command
-                    from pyModbusTCP.client import ModbusClient
-                    client = ModbusClient(host=stop_host, port=stop_port)
-                    if client.open():
-                        client.write_single_register(stop_enable_reg, 0)
-                        client.close()
-                        logging.info(f"Dashboard: Stop command sent to {current_selected} plant")
-                    
-                    # Update shared_data with new plant selection
+                    # 2. Update shared_data with new plant selection
                     with shared_data['lock']:
                         shared_data['selected_plant'] = requested_plant
                         shared_data['plant_switching'] = False
