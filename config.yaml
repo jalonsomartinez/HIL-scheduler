@@ -67,26 +67,26 @@ modbus_local:
     enable: 10              # 16-bit: Enable flag (0=disabled, 1=enabled)
     soc: 12                 # 16-bit unsigned: State of Charge (per-unit x10000)
 
-# Modbus Configuration - Remote Plant (Real Hardware)
+# Modbus Configuration - Remote Plant (RTDS HIL) 
 modbus_remote:
-  host: "localhost" #"10.117.133.21"
-  port: 5020 #502
-  description: "Remote real plant - edit register values as needed"
+  host: "10.117.133.21"
+  port: 502
+  description: "Remote HIL plant"
 
-  # Register Map - Same structure as local, customize values as needed
+  # Register Map
   registers:
     # Active Power
-    p_setpoint_in: 0       # 32-bit signed: Active power setpoint from scheduler (hW)
-    p_poi: 14               # 32-bit signed: Active power at POI (hW)
-    p_battery: 2            # 32-bit signed: Actual battery active power after SoC limiting (hW)
+    p_setpoint_in: 86       # 16-bit signed: Active power setpoint from scheduler (hW) (SP)
+    p_poi: 290               # 16-bit signed: Active power at POI (hW) (MEDIDA)
+    p_battery: 270            # 16-bit signed: Actual battery active power after SoC limiting (hW) (MEDIDA)
     # Reactive Power
-    q_setpoint_in: 4        # 32-bit signed: Reactive power setpoint from scheduler (hW)
-    q_poi: 16               # 32-bit signed: Reactive power at POI (hW)
-    q_battery: 6            # 32-bit signed: Actual battery reactive power (hW)
+    q_setpoint_in: 88        # 16-bit signed: Reactive power setpoint from scheduler (hW) (SP)
+    q_poi: 292               # 16-bit signed: Reactive power at POI (hW) (MEDIDA)
+    q_battery: 272            # 16-bit signed: Actual battery reactive power (hW) (MEDIDA)
     # Voltage
-    v_poi: 18               # 16-bit unsigned: Voltage at POI (per-unit x100)
+    v_poi: 296               # 16-bit unsigned: Voltage at POI (per-unit x100) (MEDIDA)
     # Control and Status
-    enable: 10               # 16-bit: Enable flag (0=disabled, 1=enabled)
-    soc: 12                # 16-bit unsigned: State of Charge (per-unit x10000)
+    enable: 1               # 16-bit: Enable flag (0=disabled, 1=enabled)
+    soc: 281                # 16-bit unsigned: State of Charge (per-unit x10000) (MEDIDA)
 
 
