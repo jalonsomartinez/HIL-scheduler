@@ -9,6 +9,18 @@ from datetime import datetime
 from pathlib import Path
 
 
+DEFAULT_MEASUREMENT_COMPRESSION_TOLERANCES = {
+    "p_setpoint_kw": 0.0,
+    "battery_active_power_kw": 0.1,
+    "q_setpoint_kvar": 0.0,
+    "battery_reactive_power_kvar": 0.1,
+    "soc_pu": 0.0001,
+    "p_poi_kw": 0.1,
+    "q_poi_kvar": 0.1,
+    "v_poi_pu": 0.001,
+}
+
+
 def load_config(config_path="config.yaml"):
     """
     Load configuration from YAML file and return as a flat dictionary
@@ -50,6 +62,35 @@ def load_config(config_path="config.yaml"):
     config['PLANT_PERIOD_S'] = timing.get('plant_period_s', 5)
     config['MEASUREMENT_PERIOD_S'] = timing.get('measurement_period_s', 2)
     config['MEASUREMENTS_WRITE_PERIOD_S'] = timing.get('measurements_write_period_s', 2)
+
+    # Recording settings
+    recording = yaml_config.get('recording', {})
+    compression = recording.get('compression', {})
+    enabled_raw = compression.get('enabled', True)
+    if isinstance(enabled_raw, bool):
+        compression_enabled = enabled_raw
+    elif isinstance(enabled_raw, str):
+        compression_enabled = enabled_raw.strip().lower() in ['1', 'true', 'yes', 'on']
+    else:
+        compression_enabled = bool(enabled_raw)
+    config['MEASUREMENT_COMPRESSION_ENABLED'] = compression_enabled
+
+    raw_tolerances = compression.get('tolerances', {})
+    tolerances = {}
+    for key, default_value in DEFAULT_MEASUREMENT_COMPRESSION_TOLERANCES.items():
+        raw_value = raw_tolerances.get(key, default_value)
+        try:
+            parsed_value = float(raw_value)
+            if parsed_value < 0:
+                raise ValueError("negative tolerance")
+            tolerances[key] = parsed_value
+        except (TypeError, ValueError):
+            logging.warning(
+                f"Invalid recording.compression.tolerances.{key}='{raw_value}'. "
+                f"Using default {default_value}."
+            )
+            tolerances[key] = default_value
+    config['MEASUREMENT_COMPRESSION_TOLERANCES'] = tolerances
     
     # Plant settings
     plant = yaml_config.get('plant', {})

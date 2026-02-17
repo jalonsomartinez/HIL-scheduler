@@ -30,6 +30,20 @@ timing:
   measurement_period_s: 2
   measurements_write_period_s: 60
 
+# Recording Configuration
+recording:
+  compression:
+    enabled: true
+    tolerances:
+      p_setpoint_kw: 0.0
+      battery_active_power_kw: 0.1
+      q_setpoint_kvar: 0.0
+      battery_reactive_power_kvar: 0.1
+      soc_pu: 0.0001
+      p_poi_kw: 0.1
+      q_poi_kvar: 0.1
+      v_poi_pu: 0.001
+
 # Plant Configuration
 plant:
   capacity_kwh: 50.0
@@ -91,4 +105,3 @@ modbus_remote:
     # Control and Status
     enable: 1               # 16-bit: Enable flag (0=disabled, 1=enabled)
     soc: 281                # 16-bit unsigned: State of Charge (per-unit x10000) (MEDIDA)
-
