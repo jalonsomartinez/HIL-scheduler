@@ -1,9 +1,10 @@
 import logging
 import time
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from istentore_api import IstentoreAPI, AuthenticationError
+from time_utils import now_tz
 
 
 def data_fetcher_agent(config, shared_data):
@@ -56,7 +57,7 @@ def data_fetcher_agent(config, shared_data):
             
             # Initialize API if needed
             if api is None:
-                api = IstentoreAPI()
+                api = IstentoreAPI(timezone_name=config.get("TIMEZONE_NAME"))
                 api.set_password(password)
                 logging.info("Data fetcher: API initialized with password.")
             
@@ -73,7 +74,7 @@ def data_fetcher_agent(config, shared_data):
             if not today_fetched:
                 logging.info("Data fetcher: Fetching today's schedule...")
                 try:
-                    now = datetime.now()
+                    now = now_tz(config)
                     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
                     today_end = today_start + timedelta(days=1) - timedelta(minutes=15)
                     
@@ -110,7 +111,7 @@ def data_fetcher_agent(config, shared_data):
                     logging.error(f"Data fetcher: Error fetching today's schedule: {e}")
             
             # Check if it's time to poll for tomorrow's schedule
-            now = datetime.now()
+            now = now_tz(config)
             current_time = now.strftime("%H:%M")
             
             with shared_data['lock']:

@@ -8,9 +8,9 @@ provided by the dashboard when needed.
 
 import logging
 from datetime import datetime, timezone, timedelta
-from zoneinfo import ZoneInfo
 
 import requests
+from time_utils import DEFAULT_TIMEZONE_NAME, get_timezone
 
 # Default API configuration (email is fixed, password is provided at runtime)
 DEFAULT_BASE_URL = "https://3mku48kfxf.execute-api.eu-south-2.amazonaws.com/default"
@@ -35,7 +35,12 @@ class IstentoreAPI:
     The password is provided at runtime by the dashboard and stored for the session.
     """
     
-    def __init__(self, base_url: str = DEFAULT_BASE_URL, email: str = DEFAULT_EMAIL):
+    def __init__(
+        self,
+        base_url: str = DEFAULT_BASE_URL,
+        email: str = DEFAULT_EMAIL,
+        timezone_name: str = DEFAULT_TIMEZONE_NAME,
+    ):
         """
         Initialize the Istentore API wrapper.
         
@@ -45,6 +50,7 @@ class IstentoreAPI:
         """
         self.base_url = base_url
         self.email = email
+        self.timezone = get_timezone(timezone_name)
         self._password = None
         self._token = None
     
@@ -161,11 +167,11 @@ class IstentoreAPI:
             AuthenticationError: If authentication fails
             IstentoreAPIError: If the request fails
         """
-        # Convert to UTC if timezone-aware, assume local if naive
+        # Convert to UTC if timezone-aware, assume configured timezone if naive
         if start_time.tzinfo is None:
-            start_time = start_time.replace(tzinfo=ZoneInfo("Europe/Madrid"))
+            start_time = start_time.replace(tzinfo=self.timezone)
         if end_time.tzinfo is None:
-            end_time = end_time.replace(tzinfo=ZoneInfo("Europe/Madrid"))
+            end_time = end_time.replace(tzinfo=self.timezone)
         
         start_utc = start_time.astimezone(timezone.utc)
         end_utc = end_time.astimezone(timezone.utc)
@@ -223,7 +229,7 @@ class IstentoreAPI:
             AuthenticationError: If authentication fails
             IstentoreAPIError: If the request fails
         """
-        now_utc = datetime.now(ZoneInfo("Europe/Madrid")).astimezone(timezone.utc)
+        now_utc = datetime.now(self.timezone).astimezone(timezone.utc)
         now_iso = now_utc.isoformat()
         
         data_list = self._get_market_products(
@@ -298,8 +304,9 @@ class IstentoreAPI:
                 dt = datetime.fromisoformat(dt_str)
                 dt = dt.replace(tzinfo=timezone.utc)
             
+            localized_dt = dt.astimezone(self.timezone)
             data.append({
-                'datetime': dt,
+                'datetime': localized_dt,
                 'power_setpoint_kw': power_kw,
                 'reactive_power_setpoint_kvar': default_q_kvar
             })
@@ -322,7 +329,7 @@ if __name__ == "__main__":
     # api.set_password("your_password_here")
     
     # Example: Fetch today's schedule
-    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = datetime.now(api.timezone).replace(hour=0, minute=0, second=0, microsecond=0)
     today_end = today_start + timedelta(days=1) - timedelta(minutes=15)
     
     try:

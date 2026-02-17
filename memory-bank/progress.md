@@ -2,6 +2,16 @@
 
 ## What Works
 
+### Timezone-Consistent Timestamp Handling (2026-02-17)
+- [x] **Configurable timezone**: Added `time.timezone` in `config.yaml` and flattened `TIMEZONE_NAME` in config loader with validation/fallback.
+- [x] **Shared timezone utility module**: Added `time_utils.py` for normalization and ISO serialization helpers.
+- [x] **API normalization**: `istentore_api.py` now converts API UTC delivery periods to configured timezone for internal dataframe index.
+- [x] **Fetcher timezone awareness**: `data_fetcher_agent.py` uses configured timezone `now` for day windows and status timestamps.
+- [x] **Manual schedule normalization**: random and CSV manual schedules are normalized to configured timezone; naive timestamps treated as configured timezone.
+- [x] **Scheduler lookup consistency**: scheduler uses aware current time and normalizes schedule index before `asof`.
+- [x] **Measurement persistence format**: measurement CSV `timestamp` is now written as ISO 8601 with timezone offset.
+- [x] **Legacy compatibility**: naive timestamps from legacy CSV/manual paths are interpreted as configured timezone.
+
 ### Daily Per-Plant Recording and Cache-Based Plot Source (2026-02-17)
 - [x] **Daily per-plant filenames**: Recording now targets `data/YYYYMMDD_plantname.csv` using `modbus_local.name` / `modbus_remote.name`.
 - [x] **Config flattening for plant names**: Added `PLANT_LOCAL_NAME` and `PLANT_REMOTE_NAME` in `config_loader.py`.

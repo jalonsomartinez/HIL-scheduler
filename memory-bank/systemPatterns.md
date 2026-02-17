@@ -2,6 +2,15 @@
 
 ## Agent Architecture
 
+## Timezone Handling Pattern (2026-02-17)
+
+- Canonical runtime timestamp model: timezone-aware datetimes in configured timezone (`time.timezone`, default `Europe/Madrid`).
+- API ingestion: parse delivery periods as UTC and convert to configured timezone before storing into `api_schedule_df`.
+- Manual schedules (random + CSV): normalize naive timestamps as configured timezone; convert aware timestamps to configured timezone.
+- Scheduler lookups: normalize schedule index and use timezone-aware `now` before `asof`.
+- Measurement persistence: write CSV `timestamp` as ISO 8601 with timezone offset.
+- Legacy compatibility: naive historical timestamps are interpreted as configured timezone when loaded.
+
 ### Agent Base Pattern
 All agents follow a consistent pattern:
 

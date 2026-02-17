@@ -1,9 +1,9 @@
 import logging
 import time
 import pandas as pd
-from datetime import datetime
 from pyModbusTCP.client import ModbusClient
 from utils import kw_to_hw, int_to_uint16
+from time_utils import get_config_tz, normalize_schedule_index, now_tz
 
 
 def scheduler_agent(config, shared_data):
@@ -18,6 +18,7 @@ def scheduler_agent(config, shared_data):
     Dynamically switches between local and remote plant based on selected_plant in shared_data.
     """
     logging.info("Scheduler agent started.")
+    tz = get_config_tz(config)
     
     # Track current plant selection and config
     current_plant = None
@@ -118,8 +119,9 @@ def scheduler_agent(config, shared_data):
                     current_p_setpoint = 0.0
                     current_q_setpoint = 0.0
                 else:
+                    schedule_df = normalize_schedule_index(schedule_df, tz)
                     # Use asof for robust lookup (outside lock - DataFrame is not being modified)
-                    current_row = schedule_df.asof(datetime.now())
+                    current_row = schedule_df.asof(now_tz(config))
                     
                     if current_row is None or current_row.empty:
                         logging.info("No current row found in schedule, sending 0 setpoint")

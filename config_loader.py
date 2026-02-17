@@ -7,6 +7,7 @@ import yaml
 import logging
 from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 DEFAULT_MEASUREMENT_COMPRESSION_TOLERANCES = {
@@ -19,6 +20,7 @@ DEFAULT_MEASUREMENT_COMPRESSION_TOLERANCES = {
     "q_poi_kvar": 0.1,
     "v_poi_pu": 0.001,
 }
+DEFAULT_TIMEZONE_NAME = "Europe/Madrid"
 
 
 def load_config(config_path="config.yaml"):
@@ -47,7 +49,20 @@ def load_config(config_path="config.yaml"):
     general = yaml_config.get('general', {})
     log_level_str = general.get('log_level', 'INFO')
     config['LOG_LEVEL'] = getattr(logging, log_level_str.upper(), logging.INFO)
-    config['SCHEDULE_START_TIME'] = datetime.now().replace(microsecond=0)
+
+    # Timezone settings
+    time_config = yaml_config.get('time', {})
+    timezone_name = time_config.get('timezone', DEFAULT_TIMEZONE_NAME)
+    try:
+        ZoneInfo(timezone_name)
+        config['TIMEZONE_NAME'] = timezone_name
+    except (ZoneInfoNotFoundError, TypeError, ValueError):
+        logging.warning(
+            f"Invalid time.timezone='{timezone_name}'. "
+            f"Using default '{DEFAULT_TIMEZONE_NAME}'."
+        )
+        config['TIMEZONE_NAME'] = DEFAULT_TIMEZONE_NAME
+    config['SCHEDULE_START_TIME'] = datetime.now(ZoneInfo(config['TIMEZONE_NAME'])).replace(microsecond=0)
     
     # Schedule settings
     schedule = yaml_config.get('schedule', {})

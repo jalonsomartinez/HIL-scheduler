@@ -21,6 +21,18 @@
 
 ## Architecture Patterns
 
+### Timezone Utilities and Conventions (2026-02-17)
+
+- New module: [`time_utils.py`](time_utils.py)
+  - `get_config_tz(config)` returns `ZoneInfo` from `TIMEZONE_NAME`.
+  - `now_tz(config)` returns aware current datetime in configured timezone.
+  - `normalize_timestamp_value()` and `normalize_datetime_series()` normalize naive/aware timestamps to configured timezone.
+  - `normalize_schedule_index()` normalizes schedule dataframe indexes.
+  - `serialize_iso_with_tz()` serializes timestamps as ISO 8601 with timezone offset.
+- Config source of truth: `config.yaml` key `time.timezone` (default `Europe/Madrid`), flattened as `TIMEZONE_NAME` by `config_loader.py`.
+- Runtime policy: internal schedule + measurement timestamps are timezone-aware and normalized to configured timezone.
+- Backward compatibility: naive legacy timestamps are interpreted as configured timezone.
+
 ### Multi-threaded Agent Pattern
 Each agent runs in its own thread with:
 - Independent execution loop with configurable period
@@ -364,13 +376,14 @@ datetime,power_setpoint_kw
 ### measurements.csv
 ```csv
 timestamp,original_setpoint_kw,actual_setpoint_kw,soc_pu,p_poi_kw,q_poi_kvar,v_poi_pu
-2026-01-28 18:03:30.496497,602.4,602.4,0.8125,602.3,0.0,0.9998
+2026-01-28T18:03:30.496497+01:00,602.4,602.4,0.8125,602.3,0.0,0.9998
 ...
 ```
 - Written periodically (default 2 seconds)
 - Contains both desired and actual power
 - Contains POI measurements (P, Q, V)
 - SoC and voltage in per-unit (0.0 to 1.0+)
+- `timestamp` persisted as ISO 8601 with timezone offset (configured timezone)
 
 ## Threading Model
 

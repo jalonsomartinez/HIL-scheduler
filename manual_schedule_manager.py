@@ -16,6 +16,14 @@ from typing import Optional, Tuple
 
 import numpy as np
 import pandas as pd
+from time_utils import (
+    DEFAULT_TIMEZONE_NAME,
+    get_timezone,
+    normalize_datetime_series,
+    normalize_schedule_index,
+    normalize_timestamp_value,
+    serialize_iso_with_tz,
+)
 
 
 def generate_random_schedule(
@@ -24,7 +32,8 @@ def generate_random_schedule(
     step_minutes: int = 5,
     min_power_kw: float = -1000.0,
     max_power_kw: float = 1000.0,
-    reactive_power_kvar: float = 0.0
+    reactive_power_kvar: float = 0.0,
+    timezone_name: str = DEFAULT_TIMEZONE_NAME,
 ) -> pd.DataFrame:
     """
     Generate a random schedule DataFrame.
@@ -40,6 +49,10 @@ def generate_random_schedule(
     Returns:
         DataFrame with datetime index and power_setpoint_kw, reactive_power_setpoint_kvar columns
     """
+    tz = get_timezone(timezone_name)
+    start_time = normalize_timestamp_value(start_time, tz)
+    end_time = normalize_timestamp_value(end_time, tz)
+
     duration_hours = (end_time - start_time).total_seconds() / 3600
     num_points = int(duration_hours * 60 / step_minutes) + 1
     
@@ -69,7 +82,8 @@ def generate_random_schedule(
 def load_csv_schedule(
     csv_path: str,
     start_time: Optional[datetime] = None,
-    reactive_power_kvar: float = 0.0
+    reactive_power_kvar: float = 0.0,
+    timezone_name: str = DEFAULT_TIMEZONE_NAME,
 ) -> pd.DataFrame:
     """
     Load a schedule from a CSV file.
@@ -91,7 +105,10 @@ def load_csv_schedule(
         raise FileNotFoundError(f"Schedule file not found: {csv_path}")
     
     # Read CSV
+    tz = get_timezone(timezone_name)
     df = pd.read_csv(csv_path, parse_dates=['datetime'])
+    df['datetime'] = normalize_datetime_series(df['datetime'], tz)
+    df = df.dropna(subset=['datetime'])
     
     # Ensure required columns exist
     if 'power_setpoint_kw' not in df.columns:
@@ -102,6 +119,7 @@ def load_csv_schedule(
     
     # Handle start_time offset
     if start_time is not None:
+        start_time = normalize_timestamp_value(start_time, tz)
         # Calculate the offset from the first timestamp in the file
         first_ts = df['datetime'].iloc[0]
         offset = start_time - first_ts
@@ -111,6 +129,7 @@ def load_csv_schedule(
     
     # Set datetime as index
     df = df.set_index('datetime')
+    df = normalize_schedule_index(df, tz)
     
     logging.info(f"Loaded CSV schedule: {len(df)} points from {csv_path}")
     return df
@@ -119,7 +138,8 @@ def load_csv_schedule(
 def append_schedules(
     existing_df: pd.DataFrame,
     new_df: pd.DataFrame,
-    replace_overlapping: bool = True
+    replace_overlapping: bool = True,
+    timezone_name: str = DEFAULT_TIMEZONE_NAME,
 ) -> pd.DataFrame:
     """
     Append new schedule data to existing schedule, replacing overlapping periods.
@@ -132,11 +152,16 @@ def append_schedules(
     Returns:
         Combined DataFrame
     """
+    tz = get_timezone(timezone_name)
+
     if existing_df.empty:
-        return new_df.copy()
+        return normalize_schedule_index(new_df, tz)
     
     if new_df.empty:
-        return existing_df.copy()
+        return normalize_schedule_index(existing_df, tz)
+
+    existing_df = normalize_schedule_index(existing_df, tz)
+    new_df = normalize_schedule_index(new_df, tz)
     
     if replace_overlapping:
         # Remove overlapping rows from existing schedule
@@ -152,7 +177,8 @@ def append_schedules(
 
 def get_current_setpoint(
     schedule_df: pd.DataFrame,
-    current_time: Optional[datetime] = None
+    current_time: Optional[datetime] = None,
+    timezone_name: str = DEFAULT_TIMEZONE_NAME,
 ) -> Tuple[float, float]:
     """
     Get the current setpoint for the given time using asof lookup.
@@ -164,11 +190,17 @@ def get_current_setpoint(
     Returns:
         Tuple of (power_kw, reactive_power_kvar) or (0.0, 0.0) if no data
     """
+    tz = get_timezone(timezone_name)
+
     if current_time is None:
-        current_time = datetime.now()
+        current_time = datetime.now(tz)
+    else:
+        current_time = normalize_timestamp_value(current_time, tz)
     
     if schedule_df.empty:
         return 0.0, 0.0
+
+    schedule_df = normalize_schedule_index(schedule_df, tz)
     
     # Use asof to find the value just before current time
     row = schedule_df.asof(current_time)
@@ -182,7 +214,7 @@ def get_current_setpoint(
     return power, q_power
 
 
-def schedule_to_dict(schedule_df: pd.DataFrame) -> dict:
+def schedule_to_dict(schedule_df: pd.DataFrame, timezone_name: str = DEFAULT_TIMEZONE_NAME) -> dict:
     """
     Convert a schedule DataFrame to a dictionary format.
     
@@ -195,9 +227,11 @@ def schedule_to_dict(schedule_df: pd.DataFrame) -> dict:
     if schedule_df.empty:
         return {}
     
+    tz = get_timezone(timezone_name)
+
     result = {}
     for timestamp, row in schedule_df.iterrows():
-        dt_str = timestamp.strftime('%Y-%m-%dT%H:%M:%S')
+        dt_str = serialize_iso_with_tz(timestamp, tz=tz)
         result[dt_str] = row['power_setpoint_kw']
     
     return result
@@ -205,7 +239,8 @@ def schedule_to_dict(schedule_df: pd.DataFrame) -> dict:
 
 def create_schedule_dataframe(
     schedule_dict: dict,
-    default_q_kvar: float = 0.0
+    default_q_kvar: float = 0.0,
+    timezone_name: str = DEFAULT_TIMEZONE_NAME,
 ) -> pd.DataFrame:
     """
     Create a schedule DataFrame from a dictionary.
@@ -220,6 +255,8 @@ def create_schedule_dataframe(
     if not schedule_dict:
         return pd.DataFrame(columns=['power_setpoint_kw', 'reactive_power_setpoint_kvar'])
     
+    tz = get_timezone(timezone_name)
+
     data = []
     for dt_str, power_kw in schedule_dict.items():
         # Parse ISO format datetime
@@ -229,13 +266,14 @@ def create_schedule_dataframe(
             dt = datetime.fromisoformat(dt_str)
         
         data.append({
-            'datetime': dt,
+            'datetime': normalize_timestamp_value(dt, tz),
             'power_setpoint_kw': power_kw,
             'reactive_power_setpoint_kvar': default_q_kvar
         })
     
     df = pd.DataFrame(data).set_index('datetime')
     df = df.sort_index()
+    df = normalize_schedule_index(df, tz)
     
     return df
 

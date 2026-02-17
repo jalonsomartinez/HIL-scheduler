@@ -3,6 +3,65 @@
 ## Current Focus
 Daily per-plant recording files with measurement-agent-owned persistence and in-memory current-day file caching for plotting.
 
+## Recent Changes (2026-02-17) - Timezone-Consistent Timestamps
+
+### Overview
+Implemented configured-timezone timestamp handling across API ingestion, manual schedules, scheduler lookup, and measurement recording.
+
+### Key Behavior Changes
+- Added configurable timezone (`time.timezone`) with default `Europe/Madrid`.
+- Internal schedule timestamps are normalized to configured timezone (aware datetimes).
+- API day-ahead data is parsed from UTC and converted to configured timezone before storing in `api_schedule_df`.
+- Manual random and CSV schedules are normalized to configured timezone; naive timestamps are interpreted as configured timezone.
+- Scheduler and dashboard setpoint lookups now use timezone-aware `now` values and normalized schedule indices.
+- Measurement recording now writes `timestamp` in ISO 8601 with timezone offset.
+- Legacy naive timestamps from CSV/manual data are interpreted as configured timezone for compatibility.
+
+### Files Modified
+1. **[`config.yaml`](config.yaml)**:
+   - Added `time.timezone` key.
+
+2. **[`config_loader.py`](config_loader.py)**:
+   - Added validated `TIMEZONE_NAME` flattening with fallback to `Europe/Madrid`.
+
+3. **[`time_utils.py`](time_utils.py)** (NEW):
+   - Centralized timezone helpers:
+     - `get_config_tz`
+     - `now_tz`
+     - `normalize_timestamp_value`
+     - `normalize_datetime_series`
+     - `normalize_schedule_index`
+     - `serialize_iso_with_tz`
+
+4. **[`istentore_api.py`](istentore_api.py)**:
+   - Added `timezone_name` constructor parameter.
+   - Replaced hardcoded timezone assumptions with configured timezone.
+   - Converted parsed API timestamps to configured timezone in dataframe output.
+
+5. **[`data_fetcher_agent.py`](data_fetcher_agent.py)**:
+   - Uses timezone-aware `now_tz(config)` for poll windows and status timestamps.
+   - Instantiates API wrapper with configured timezone.
+
+6. **[`manual_schedule_manager.py`](manual_schedule_manager.py)**:
+   - Added optional `timezone_name` parameters.
+   - Normalizes manual schedule timestamps/indexes to configured timezone.
+   - Serializes schedule dictionary keys with timezone-aware ISO strings.
+
+7. **[`scheduler_agent.py`](scheduler_agent.py)**:
+   - Normalizes schedule index before `asof`.
+   - Uses timezone-aware current time for schedule lookup.
+
+8. **[`dashboard_agent.py`](dashboard_agent.py)**:
+   - UI defaults and status clocks now use configured timezone.
+   - Manual preview/accept paths normalize timestamps to configured timezone.
+   - API last-attempt display parses/normalizes timezone-aware values.
+   - Plot timestamp conversion uses timezone-normalized parsing.
+
+9. **[`measurement_agent.py`](measurement_agent.py)**:
+   - Uses timezone-aware timestamps for measurements and file/day routing.
+   - Normalizes parsed timestamps from disk/pending rows to configured timezone.
+   - Writes measurement timestamps as ISO 8601 with timezone offset.
+
 ## Recent Changes (2026-02-17) - Daily Per-Plant Recording and Cache-Based Plot Source
 
 ### Overview

@@ -5,6 +5,10 @@
 general:
   log_level: INFO
 
+# Timezone Configuration
+time:
+  timezone: "Europe/Madrid"
+
 # Schedule Settings
 schedule:
   source_csv: "schedule_source.csv"

@@ -13,6 +13,13 @@ from plotly.subplots import make_subplots
 
 import manual_schedule_manager as msm
 from utils import kw_to_hw, hw_to_kw, int_to_uint16, uint16_to_int
+from time_utils import (
+    get_config_tz,
+    normalize_datetime_series,
+    normalize_schedule_index,
+    normalize_timestamp_value,
+    now_tz,
+)
 
 
 def dashboard_agent(config, shared_data):
@@ -31,6 +38,8 @@ def dashboard_agent(config, shared_data):
     log.setLevel(logging.ERROR)
     
     app = Dash(__name__, suppress_callback_exceptions=True)
+    tz = get_config_tz(config)
+    current_dt = now_tz(config)
     
     # Track last Modbus status (only mutable state needed)
     last_modbus_status = None
@@ -236,7 +245,7 @@ def dashboard_agent(config, shared_data):
                                 dcc.Dropdown(
                                     id='random-start-hour',
                                     options=[{'label': f'{h:02d}', 'value': h} for h in range(24)],
-                                    value=datetime.now().hour,
+                                    value=current_dt.hour,
                                     clearable=False,
                                     className='form-control'
                                 ),
@@ -256,7 +265,7 @@ def dashboard_agent(config, shared_data):
                                 dcc.Dropdown(
                                     id='random-end-hour',
                                     options=[{'label': f'{h:02d}', 'value': h} for h in range(24)],
-                                    value=(datetime.now().hour + 1) % 24,
+                                    value=(current_dt.hour + 1) % 24,
                                     clearable=False,
                                     className='form-control'
                                 ),
@@ -320,7 +329,7 @@ def dashboard_agent(config, shared_data):
                                 html.Label("Start Date"),
                                 dcc.DatePickerSingle(
                                     id='csv-start-date',
-                                    date=datetime.now().date(),
+                                    date=current_dt.date(),
                                     min_date_allowed=datetime(2020, 1, 1),
                                     max_date_allowed=datetime(2030, 12, 31),
                                     className='form-control'
@@ -331,7 +340,7 @@ def dashboard_agent(config, shared_data):
                                 dcc.Dropdown(
                                     id='csv-start-hour',
                                     options=[{'label': f'{h:02d}', 'value': h} for h in range(24)],
-                                    value=datetime.now().hour,
+                                    value=current_dt.hour,
                                     clearable=False,
                                     className='form-control'
                                 ),
@@ -637,7 +646,8 @@ def dashboard_agent(config, shared_data):
             return 0.0, 0.0
 
         try:
-            current_row = schedule_df.asof(datetime.now())
+            schedule_df = normalize_schedule_index(schedule_df, tz)
+            current_row = schedule_df.asof(now_tz(config))
             if current_row is None or current_row.empty:
                 return 0.0, 0.0
 
@@ -670,7 +680,7 @@ def dashboard_agent(config, shared_data):
             fallback = 'local'
 
         safe_name = sanitize_name_for_filename(plant_name, fallback)
-        date_str = datetime.now().strftime("%Y%m%d")
+        date_str = now_tz(config).strftime("%Y%m%d")
         return os.path.join('data', f'{date_str}_{safe_name}.csv')
 
     def flush_and_clear_measurements():
@@ -753,9 +763,9 @@ def dashboard_agent(config, shared_data):
             raise PreventUpdate
         
         try:
-            today = datetime.now().date()
-            start_dt = datetime.combine(today, datetime.min.time().replace(hour=start_hour, minute=start_minute))
-            end_dt = datetime.combine(today, datetime.min.time().replace(hour=end_hour, minute=end_minute))
+            current = now_tz(config)
+            start_dt = current.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
+            end_dt = current.replace(hour=end_hour, minute=end_minute, second=0, microsecond=0)
             
             if end_dt <= start_dt:
                 end_dt += timedelta(days=1)
@@ -765,7 +775,8 @@ def dashboard_agent(config, shared_data):
                 end_time=end_dt,
                 step_minutes=step,
                 min_power_kw=min_power,
-                max_power_kw=max_power
+                max_power_kw=max_power,
+                timezone_name=config.get("TIMEZONE_NAME")
             )
             
             preview_json = df.reset_index().to_json(orient='split', date_format='iso')
@@ -801,10 +812,17 @@ def dashboard_agent(config, shared_data):
             from io import BytesIO
             csv_buffer = BytesIO(decoded)
             
-            start_datetime = datetime.strptime(start_date, "%Y-%m-%d")
-            start_datetime = start_datetime.replace(hour=start_hour, minute=start_minute)
+            start_datetime = pd.Timestamp(start_date)
+            start_datetime = start_datetime.tz_localize(tz).replace(
+                hour=start_hour,
+                minute=start_minute,
+                second=0,
+                microsecond=0,
+            )
             
             df = pd.read_csv(csv_buffer, parse_dates=['datetime'])
+            df['datetime'] = normalize_datetime_series(df['datetime'], tz)
+            df = df.dropna(subset=['datetime'])
             
             if 'power_setpoint_kw' not in df.columns:
                 raise ValueError("CSV must contain 'power_setpoint_kw' column")
@@ -835,13 +853,14 @@ def dashboard_agent(config, shared_data):
         # Read directly from shared data with brief lock
         with shared_data['lock']:
             existing_df = shared_data.get('manual_schedule_df', pd.DataFrame()).copy()
+        existing_df = normalize_schedule_index(existing_df, tz)
         
         preview_df = pd.DataFrame()
         if preview_data:
             try:
                 preview_df = pd.read_json(StringIO(preview_data), orient='split')
                 if 'datetime' in preview_df.columns:
-                    preview_df['datetime'] = pd.to_datetime(preview_df['datetime'])
+                    preview_df['datetime'] = normalize_datetime_series(preview_df['datetime'], tz)
             except Exception as e:
                 logging.error(f"Error reading preview: {e}")
         
@@ -876,6 +895,7 @@ def dashboard_agent(config, shared_data):
                 if 'datetime' in preview_df.columns:
                     preview_df['datetime'] = pd.to_datetime(preview_df['datetime'])
                     preview_df = preview_df.set_index('datetime')
+                    preview_df = normalize_schedule_index(preview_df, tz)
 
                 # Replace schedule in shared data directly
                 with shared_data['lock']:
@@ -980,9 +1000,12 @@ def dashboard_agent(config, shared_data):
         last_attempt_text = ""
         if last_attempt:
             try:
-                dt = datetime.fromisoformat(last_attempt)
-                last_attempt_text = f"Last attempt: {dt.strftime('%H:%M:%S')}"
-            except:
+                dt = normalize_timestamp_value(last_attempt, tz)
+                if not pd.isna(dt):
+                    last_attempt_text = f"Last attempt: {dt.strftime('%H:%M:%S')}"
+                else:
+                    last_attempt_text = f"Last attempt: {last_attempt}"
+            except Exception:
                 last_attempt_text = f"Last attempt: {last_attempt}"
         
         return today_text, tomorrow_text, last_attempt_text
@@ -998,6 +1021,7 @@ def dashboard_agent(config, shared_data):
         # Read directly from shared data with brief lock
         with shared_data['lock']:
             api_df = shared_data.get('api_schedule_df', pd.DataFrame()).copy()
+        api_df = normalize_schedule_index(api_df, tz)
         
         if api_df.empty:
             fig = go.Figure()
@@ -1314,12 +1338,12 @@ def dashboard_agent(config, shared_data):
             with shared_data['lock']:
                 shared_data['measurements_filename'] = filename
             logging.info(f"Dashboard: Recording started for file {filename}")
-            return f"record:{datetime.now().strftime('%H%M%S')}"
+            return f"record:{now_tz(config).strftime('%H%M%S')}"
 
         if button_id == 'record-stop-button':
             stop_recording_and_flush()
             logging.info("Dashboard: Recording stop requested.")
-            return f"stop:{datetime.now().strftime('%H%M%S')}"
+            return f"stop:{now_tz(config).strftime('%H%M%S')}"
 
         raise PreventUpdate
     
@@ -1437,7 +1461,8 @@ def dashboard_agent(config, shared_data):
         else:
             df_text = "API: Not connected"
         
-        last_update = f"Last update: {datetime.now().strftime('%H:%M:%S')}"
+        schedule_df = normalize_schedule_index(schedule_df, tz)
+        last_update = f"Last update: {now_tz(config).strftime('%H:%M:%S')}"
         if measurements_filename:
             recording_text = f"Recording: On ({os.path.basename(measurements_filename)})"
             record_stop_disabled = False
@@ -1448,7 +1473,7 @@ def dashboard_agent(config, shared_data):
         # Convert measurements timestamp to datetime
         if not measurements_df.empty and 'timestamp' in measurements_df.columns:
             measurements_df = measurements_df.copy()
-            measurements_df['datetime'] = pd.to_datetime(measurements_df['timestamp'], errors='coerce')
+            measurements_df['datetime'] = normalize_datetime_series(measurements_df['timestamp'], tz)
             measurements_df = measurements_df.dropna(subset=['datetime'])
         
         # Create figure with subplots

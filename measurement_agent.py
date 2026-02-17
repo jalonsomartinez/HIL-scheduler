@@ -3,13 +3,20 @@ import logging
 import os
 import re
 import time
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import numpy as np
 import pandas as pd
 from pyModbusTCP.client import ModbusClient
 
 from utils import hw_to_kw, uint16_to_int
+from time_utils import (
+    get_config_tz,
+    normalize_datetime_series,
+    normalize_timestamp_value,
+    now_tz,
+    serialize_iso_with_tz,
+)
 
 
 MEASUREMENT_VALUE_COLUMNS = [
@@ -44,7 +51,7 @@ def sanitize_plant_name(name, fallback):
     return text or fallback
 
 
-def normalize_measurements_df(df):
+def normalize_measurements_df(df, tz):
     """Normalize schema/order for measurement dataframes."""
     if df is None or df.empty:
         return pd.DataFrame(columns=MEASUREMENT_COLUMNS)
@@ -53,7 +60,7 @@ def normalize_measurements_df(df):
     for column in MEASUREMENT_COLUMNS:
         if column not in result.columns:
             result[column] = np.nan
-    result["timestamp"] = pd.to_datetime(result["timestamp"], errors="coerce")
+    result["timestamp"] = normalize_datetime_series(result["timestamp"], tz)
     result = result.dropna(subset=["timestamp"])
     result = result[MEASUREMENT_COLUMNS].sort_values("timestamp").reset_index(drop=True)
     return result
@@ -70,6 +77,7 @@ def measurement_agent(config, shared_data):
     - Maintains shared_data['current_file_df'] cache for selected-plant current-day plotting.
     """
     logging.info("Measurement agent started.")
+    tz = get_config_tz(config)
 
     measurement_period_s = float(config.get("MEASUREMENT_PERIOD_S", 2))
     write_period_s = float(config.get("MEASUREMENTS_WRITE_PERIOD_S", 2))
@@ -151,7 +159,10 @@ def measurement_agent(config, shared_data):
     def build_daily_file_path(plant_type, timestamp):
         plant_name, fallback = get_plant_name(plant_type)
         safe_name = sanitize_plant_name(plant_name, fallback)
-        date_str = pd.Timestamp(timestamp).strftime("%Y%m%d")
+        ts = normalize_timestamp_value(timestamp, tz)
+        if pd.isna(ts):
+            ts = pd.Timestamp(now_tz(config))
+        date_str = ts.strftime("%Y%m%d")
         return os.path.join("data", f"{date_str}_{safe_name}.csv")
 
     def connect_to_plant(plant_type):
@@ -179,17 +190,18 @@ def measurement_agent(config, shared_data):
             return
         try:
             os.makedirs(os.path.dirname(file_path) or ".", exist_ok=True)
-            df = normalize_measurements_df(pd.DataFrame(rows))
+            df = normalize_measurements_df(pd.DataFrame(rows), tz)
             if df.empty:
                 return
             write_header = (not os.path.exists(file_path)) or os.path.getsize(file_path) == 0
+            df["timestamp"] = df["timestamp"].apply(lambda value: serialize_iso_with_tz(value, tz=tz))
             df.to_csv(file_path, mode="a", header=write_header, index=False)
         except Exception as e:
             raise RuntimeError(f"Error appending {len(rows)} rows to {file_path}: {e}") from e
 
     def upsert_row_to_current_cache_if_needed(file_path, row, replace_last=False):
         row_df = pd.DataFrame([row], columns=MEASUREMENT_COLUMNS)
-        row_df["timestamp"] = pd.to_datetime(row_df["timestamp"], errors="coerce")
+        row_df["timestamp"] = normalize_datetime_series(row_df["timestamp"], tz)
         with shared_data["lock"]:
             if shared_data.get("current_file_path") != file_path:
                 return
@@ -330,7 +342,7 @@ def measurement_agent(config, shared_data):
         if not os.path.exists(file_path):
             return pd.DataFrame(columns=MEASUREMENT_COLUMNS)
         try:
-            return normalize_measurements_df(pd.read_csv(file_path))
+            return normalize_measurements_df(pd.read_csv(file_path), tz)
         except Exception as e:
             logging.error(f"Error reading measurements file {file_path}: {e}")
             return pd.DataFrame(columns=MEASUREMENT_COLUMNS)
@@ -343,8 +355,8 @@ def measurement_agent(config, shared_data):
             pending_rows = shared_data.get("pending_rows_by_file", {}).get(target_path, [])[:]
 
         if pending_rows:
-            pending_df = normalize_measurements_df(pd.DataFrame(pending_rows))
-            file_df = normalize_measurements_df(pd.concat([file_df, pending_df], ignore_index=True))
+            pending_df = normalize_measurements_df(pd.DataFrame(pending_rows), tz)
+            file_df = normalize_measurements_df(pd.concat([file_df, pending_df], ignore_index=True), tz)
 
         with shared_data["lock"]:
             shared_data["current_file_path"] = target_path
@@ -373,7 +385,7 @@ def measurement_agent(config, shared_data):
         return True
 
     def build_null_row(timestamp):
-        row = {"timestamp": pd.Timestamp(timestamp)}
+        row = {"timestamp": normalize_timestamp_value(timestamp, tz)}
         for column in MEASUREMENT_VALUE_COLUMNS:
             row[column] = np.nan
         return row
@@ -393,7 +405,7 @@ def measurement_agent(config, shared_data):
             if df.empty:
                 continue
             row = df.iloc[-1].to_dict()
-            ts = pd.to_datetime(row.get("timestamp"), errors="coerce")
+            ts = normalize_timestamp_value(row.get("timestamp"), tz)
             if pd.isna(ts):
                 continue
             if latest_ts is None or ts > latest_ts:
@@ -410,7 +422,7 @@ def measurement_agent(config, shared_data):
 
         for path, rows in pending_snapshot.items():
             for row in rows:
-                ts = pd.to_datetime(row.get("timestamp"), errors="coerce")
+                ts = normalize_timestamp_value(row.get("timestamp"), tz)
                 if pd.isna(ts):
                     continue
                 if latest_ts is None or ts > latest_ts:
@@ -425,14 +437,14 @@ def measurement_agent(config, shared_data):
         if latest_path is None or latest_row is None:
             return None, False
 
-        latest_ts = pd.to_datetime(latest_row.get("timestamp"), errors="coerce")
+        latest_ts = normalize_timestamp_value(latest_row.get("timestamp"), tz)
         if pd.isna(latest_ts):
             return None, False
 
         if is_null_row(latest_row):
-            return pd.Timestamp(latest_ts), True
+            return normalize_timestamp_value(latest_ts, tz), True
 
-        null_ts = pd.Timestamp(latest_ts) + measurement_period_delta
+        null_ts = normalize_timestamp_value(latest_ts, tz) + measurement_period_delta
         null_row = build_null_row(null_ts)
         try:
             append_rows_to_csv(latest_path, [null_row])
@@ -443,7 +455,7 @@ def measurement_agent(config, shared_data):
             return null_ts, True
         except Exception as e:
             logging.error(f"Measurement: Failed to sanitize historical tail: {e}")
-            return pd.Timestamp(latest_ts), False
+            return normalize_timestamp_value(latest_ts, tz), False
 
     def start_recording_session(selected_plant):
         nonlocal recording_active
@@ -456,7 +468,7 @@ def measurement_agent(config, shared_data):
 
         recording_active = True
         recording_plant = selected_plant
-        recording_file_path = build_daily_file_path(recording_plant, datetime.now())
+        recording_file_path = build_daily_file_path(recording_plant, now_tz(config))
         awaiting_first_real_sample = True
         last_real_timestamp = None
 
@@ -482,9 +494,9 @@ def measurement_agent(config, shared_data):
             return
 
         if last_real_timestamp is not None:
-            null_ts = pd.Timestamp(last_real_timestamp) + measurement_period_delta
+            null_ts = normalize_timestamp_value(last_real_timestamp, tz) + measurement_period_delta
         else:
-            null_ts = pd.Timestamp(datetime.now())
+            null_ts = pd.Timestamp(now_tz(config))
 
         null_row = build_null_row(null_ts)
         enqueue_row_for_file(null_row, recording_plant)
@@ -574,7 +586,7 @@ def measurement_agent(config, shared_data):
             v_poi_pu = regs_v_poi[0] / 100.0
 
             return {
-                "timestamp": pd.Timestamp(datetime.now()),
+                "timestamp": pd.Timestamp(now_tz(config)),
                 "p_setpoint_kw": p_setpoint_kw,
                 "battery_active_power_kw": battery_active_power_kw,
                 "q_setpoint_kvar": q_setpoint_kvar,
@@ -591,7 +603,7 @@ def measurement_agent(config, shared_data):
 
     while not shared_data["shutdown_event"].is_set():
         current_time = time.time()
-        now_dt = datetime.now()
+        now_dt = now_tz(config)
 
         with shared_data["lock"]:
             selected_plant = shared_data.get("selected_plant", "local")
@@ -634,13 +646,14 @@ def measurement_agent(config, shared_data):
             if measurement_row is not None:
                 last_measurement_time = current_time
                 if recording_active:
-                    measurement_ts = pd.Timestamp(measurement_row["timestamp"])
+                    measurement_ts = normalize_timestamp_value(measurement_row["timestamp"], tz)
                     if awaiting_first_real_sample:
                         leading_null_ts = measurement_ts - measurement_period_delta
                         already_has_boundary = (
                             session_tail_is_null
                             and session_tail_ts is not None
-                            and pd.Timestamp(session_tail_ts) == pd.Timestamp(leading_null_ts)
+                            and normalize_timestamp_value(session_tail_ts, tz)
+                            == normalize_timestamp_value(leading_null_ts, tz)
                         )
                         if not already_has_boundary:
                             enqueue_row_for_file(build_null_row(leading_null_ts), recording_plant)
