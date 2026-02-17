@@ -70,6 +70,9 @@ shared_data = {
     
     # Measurement file management
     "measurements_filename": None,             # Dashboard sets, Measurement Agent polls
+    "current_file_path": None,                 # Selected plant/day file path for plot cache
+    "current_file_df": pd.DataFrame(),         # In-memory selected plant/day data for plot
+    "pending_rows_by_file": {},                # path -> buffered rows pending disk flush
     
     # Switching flags
     "plant_switching": False,                  # True when plant switch in progress
@@ -82,75 +85,32 @@ shared_data = {
 }
 ```
 
-### Measurement Filename Pattern (Record/Stop)
+### Daily Per-Plant Recording Pattern (Record/Stop)
 
-Dynamic filename management for measurement files:
+Recording writes to one file per plant per day:
+- `data/YYYYMMDD_<plantname>.csv` (local time)
+- plant name comes from config (`modbus_local.name`, `modbus_remote.name`) and is sanitized for filesystem-safe filenames.
 
 ```python
 # Dashboard (Record button)
-timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-filename = f"data/{timestamp}_data.csv"
+filename = f"data/{today_yyyymmdd}_{selected_plant_name}.csv"
 with shared_data['lock']:
     shared_data['measurements_filename'] = filename
 
 # Dashboard (Record Stop button)
 with shared_data['lock']:
     shared_data['measurements_filename'] = None
-
-# Measurement Agent (poll every 1 second)
-def poll_filename():
-    with shared_data['lock']:
-        new_filename = shared_data.get('measurements_filename')
-    
-    if new_filename != current_filename:
-        if new_filename is not None:
-            handle_filename_change(new_filename)
-        else:
-            # Flush and stop writing
-            flush_buffer_to_dataframe()
-            write_measurements_to_csv(current_filename)
-            current_filename = None
 ```
 
 **Key Design Decisions:**
-1. **Filename in shared_data**: Dashboard sets it, agent polls it (no notification needed)
-2. **Poll every 1 second**: Independent from measurement rate
-3. **None = stop writing**: Agent stops disk I/O when filename is None
-4. **Automatic rotation**: New Record click → new file, old data flushed automatically
-5. **data/ folder**: All measurement files stored in subdirectory
-
-**Filename Change Handler:**
-```python
-def handle_filename_change(new_filename):
-    # 1. Flush buffer to DataFrame
-    flush_buffer_to_dataframe()
-    
-    # 2. Write existing DataFrame to old file
-    if current_filename is not None:
-        write_measurements_to_csv(current_filename)
-    
-    # 3. Clear DataFrame for new file
-    with shared_data['lock']:
-        shared_data['measurements_df'] = pd.DataFrame()
-    
-    # 4. Update current filename
-    current_filename = new_filename
-```
-
-**Three Independent Timers in Measurement Agent:**
-```python
-# 1. Filename poll (every 1 second)
-if current_time - last_filename_poll_time >= 1.0:
-    poll_filename()
-
-# 2. Measurement (according to config)
-if current_time - last_measurement_time >= config["MEASUREMENT_PERIOD_S"]:
-    take_measurement()
-
-# 3. CSV write (according to config)
-if current_time - last_write_time >= config["MEASUREMENTS_WRITE_PERIOD_S"]:
-    write_measurements_to_csv(current_filename)
-```
+1. **Measurement agent is the single writer**: dashboard does not write measurement CSV directly in normal Record/Stop flow.
+2. **Row-level timestamp routing**: each queued row is routed to destination file by its own timestamp date, so midnight split is naturally correct.
+3. **Buffered disk writes**: rows are stored in `pending_rows_by_file[path]` and flushed every `MEASUREMENTS_WRITE_PERIOD_S`.
+4. **In-memory plot cache**: selected plant/day file is cached in `current_file_df`, and pending rows for that file are merged in memory for immediate plotting.
+5. **Null-boundary sessions**:
+   - record start: sanitize historical tail (append null if latest historical row is non-null),
+   - first real sample: prepend null at `first_real - measurement_period`,
+   - record stop: append null at `last_real + measurement_period` (fallback null when no real sample occurred).
 
 ## Confirmation Modal Pattern (Plant/Schedule Switching)
 

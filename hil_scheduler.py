@@ -58,6 +58,11 @@ def main():
         "measurements_df": pd.DataFrame(),
         # Current measurements filename (set by dashboard on start, read by measurement agent)
         "measurements_filename": None,
+        # Current selected-plant/day file cache for plotting
+        "current_file_path": None,
+        "current_file_df": pd.DataFrame(),
+        # Pending rows grouped by destination file path
+        "pending_rows_by_file": {},
         # Scheduler runtime control: True = dispatch schedule setpoints, False = hold
         "scheduler_running": False,
         # Lock for shared data

@@ -1,7 +1,54 @@
 # Active Context: HIL Scheduler
 
 ## Current Focus
-Decoupled scheduler control from recording control in the dashboard and implemented safe stop behavior.
+Daily per-plant recording files with measurement-agent-owned persistence and in-memory current-day file caching for plotting.
+
+## Recent Changes (2026-02-17) - Daily Per-Plant Recording and Cache-Based Plot Source
+
+### Overview
+Refactored recording to use one file per plant per day (`data/YYYYMMDD_plantname.csv`) and moved all normal CSV persistence ownership to `measurement_agent.py`.
+
+### Key Behavior Changes
+- `Record` no longer creates a timestamped file per click; it targets the selected plant/day file.
+- `Stop` no longer writes CSV from dashboard; it only signals stop and measurement agent appends trailing null + flushes.
+- Plot source now uses in-memory `shared_data['current_file_df']` (selected plant current-day file + pending unflushed rows), not repeated CSV reads.
+- Measurement rows are buffered by target file path (derived from each row timestamp), so midnight splits are naturally correct.
+
+### Null-Boundary Semantics Implemented
+- On recording start:
+  - Historical tail is sanitized for that plant: if latest historical row is non-null, append a null row at `latest_ts + measurement_period`.
+  - Session waits for first real sample.
+- On first real sample of session:
+  - Adds leading null row at `first_real_ts - measurement_period`, then the real sample.
+- On recording stop:
+  - Adds trailing null row at `last_real_ts + measurement_period`.
+  - If no real sample occurred, adds fallback null at stop time.
+
+### Files Modified
+1. **[`config.yaml`](config.yaml)**:
+   - Added `modbus_local.name` and `modbus_remote.name`.
+
+2. **[`config_loader.py`](config_loader.py)**:
+   - Added flattened config keys `PLANT_LOCAL_NAME` and `PLANT_REMOTE_NAME` with local/remote fallbacks.
+
+3. **[`hil_scheduler.py`](hil_scheduler.py)**:
+   - Added shared runtime keys:
+     - `current_file_path`
+     - `current_file_df`
+     - `pending_rows_by_file`
+
+4. **[`measurement_agent.py`](measurement_agent.py)**:
+   - Reworked to:
+     - own CSV persistence for recording,
+     - route rows to files by timestamp date,
+     - maintain selected-plant/day in-memory cache,
+     - apply null-boundary and historical sanitize logic,
+     - update active recording filename on midnight rollover.
+
+5. **[`dashboard_agent.py`](dashboard_agent.py)**:
+   - Record button now sets daily per-plant filename.
+   - Recording stop no longer writes CSV directly.
+   - Plot callback now reads `current_file_df`.
 
 ## Recent Changes (2026-02-17) - Scheduler/Recording Decoupling
 
@@ -46,7 +93,7 @@ Implemented the dashboard behavior split:
 ### Behavior Notes
 - Safe stop timeout default is 30 seconds; plant is force-disabled on timeout with warning log.
 - Safe stop threshold checks battery measured active and reactive power (`abs(P_batt)<1`, `abs(Q_batt)<1`).
-- Record button while already recording rotates to a new timestamped file.
+- Record button targets the daily per-plant file; repeated clicks on the same day/plant keep the same file path.
 
 ## Recent Changes (2026-02-02) - Dashboard Initial State Loading Fix
 

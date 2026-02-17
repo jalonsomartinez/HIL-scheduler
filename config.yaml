@@ -49,6 +49,7 @@ plant:
 modbus_local:
   host: "localhost"
   port: 5020
+  name: "local"
   description: "Local emulated plant running in plant_agent"
 
   # Register Map (all 16-bit registers)
@@ -72,6 +73,7 @@ modbus_local:
 modbus_remote:
   host: "10.117.133.21"
   port: 502
+  name: "remote"
   description: "Remote HIL plant"
 
   # Register Map
@@ -89,5 +91,4 @@ modbus_remote:
     # Control and Status
     enable: 1               # 16-bit: Enable flag (0=disabled, 1=enabled)
     soc: 281                # 16-bit unsigned: State of Charge (per-unit x10000) (MEDIDA)
-
 

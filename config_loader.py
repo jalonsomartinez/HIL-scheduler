@@ -70,11 +70,13 @@ def load_config(config_path="config.yaml"):
     modbus_local = yaml_config.get('modbus_local', {})
     config['PLANT_LOCAL_MODBUS_HOST'] = modbus_local.get('host', 'localhost')
     config['PLANT_LOCAL_MODBUS_PORT'] = modbus_local.get('port', 5020)
+    config['PLANT_LOCAL_NAME'] = modbus_local.get('name', 'local')
     
     # Modbus Remote Plant settings (real hardware)
     modbus_remote = yaml_config.get('modbus_remote', {})
     config['PLANT_REMOTE_MODBUS_HOST'] = modbus_remote.get('host', '10.117.133.21')
     config['PLANT_REMOTE_MODBUS_PORT'] = modbus_remote.get('port', 502)
+    config['PLANT_REMOTE_NAME'] = modbus_remote.get('name', 'remote')
     
     # Default to local plant for backward compatibility
     config['PLANT_MODBUS_HOST'] = config['PLANT_LOCAL_MODBUS_HOST']

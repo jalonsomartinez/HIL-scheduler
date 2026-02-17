@@ -107,7 +107,7 @@ flowchart TD
 
 ### Recording Workflow
 1. User clicks Record in the plot card
-2. Dashboard creates a new timestamped filename (`data/YYYYMMDD_HHMMSS_data.csv`)
-3. Measurement agent rotates to that file and writes periodically
-4. User clicks Record again to rotate to a new file (previous file flushed)
-5. User clicks recording Stop to flush and stop writing to disk
+2. Dashboard sets daily per-plant target filename (`data/YYYYMMDD_plantname.csv`)
+3. Measurement agent inserts null/session boundaries and buffers timestamp-routed rows
+4. Measurement agent flushes buffered rows periodically (`measurements_write_period_s`)
+5. User clicks recording Stop to append trailing null, flush pending rows, and stop recording

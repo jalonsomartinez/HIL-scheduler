@@ -3,7 +3,6 @@ import os
 import threading
 import time
 import pandas as pd
-import numpy as np
 from datetime import timedelta, datetime
 from io import StringIO
 import dash
@@ -650,49 +649,48 @@ def dashboard_agent(config, shared_data):
         except Exception as e:
             logging.warning(f"Dashboard: Failed to read latest schedule setpoint: {e}")
             return 0.0, 0.0
-    
+
+    def sanitize_name_for_filename(name, fallback):
+        """Normalize a plant name for filename usage."""
+        raw = str(name).strip().lower()
+        safe = ''.join(ch if (ch.isalnum() or ch in '_-') else '_' for ch in raw)
+        safe = safe.strip('_')
+        return safe or fallback
+
+    def get_daily_recording_file_path():
+        """Build daily recording path for the currently selected plant."""
+        with shared_data['lock']:
+            selected_plant = shared_data.get('selected_plant', 'local')
+
+        if selected_plant == 'remote':
+            plant_name = config.get('PLANT_REMOTE_NAME', 'remote')
+            fallback = 'remote'
+        else:
+            plant_name = config.get('PLANT_LOCAL_NAME', 'local')
+            fallback = 'local'
+
+        safe_name = sanitize_name_for_filename(plant_name, fallback)
+        date_str = datetime.now().strftime("%Y%m%d")
+        return os.path.join('data', f'{date_str}_{safe_name}.csv')
+
     def flush_and_clear_measurements():
-        """Flush measurements to CSV and clear the measurements DataFrame."""
+        """Stop recording and clear in-memory measurement views."""
         try:
             with shared_data['lock']:
-                measurements_filename = shared_data.get('measurements_filename')
-                measurements_df = shared_data.get('measurements_df', pd.DataFrame()).copy()
-            
-            # Write to CSV if filename exists and dataframe is not empty
-            if measurements_filename and not measurements_df.empty:
-                try:
-                    measurements_df.to_csv(measurements_filename, index=False)
-                    logging.info(f"Dashboard: Flushed {len(measurements_df)} measurements to {measurements_filename}")
-                except Exception as e:
-                    logging.error(f"Dashboard: Error flushing measurements to CSV: {e}")
-            
-            # Clear the measurements DataFrame and filename
-            with shared_data['lock']:
                 shared_data['measurements_df'] = pd.DataFrame()
+                shared_data['current_file_df'] = pd.DataFrame()
+                shared_data['current_file_path'] = None
                 shared_data['measurements_filename'] = None
-            
-            logging.info("Dashboard: Measurements DataFrame cleared")
+
+            logging.info("Dashboard: Recording stop requested and in-memory measurement views cleared.")
             return True
         except Exception as e:
             logging.error(f"Dashboard: Error clearing measurements: {e}")
             return False
 
     def stop_recording_and_flush():
-        """Flush current recording file and stop recording without clearing measurements DataFrame."""
+        """Request recording stop. Measurement agent will append trailing null and flush."""
         try:
-            with shared_data['lock']:
-                measurements_filename = shared_data.get('measurements_filename')
-                measurements_df = shared_data.get('measurements_df', pd.DataFrame()).copy()
-
-            if measurements_filename and not measurements_df.empty:
-                try:
-                    measurements_df.to_csv(measurements_filename, index=False)
-                    logging.info(
-                        f"Dashboard: Recording stopped. Flushed {len(measurements_df)} measurements to {measurements_filename}"
-                    )
-                except Exception as e:
-                    logging.error(f"Dashboard: Error flushing recording to CSV: {e}")
-
             with shared_data['lock']:
                 shared_data['measurements_filename'] = None
 
@@ -1312,12 +1310,11 @@ def dashboard_agent(config, shared_data):
 
         if button_id == 'record-button':
             os.makedirs('data', exist_ok=True)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"data/{timestamp}_data.csv"
+            filename = get_daily_recording_file_path()
             with shared_data['lock']:
                 shared_data['measurements_filename'] = filename
-            logging.info(f"Dashboard: Recording started/rotated to file {filename}")
-            return f"record:{timestamp}"
+            logging.info(f"Dashboard: Recording started for file {filename}")
+            return f"record:{datetime.now().strftime('%H%M%S')}"
 
         if button_id == 'record-stop-button':
             stop_recording_and_flush()
@@ -1419,7 +1416,7 @@ def dashboard_agent(config, shared_data):
         
         # Read all shared data with brief locks
         with shared_data['lock']:
-            measurements_df = shared_data.get('measurements_df', pd.DataFrame()).copy()
+            measurements_df = shared_data.get('current_file_df', pd.DataFrame()).copy()
             active_source = shared_data.get('active_schedule_source', 'manual')
             df_status = shared_data.get('data_fetcher_status', {}).copy()
             measurements_filename = shared_data.get('measurements_filename')
@@ -1451,7 +1448,8 @@ def dashboard_agent(config, shared_data):
         # Convert measurements timestamp to datetime
         if not measurements_df.empty and 'timestamp' in measurements_df.columns:
             measurements_df = measurements_df.copy()
-            measurements_df['datetime'] = measurements_df['timestamp']
+            measurements_df['datetime'] = pd.to_datetime(measurements_df['timestamp'], errors='coerce')
+            measurements_df = measurements_df.dropna(subset=['datetime'])
         
         # Create figure with subplots
         fig = make_subplots(

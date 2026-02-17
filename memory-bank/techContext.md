@@ -88,8 +88,11 @@ shared_data = {
     },
     
     # Measurement file management
-    "measurements_filename": None,          # Set by dashboard, polled by agent
-    "measurements_df": pd.DataFrame(),      # Logged measurements
+    "measurements_filename": None,          # Recording control signal/path (None=off)
+    "measurements_df": pd.DataFrame(),      # Compatibility mirror for plotted measurement data
+    "current_file_path": None,              # Selected plant/day file path used by plot cache
+    "current_file_df": pd.DataFrame(),      # Selected plant/day data in memory
+    "pending_rows_by_file": {},             # path -> buffered rows pending disk flush
     
     # Logging (session logs for dashboard display)
     "session_logs": [],                     # List of log entries
@@ -104,7 +107,7 @@ shared_data = {
 
 **Control Decoupling Pattern (2026-02-17):**
 - Scheduler control: dashboard Start/Stop toggles `scheduler_running` and plant enable/disable sequencing.
-- Recording control: dashboard Record/Stop toggles `measurements_filename` and file flushing.
+- Recording control: dashboard Record/Stop toggles `measurements_filename`; measurement agent owns null-boundary insertion + flushing.
 - Schedule switch: safe plant stop only (no measurement flush).
 - Plant switch: safe plant stop + measurement flush/clear.
 

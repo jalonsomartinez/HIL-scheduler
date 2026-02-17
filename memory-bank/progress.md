@@ -2,6 +2,26 @@
 
 ## What Works
 
+### Daily Per-Plant Recording and Cache-Based Plot Source (2026-02-17)
+- [x] **Daily per-plant filenames**: Recording now targets `data/YYYYMMDD_plantname.csv` using `modbus_local.name` / `modbus_remote.name`.
+- [x] **Config flattening for plant names**: Added `PLANT_LOCAL_NAME` and `PLANT_REMOTE_NAME` in `config_loader.py`.
+- [x] **Measurement agent owns persistence**: Dashboard no longer writes measurement CSVs in normal record-stop flow.
+- [x] **Timestamp-routed buffers**: `pending_rows_by_file` routes rows to destination files by each row timestamp date, including midnight split handling.
+- [x] **In-memory current-day file cache**: Added `current_file_path` + `current_file_df` and updated plot to read this cache directly.
+- [x] **Null boundary semantics**:
+  - Historical tail sanitize on record start (`latest_non_null -> append null at +period`).
+  - Leading null on first real sample (`first_real - period`).
+  - Trailing null on stop (`last_real + period`) with no-sample fallback.
+- [x] **Midnight rollover UI path update**: Measurement agent updates `measurements_filename` to the new day file while recording.
+- [x] **Plant switch compatibility maintained**: Plant switch still stops recording/clears view data to avoid mixed datasets.
+
+**Files Modified:**
+- [`config.yaml`](config.yaml): Added plant names in modbus sections
+- [`config_loader.py`](config_loader.py): Added `PLANT_LOCAL_NAME` and `PLANT_REMOTE_NAME`
+- [`hil_scheduler.py`](hil_scheduler.py): Added `current_file_path`, `current_file_df`, `pending_rows_by_file`
+- [`measurement_agent.py`](measurement_agent.py): Reworked recording/session/persistence/cache logic
+- [`dashboard_agent.py`](dashboard_agent.py): Daily filename record callback, stop-as-signal, plot source switched to `current_file_df`
+
 ### Scheduler/Recording Control Decoupling (2026-02-17)
 - [x] **Independent control paths**: Start/Stop now controls only scheduler+plant operation; Record/Stop now controls only measurement recording.
 - [x] **Scheduler runtime gate**: Added `shared_data['scheduler_running']` with scheduler dispatch logic gated on that state.
@@ -10,7 +30,7 @@
 - [x] **Schedule switch behavior updated**: Schedule source switching safe-stops plant but does not flush/clear measurement data.
 - [x] **Plant switch behavior preserved**: Plant switching safe-stops plus flushes/clears measurements to avoid mixed datasets.
 - [x] **Recording UX added**: New `Record` and `Stop` buttons in the plot card with recording status text and stop-button enable/disable behavior.
-- [x] **Recording rotation supported**: Clicking Record while already recording rotates to a new timestamped file.
+- [x] **Recording control decoupled**: Record/Stop control recording state independent of scheduler Start/Stop.
 
 **Files Modified:**
 - [`hil_scheduler.py`](hil_scheduler.py): Added `scheduler_running` to shared_data
@@ -144,12 +164,12 @@
 - [x] **Manual Schedule Manager** (`manual_schedule_manager.py`): Simple utility module
 
 ### Measurement File Management (2026-02-01)
-- [x] **Dynamic Filenames**: `data/YYYYMMDD_HHMMSS_data.csv` format
-- [x] **Filename in Shared Data**: `measurements_filename` field
-- [x] **Start Button**: Generates new timestamped filename
-- [x] **Stop Button**: Clears filename (sets to None)
-- [x] **Filename Polling**: Agent checks every 1 second for changes
-- [x] **Automatic File Rotation**: Flush old, clear DataFrame, start new
+- [x] **Daily per-plant filenames**: `data/YYYYMMDD_plantname.csv`
+- [x] **Filename in Shared Data**: `measurements_filename` control field
+- [x] **Record Button**: Sets selected-plant current-day path
+- [x] **Record Stop Button**: Clears filename (`None`)
+- [x] **Buffered Writes**: Agent flushes `pending_rows_by_file` every `measurements_write_period_s`
+- [x] **Row Timestamp Routing**: Midnight split handled by routing each row to its date file
 - [x] **Data Folder**: All files stored in `data/` subdirectory
 
 ### Dashboard Plots (2026-02-01)
@@ -322,19 +342,19 @@ Removed unnecessary buffering and local state caching to reduce latency:
 - Data freshness: dashboard always sees current state
 
 ### Measurement File Management System
-Implemented dynamic measurement file handling:
+Implemented daily per-plant measurement file handling:
 
 **Files Modified:**
 1. `hil_scheduler.py`: Added `measurements_filename` to shared_data
-2. `dashboard_agent.py`: Start generates timestamped filename, Stop clears it
-3. `measurement_agent.py`: Complete rewrite with filename polling
+2. `dashboard_agent.py`: Record sets daily per-plant filename, Stop clears it
+3. `measurement_agent.py`: Complete rewrite with timestamp-routed buffering + cache
 
 **Features:**
-- Timestamped filenames: `data/YYYYMMDD_HHMMSS_data.csv`
+- Daily per-plant filenames: `data/YYYYMMDD_plantname.csv`
 - Filename stored in shared_data
-- Poll every 1 second for changes
-- Automatic file rotation on new Start
-- Stop clears filename (sets to None)
+- Null-boundary rows on record start/first-sample/stop
+- Midnight-safe split by row timestamp
+- In-memory `current_file_df` includes pending unflushed rows for plotting
 
 ### Dashboard Plot Enhancements
 Enhanced live graph with all measurement traces:
