@@ -58,6 +58,8 @@ def main():
         "measurements_df": pd.DataFrame(),
         # Current measurements filename (set by dashboard on start, read by measurement agent)
         "measurements_filename": None,
+        # Scheduler runtime control: True = dispatch schedule setpoints, False = hold
+        "scheduler_running": False,
         # Lock for shared data
         "lock": threading.Lock(),
         # Event to signal shutdown

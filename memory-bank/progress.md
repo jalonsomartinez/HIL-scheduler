@@ -2,6 +2,22 @@
 
 ## What Works
 
+### Scheduler/Recording Control Decoupling (2026-02-17)
+- [x] **Independent control paths**: Start/Stop now controls only scheduler+plant operation; Record/Stop now controls only measurement recording.
+- [x] **Scheduler runtime gate**: Added `shared_data['scheduler_running']` with scheduler dispatch logic gated on that state.
+- [x] **Safe stop sequence**: Stop now sends zero P/Q setpoints, waits for battery measured P/Q under threshold (1.0), then disables plant (30s timeout fallback).
+- [x] **Immediate Start behavior**: Start enables plant and sends current schedule setpoint immediately.
+- [x] **Schedule switch behavior updated**: Schedule source switching safe-stops plant but does not flush/clear measurement data.
+- [x] **Plant switch behavior preserved**: Plant switching safe-stops plus flushes/clears measurements to avoid mixed datasets.
+- [x] **Recording UX added**: New `Record` and `Stop` buttons in the plot card with recording status text and stop-button enable/disable behavior.
+- [x] **Recording rotation supported**: Clicking Record while already recording rotates to a new timestamped file.
+
+**Files Modified:**
+- [`hil_scheduler.py`](hil_scheduler.py): Added `scheduler_running` to shared_data
+- [`scheduler_agent.py`](scheduler_agent.py): Added scheduler dispatch gating and restart cache reset behavior
+- [`dashboard_agent.py`](dashboard_agent.py): Added safe stop helpers, decoupled callbacks, and new recording controls
+- [`assets/custom.css`](assets/custom.css): Added styles for recording controls and responsive layout
+
 ### Dashboard Initial State Loading Fix (2026-02-02)
 - [x] **Changed to prevent_initial_call='initial_duplicate'**: Plant and schedule source selection callbacks now execute on initial load while supporting duplicate outputs
 - [x] **Removed hardcoded values**: RadioItems no longer have hardcoded `value='local'` or `value='manual'`
@@ -216,12 +232,12 @@ Row 2 (Status):
 ## Current Status
 
 ### Project Phase
-Measurement file management system completed. Dashboard plots enhanced with all traces.
+Scheduler and recording control paths are decoupled with safe-stop logic and dedicated recording controls.
 
 ### Code Quality
-- Measurement agent uses three independent timers (filename, measurement, CSV write)
-- Thread-safe filename change detection
-- All 7 measurement traces plotted in consistent order
+- Scheduler dispatch is explicitly gated by `scheduler_running`
+- Safe stop sequence uses measured battery power threshold checks with timeout fallback
+- Recording rotation/stop logic is isolated from plant enable/disable control
 
 ### Documentation Status
 - [x] Memory Bank initialized with core files

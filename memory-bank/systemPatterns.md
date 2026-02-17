@@ -52,6 +52,7 @@ shared_data = {
     
     # Schedule selection
     "active_schedule_source": "manual",        # 'manual' or 'api'
+    "scheduler_running": False,                # True when scheduler should dispatch setpoints
     
     # API configuration
     "api_password": None,                      # Dashboard writes, Data Fetcher reads
@@ -81,18 +82,18 @@ shared_data = {
 }
 ```
 
-### Measurement Filename Pattern (New)
+### Measurement Filename Pattern (Record/Stop)
 
 Dynamic filename management for measurement files:
 
 ```python
-# Dashboard (Start button)
+# Dashboard (Record button)
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 filename = f"data/{timestamp}_data.csv"
 with shared_data['lock']:
     shared_data['measurements_filename'] = filename
 
-# Dashboard (Stop button)
+# Dashboard (Record Stop button)
 with shared_data['lock']:
     shared_data['measurements_filename'] = None
 
@@ -115,7 +116,7 @@ def poll_filename():
 1. **Filename in shared_data**: Dashboard sets it, agent polls it (no notification needed)
 2. **Poll every 1 second**: Independent from measurement rate
 3. **None = stop writing**: Agent stops disk I/O when filename is None
-4. **Automatic rotation**: New Start → new file, old data flushed automatically
+4. **Automatic rotation**: New Record click → new file, old data flushed automatically
 5. **data/ folder**: All measurement files stored in subdirectory
 
 **Filename Change Handler:**
@@ -225,34 +226,43 @@ def handle_selection(opt1_clicks, opt2_clicks, cancel_clicks, confirm_clicks, cu
     return current_value, 'active', 'inactive', 'hidden'
 ```
 
-## System Stop and Measurement Flush Pattern
+## Safe Stop and Switch Pattern
 
-Standard procedure before switching plants or schedules:
+Standard procedure for stopping scheduler/plant operation:
 
 ```python
-def stop_system():
-    """Stop the system by writing 0 to enable register."""
+def safe_stop_plant(threshold_kw=1.0, timeout_s=30):
+    # 1) Stop scheduler dispatch
     with shared_data['lock']:
-        selected_plant = shared_data.get('selected_plant', 'local')
-    
-    # Get plant config
-    if selected_plant == 'remote':
-        host = config.get('PLANT_REMOTE_MODBUS_HOST', '10.117.133.21')
-        port = config.get('PLANT_REMOTE_MODBUS_PORT', 502)
-        enable_reg = config.get('PLANT_REMOTE_ENABLE_REGISTER', 10)
-    else:
-        host = config.get('PLANT_LOCAL_MODBUS_HOST', 'localhost')
-        port = config.get('PLANT_LOCAL_MODBUS_PORT', 5020)
-        enable_reg = config.get('PLANT_ENABLE_REGISTER', 10)
-    
-    # Send stop command
-    client = ModbusClient(host=host, port=port)
-    if client.open():
-        client.write_single_register(enable_reg, 0)
-        client.close()
+        shared_data['scheduler_running'] = False
+
+    # 2) Send zero setpoints
+    send_setpoints(0.0, 0.0)
+
+    # 3) Wait for measured battery P/Q below threshold
+    reached = wait_until_battery_power_below_threshold(threshold_kw, timeout_s)
+
+    # 4) Disable plant regardless (warn on timeout)
+    if not reached:
+        logging.warning("Safe stop timeout; forcing disable.")
+    set_enable(0)
+```
+
+Measurement flush/clear remains separate and is only used when switching plants:
+
+```python
+def stop_recording_and_flush():
+    """Flush current recording file and stop writing to disk."""
+    with shared_data['lock']:
+        filename = shared_data.get('measurements_filename')
+        df = shared_data.get('measurements_df', pd.DataFrame()).copy()
+    if filename and not df.empty:
+        df.to_csv(filename, index=False)
+    with shared_data['lock']:
+        shared_data['measurements_filename'] = None
 
 def flush_and_clear_measurements():
-    """Flush measurements to CSV and clear DataFrame."""
+    """Flush current measurements, clear DataFrame, and clear recording filename."""
     with shared_data['lock']:
         filename = shared_data.get('measurements_filename')
         df = shared_data.get('measurements_df', pd.DataFrame()).copy()
@@ -269,12 +279,16 @@ def flush_and_clear_measurements():
 
 **Usage in Switch Operations:**
 ```python
-def perform_switch():
-    # Always stop and flush before switching
-    stop_system()
+def perform_schedule_switch():
+    # Stop plant safely, keep measurements as-is
+    safe_stop_plant()
+    with shared_data['lock']:
+        shared_data['active_schedule_source'] = new_source
+
+def perform_plant_switch():
+    # Stop safely, then clear measurements to avoid mixing plant datasets
+    safe_stop_plant()
     flush_and_clear_measurements()
-    
-    # Then perform the actual switch
     with shared_data['lock']:
         shared_data['selected_plant'] = new_plant
 ```
@@ -286,11 +300,10 @@ def perform_switch():
 | CSV write | `MEASUREMENTS_WRITE_PERIOD_S` | Persist data to disk periodically |
 
 **Benefits:**
-- Dashboard doesn't need to notify agent of filename changes
-- Agent responds to filename changes within 1 second
-- Measurement rate independent from file management
-- Clean separation of concerns
-- Multiple Start/Stop cycles create separate files automatically
+- Clear separation between scheduler operation and recording operation
+- Safer stop sequence with explicit zero setpoints + measured decay check
+- Schedule switching no longer destroys measurement session
+- Plant switching still protects dataset integrity by flushing/clearing
 
 ## Data Flow Patterns
 
@@ -335,9 +348,13 @@ Scheduler Logic:
 ```
 Dashboard (User clicks Start)
            ↓
-    Writes ENABLE=1 to Plant
+    Sets scheduler_running=True
            ↓
-    Plant agent reads ENABLE flag
+    Writes ENABLE=1 and immediate latest setpoint to Plant
+           ↓
+    Scheduler agent dispatches schedule only while scheduler_running=True
+           ↓
+    Plant agent reads ENABLE and setpoint registers
            ↓
     IF enabled: applies setpoint to battery
     IF disabled: sends 0kW
@@ -355,7 +372,7 @@ Measurement Agent (periodic)
     ├── Read Plant: original_setpoint, actual_setpoint, SoC
     ├── Read Plant: P_poi, Q_poi, V_poi
     ├── Append to measurements_df
-    └── Write to measurements.csv (periodic)
+    └── Write to active recording file if measurements_filename is set
 ```
 
 ## Modbus Communication Patterns

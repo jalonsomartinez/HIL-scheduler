@@ -500,6 +500,38 @@ body {
     background: #b91c1c;
 }
 
+.control-btn-record {
+    background: #0f766e;
+    color: white;
+}
+
+.control-btn-record:hover:not(:disabled) {
+    background: #115e59;
+}
+
+.control-btn-record-stop {
+    background: #92400e;
+    color: white;
+}
+
+.control-btn-record-stop:hover:not(:disabled) {
+    background: #78350f;
+}
+
+.recording-controls-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.recording-status-text {
+    font-size: 12px;
+}
+
 /* Toggle Wrapper with Label */
 .toggle-wrapper {
     display: flex;
@@ -661,6 +693,15 @@ body {
     
     .status-row {
         gap: 16px;
+    }
+
+    .recording-controls-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .recording-status-text {
+        text-align: center;
     }
 }
 

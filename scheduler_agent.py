@@ -57,8 +57,6 @@ def scheduler_agent(config, shared_data):
         logging.info(f"Scheduler: Switched to {plant_type} plant at {plant_config['host']}:{plant_config['port']}")
         return plant_config
     
-    current_p_setpoint = None
-    current_q_setpoint = None
     previous_p_setpoint = None
     previous_q_setpoint = None
     last_active_source = None
@@ -92,9 +90,10 @@ def scheduler_agent(config, shared_data):
             logging.info("Scheduler connected to Plant Modbus server.")
         
         try:
-            # Get schedule reference with minimal lock time
+            # Get scheduler state and schedule reference with minimal lock time
             # In Python, reading a dict key is atomic due to GIL, but we use lock for consistency
             with shared_data['lock']:
+                scheduler_running = shared_data.get('scheduler_running', False)
                 active_source = shared_data.get('active_schedule_source', 'manual')
                 
                 # Get the appropriate schedule reference (just the reference, not a copy)
@@ -108,60 +107,63 @@ def scheduler_agent(config, shared_data):
                 logging.info(f"Scheduler: Active schedule source changed to '{active_source}'")
                 last_active_source = active_source
             
-            # Handle None or empty schedule - send 0 setpoint
-            if schedule_df is None or schedule_df.empty:
-                # logging.info("No schedule available, sending 0 setpoint")
-                client.write_single_register(plant_config['p_setpoint_reg'], 0)
-                client.write_single_register(plant_config['q_setpoint_reg'], 0)
-                time.sleep(config["SCHEDULER_PERIOD_S"])
-                continue
-            
-            # Use asof for robust lookup (outside lock - DataFrame is not being modified)
-            current_row = schedule_df.asof(datetime.now())
-            
-            if current_row is None or current_row.empty:
-                logging.info("No current row found in schedule, sending 0 setpoint")
-                current_p_setpoint = 0.0
-                current_q_setpoint = 0.0
+            # Scheduler is paused: do not dispatch setpoints.
+            # Reset previous cached values so restart always sends current setpoint immediately.
+            if not scheduler_running:
+                previous_p_setpoint = None
+                previous_q_setpoint = None
             else:
-                current_p_setpoint = current_row['power_setpoint_kw']
-                current_q_setpoint = current_row.get('reactive_power_setpoint_kvar', 0.0)
-                
-                # Check for NaN values and send 0 instead
-                if pd.isna(current_p_setpoint) or pd.isna(current_q_setpoint):
-                    logging.warning(f"NaN setpoint found in schedule, sending 0 instead")
+                # Handle None or empty schedule - send 0 setpoint
+                if schedule_df is None or schedule_df.empty:
                     current_p_setpoint = 0.0
                     current_q_setpoint = 0.0
-            
-            # Send active power setpoint if changed (outside lock)
-            if current_p_setpoint != previous_p_setpoint:
-                logging.info(
-                    f"New active power setpoint: {current_p_setpoint:.2f} kW. Sending to Plant."
-                )
+                else:
+                    # Use asof for robust lookup (outside lock - DataFrame is not being modified)
+                    current_row = schedule_df.asof(datetime.now())
+                    
+                    if current_row is None or current_row.empty:
+                        logging.info("No current row found in schedule, sending 0 setpoint")
+                        current_p_setpoint = 0.0
+                        current_q_setpoint = 0.0
+                    else:
+                        current_p_setpoint = current_row['power_setpoint_kw']
+                        current_q_setpoint = current_row.get('reactive_power_setpoint_kvar', 0.0)
+                        
+                        # Check for NaN values and send 0 instead
+                        if pd.isna(current_p_setpoint) or pd.isna(current_q_setpoint):
+                            logging.warning(f"NaN setpoint found in schedule, sending 0 instead")
+                            current_p_setpoint = 0.0
+                            current_q_setpoint = 0.0
                 
-                # Convert to hW and then to 16-bit signed integer for Modbus
-                p_reg_val = int_to_uint16(kw_to_hw(current_p_setpoint))
+                # Send active power setpoint if changed (outside lock)
+                if current_p_setpoint != previous_p_setpoint:
+                    logging.info(
+                        f"New active power setpoint: {current_p_setpoint:.2f} kW. Sending to Plant."
+                    )
+                    
+                    # Convert to hW and then to 16-bit signed integer for Modbus
+                    p_reg_val = int_to_uint16(kw_to_hw(current_p_setpoint))
+                    
+                    client.write_single_register(
+                        plant_config['p_setpoint_reg'],
+                        p_reg_val
+                    )
+                    previous_p_setpoint = current_p_setpoint
                 
-                client.write_single_register(
-                    plant_config['p_setpoint_reg'],
-                    p_reg_val
-                )
-                previous_p_setpoint = current_p_setpoint
-            
-            # Send reactive power setpoint if changed (outside lock)
-            if current_q_setpoint != previous_q_setpoint:
-                logging.info(
-                    f"New reactive power setpoint: {current_q_setpoint:.2f} kvar. Sending to Plant."
-                )
-                
-                # Convert to hW and then to 16-bit signed integer for Modbus
-                q_reg_val = int_to_uint16(kw_to_hw(current_q_setpoint))
-                
-                client.write_single_register(
-                    plant_config['q_setpoint_reg'],
-                    q_reg_val
-                )
-                previous_q_setpoint = current_q_setpoint
+                # Send reactive power setpoint if changed (outside lock)
+                if current_q_setpoint != previous_q_setpoint:
+                    logging.info(
+                        f"New reactive power setpoint: {current_q_setpoint:.2f} kvar. Sending to Plant."
+                    )
+                    
+                    # Convert to hW and then to 16-bit signed integer for Modbus
+                    q_reg_val = int_to_uint16(kw_to_hw(current_q_setpoint))
+                    
+                    client.write_single_register(
+                        plant_config['q_setpoint_reg'],
+                        q_reg_val
+                    )
+                    previous_q_setpoint = current_q_setpoint
         
         except Exception as e:
             logging.error(f"Error in scheduler agent: {e}")

@@ -1,4 +1,5 @@
 import logging
+import os
 import threading
 import time
 import pandas as pd
@@ -12,6 +13,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 import manual_schedule_manager as msm
+from utils import kw_to_hw, hw_to_kw, int_to_uint16, uint16_to_int
 
 
 def dashboard_agent(config, shared_data):
@@ -186,7 +188,7 @@ def dashboard_agent(config, shared_data):
                             'maxWidth': '400px', 'boxShadow': '0 4px 12px rgba(0,0,0,0.15)'
                         }, children=[
                             html.H3("Confirm Schedule Switch", style={'marginTop': '0'}),
-                            html.P("Switching schedule source will stop the system and flush current measurements. Continue?"),
+                            html.P("Switching schedule source will stop the plant but keep measurements recording unchanged. Continue?"),
                             html.Div(style={'display': 'flex', 'gap': '12px', 'marginTop': '20px', 'justifyContent': 'flex-end'}, children=[
                                 html.Button('Cancel', id='schedule-switch-cancel', className='btn btn-secondary'),
                                 html.Button('Confirm', id='schedule-switch-confirm', className='btn btn-primary'),
@@ -196,6 +198,24 @@ def dashboard_agent(config, shared_data):
                     
                     # Live Graph
                     html.Div(className='graph-container', children=[
+                        html.Div(className='recording-controls-row', children=[
+                            html.Div(className='control-group', children=[
+                                html.Button(
+                                    children=["● Record"],
+                                    id='record-button',
+                                    n_clicks=0,
+                                    className='control-btn control-btn-record'
+                                ),
+                                html.Button(
+                                    children=["■ Stop"],
+                                    id='record-stop-button',
+                                    n_clicks=0,
+                                    className='control-btn control-btn-record-stop',
+                                    disabled=True
+                                ),
+                            ]),
+                            html.Div(id='recording-status', className='status-text recording-status-text', children="Recording: Off"),
+                        ]),
                         dcc.Graph(id='live-graph', style={'height': '550px'}),
                     ]),
                     
@@ -445,6 +465,7 @@ def dashboard_agent(config, shared_data):
             dcc.Store(id='preview-schedule'),
             dcc.Store(id='active-tab', data='status'),
             dcc.Store(id='system-status', data='stopped'),
+            dcc.Store(id='recording-action', data='idle'),
             
             # Refresh interval - uses measurement_period_s from config
             dcc.Interval(id='interval-component', interval=config.get('MEASUREMENT_PERIOD_S', 1)*1000, n_intervals=0),
@@ -455,35 +476,180 @@ def dashboard_agent(config, shared_data):
     # ============================================================
     # HELPER FUNCTIONS FOR SYSTEM CONTROL AND MEASUREMENTS
     # ============================================================
-    def stop_system():
-        """Stop the system by writing 0 to the enable register of the selected plant."""
+    def get_selected_plant_modbus_config():
+        """Get host/port/register config for the currently selected plant."""
+        with shared_data['lock']:
+            selected_plant = shared_data.get('selected_plant', 'local')
+
+        if selected_plant == 'remote':
+            return {
+                'selected_plant': selected_plant,
+                'host': config.get('PLANT_REMOTE_MODBUS_HOST', '10.117.133.21'),
+                'port': config.get('PLANT_REMOTE_MODBUS_PORT', 502),
+                'enable_reg': config.get('PLANT_REMOTE_ENABLE_REGISTER', 10),
+                'p_setpoint_reg': config.get('PLANT_REMOTE_P_SETPOINT_REGISTER', 0),
+                'q_setpoint_reg': config.get('PLANT_REMOTE_Q_SETPOINT_REGISTER', 4),
+                'p_battery_reg': config.get('PLANT_REMOTE_P_BATTERY_ACTUAL_REGISTER', 2),
+                'q_battery_reg': config.get('PLANT_REMOTE_Q_BATTERY_ACTUAL_REGISTER', 6),
+            }
+
+        return {
+            'selected_plant': selected_plant,
+            'host': config.get('PLANT_LOCAL_MODBUS_HOST', 'localhost'),
+            'port': config.get('PLANT_LOCAL_MODBUS_PORT', 5020),
+            'enable_reg': config.get('PLANT_ENABLE_REGISTER', 10),
+            'p_setpoint_reg': config.get('PLANT_P_SETPOINT_REGISTER', 0),
+            'q_setpoint_reg': config.get('PLANT_Q_SETPOINT_REGISTER', 4),
+            'p_battery_reg': config.get('PLANT_P_BATTERY_ACTUAL_REGISTER', 2),
+            'q_battery_reg': config.get('PLANT_Q_BATTERY_ACTUAL_REGISTER', 6),
+        }
+
+    def set_enable(value):
+        """Set plant enable register. Returns True on success."""
+        from pyModbusTCP.client import ModbusClient
+
+        plant_cfg = get_selected_plant_modbus_config()
+        client = ModbusClient(host=plant_cfg['host'], port=plant_cfg['port'])
         try:
-            from pyModbusTCP.client import ModbusClient
-            
-            with shared_data['lock']:
-                selected_plant = shared_data.get('selected_plant', 'local')
-            
-            if selected_plant == 'remote':
-                host = config.get('PLANT_REMOTE_MODBUS_HOST', '10.117.133.21')
-                port = config.get('PLANT_REMOTE_MODBUS_PORT', 502)
-                enable_reg = config.get('PLANT_REMOTE_ENABLE_REGISTER', 10)
-            else:
-                host = config.get('PLANT_LOCAL_MODBUS_HOST', 'localhost')
-                port = config.get('PLANT_LOCAL_MODBUS_PORT', 5020)
-                enable_reg = config.get('PLANT_ENABLE_REGISTER', 10)
-            
-            client = ModbusClient(host=host, port=port)
-            if client.open():
-                client.write_single_register(enable_reg, 0)
-                client.close()
-                logging.info(f"Dashboard: System stopped (plant: {selected_plant})")
-                return True
-            else:
-                logging.warning(f"Dashboard: Could not connect to {selected_plant} plant to stop system")
+            if not client.open():
+                logging.warning(
+                    f"Dashboard: Could not connect to {plant_cfg['selected_plant']} plant to set enable={value}."
+                )
                 return False
+            return bool(client.write_single_register(plant_cfg['enable_reg'], int(value)))
         except Exception as e:
-            logging.error(f"Dashboard: Error stopping system: {e}")
+            logging.error(f"Dashboard: Error setting enable={value}: {e}")
             return False
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
+
+    def send_setpoints(p_kw, q_kvar):
+        """Write active/reactive setpoints to selected plant. Returns True on success."""
+        from pyModbusTCP.client import ModbusClient
+
+        plant_cfg = get_selected_plant_modbus_config()
+        client = ModbusClient(host=plant_cfg['host'], port=plant_cfg['port'])
+        try:
+            if not client.open():
+                logging.warning(
+                    f"Dashboard: Could not connect to {plant_cfg['selected_plant']} plant to send setpoints."
+                )
+                return False
+
+            p_ok = client.write_single_register(
+                plant_cfg['p_setpoint_reg'],
+                int_to_uint16(kw_to_hw(p_kw))
+            )
+            q_ok = client.write_single_register(
+                plant_cfg['q_setpoint_reg'],
+                int_to_uint16(kw_to_hw(q_kvar))
+            )
+            return bool(p_ok and q_ok)
+        except Exception as e:
+            logging.error(f"Dashboard: Error sending setpoints P={p_kw:.2f}kW, Q={q_kvar:.2f}kvar: {e}")
+            return False
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
+
+    def wait_until_battery_power_below_threshold(threshold_kw=1.0, timeout_s=30):
+        """
+        Wait until battery P and Q absolute values are both below threshold.
+        Returns True if threshold reached, False on timeout or connection/read failures.
+        """
+        from pyModbusTCP.client import ModbusClient
+
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            plant_cfg = get_selected_plant_modbus_config()
+            client = ModbusClient(host=plant_cfg['host'], port=plant_cfg['port'])
+            try:
+                if client.open():
+                    p_regs = client.read_holding_registers(plant_cfg['p_battery_reg'], 1)
+                    q_regs = client.read_holding_registers(plant_cfg['q_battery_reg'], 1)
+                    if p_regs and q_regs:
+                        p_batt_kw = hw_to_kw(uint16_to_int(p_regs[0]))
+                        q_batt_kvar = hw_to_kw(uint16_to_int(q_regs[0]))
+                        if abs(p_batt_kw) < threshold_kw and abs(q_batt_kvar) < threshold_kw:
+                            logging.info(
+                                f"Dashboard: Safe stop threshold reached (|P_batt|={abs(p_batt_kw):.2f}kW, "
+                                f"|Q_batt|={abs(q_batt_kvar):.2f}kvar)."
+                            )
+                            return True
+            except Exception as e:
+                logging.warning(f"Dashboard: Safe stop poll read error: {e}")
+            finally:
+                try:
+                    client.close()
+                except Exception:
+                    pass
+
+            time.sleep(1.0)
+
+        return False
+
+    def safe_stop_plant(threshold_kw=1.0, timeout_s=30):
+        """
+        Controlled stop sequence:
+        1) stop scheduler dispatch
+        2) send zero P/Q setpoints
+        3) wait for battery measured powers to decay
+        4) force disable plant
+        """
+        with shared_data['lock']:
+            shared_data['scheduler_running'] = False
+
+        zero_ok = send_setpoints(0.0, 0.0)
+        if not zero_ok:
+            logging.warning("Dashboard: Failed to send zero setpoints during stop sequence.")
+
+        reached_threshold = wait_until_battery_power_below_threshold(
+            threshold_kw=threshold_kw,
+            timeout_s=timeout_s
+        )
+        if not reached_threshold:
+            logging.warning(
+                f"Dashboard: Safe stop timeout ({timeout_s}s). Forcing disable even though threshold not reached."
+            )
+
+        enable_ok = set_enable(0)
+        if enable_ok:
+            logging.info("Dashboard: Plant safely stopped and disabled.")
+        else:
+            logging.error("Dashboard: Failed to disable plant during stop sequence.")
+
+        return reached_threshold and enable_ok
+
+    def get_latest_schedule_setpoint():
+        """Get latest P/Q setpoint from active schedule. Returns (p_kw, q_kvar)."""
+        with shared_data['lock']:
+            active_source = shared_data.get('active_schedule_source', 'manual')
+            if active_source == 'api':
+                schedule_df = shared_data.get('api_schedule_df')
+            else:
+                schedule_df = shared_data.get('manual_schedule_df')
+
+        if schedule_df is None or schedule_df.empty:
+            return 0.0, 0.0
+
+        try:
+            current_row = schedule_df.asof(datetime.now())
+            if current_row is None or current_row.empty:
+                return 0.0, 0.0
+
+            p_kw = current_row.get('power_setpoint_kw', 0.0)
+            q_kvar = current_row.get('reactive_power_setpoint_kvar', 0.0)
+            if pd.isna(p_kw) or pd.isna(q_kvar):
+                return 0.0, 0.0
+            return float(p_kw), float(q_kvar)
+        except Exception as e:
+            logging.warning(f"Dashboard: Failed to read latest schedule setpoint: {e}")
+            return 0.0, 0.0
     
     def flush_and_clear_measurements():
         """Flush measurements to CSV and clear the measurements DataFrame."""
@@ -509,6 +675,30 @@ def dashboard_agent(config, shared_data):
             return True
         except Exception as e:
             logging.error(f"Dashboard: Error clearing measurements: {e}")
+            return False
+
+    def stop_recording_and_flush():
+        """Flush current recording file and stop recording without clearing measurements DataFrame."""
+        try:
+            with shared_data['lock']:
+                measurements_filename = shared_data.get('measurements_filename')
+                measurements_df = shared_data.get('measurements_df', pd.DataFrame()).copy()
+
+            if measurements_filename and not measurements_df.empty:
+                try:
+                    measurements_df.to_csv(measurements_filename, index=False)
+                    logging.info(
+                        f"Dashboard: Recording stopped. Flushed {len(measurements_df)} measurements to {measurements_filename}"
+                    )
+                except Exception as e:
+                    logging.error(f"Dashboard: Error flushing recording to CSV: {e}")
+
+            with shared_data['lock']:
+                shared_data['measurements_filename'] = None
+
+            return True
+        except Exception as e:
+            logging.error(f"Dashboard: Error stopping recording: {e}")
             return False
     
     # ============================================================
@@ -903,15 +1093,11 @@ def dashboard_agent(config, shared_data):
             
             def perform_schedule_switch():
                 try:
-                    # 1. Stop the system
-                    logging.info(f"Dashboard: Stopping system before switching to {requested_source} schedule...")
-                    stop_system()
-                    
-                    # 2. Flush measurements and clear DataFrame
-                    logging.info("Dashboard: Flushing and clearing measurements...")
-                    flush_and_clear_measurements()
-                    
-                    # 3. Update active_schedule_source in shared_data
+                    # 1. Stop the plant safely (do not touch measurement logging state)
+                    logging.info(f"Dashboard: Safely stopping plant before switching to {requested_source} schedule...")
+                    safe_stop_plant()
+
+                    # 2. Update active_schedule_source in shared_data
                     with shared_data['lock']:
                         shared_data['active_schedule_source'] = requested_source
                         shared_data['schedule_switching'] = False
@@ -1007,12 +1193,14 @@ def dashboard_agent(config, shared_data):
             
             def perform_plant_switch():
                 try:
-                    # 1. Stop the system and flush measurements
-                    logging.info(f"Dashboard: Stopping system and flushing measurements before switching to {requested_plant} plant...")
-                    stop_system()
+                    # 1. Safely stop current plant
+                    logging.info(f"Dashboard: Safely stopping plant before switching to {requested_plant} plant...")
+                    safe_stop_plant()
+
+                    # 2. Flush and clear measurements (to avoid mixing plant datasets)
                     flush_and_clear_measurements()
                     
-                    # 2. Update shared_data with new plant selection
+                    # 3. Update shared_data with new plant selection
                     with shared_data['lock']:
                         shared_data['selected_plant'] = requested_plant
                         shared_data['plant_switching'] = False
@@ -1065,66 +1253,78 @@ def dashboard_agent(config, shared_data):
             raise PreventUpdate
         
         button_id = ctx.triggered[0]['prop_id'].split('.')[0]
-        
         if button_id == 'start-button':
-            value_to_write = 1
             logging.info("Dashboard: Start button clicked.")
-            
-            # Generate timestamped filename for measurements
+
+            with shared_data['lock']:
+                shared_data['scheduler_running'] = True
+
+            def start_sequence():
+                enabled = set_enable(1)
+                if not enabled:
+                    with shared_data['lock']:
+                        shared_data['scheduler_running'] = False
+                    logging.error("Dashboard: Failed to enable plant on start; scheduler remains stopped.")
+                    return
+
+                p_kw, q_kvar = get_latest_schedule_setpoint()
+                send_ok = send_setpoints(p_kw, q_kvar)
+                if send_ok:
+                    logging.info(
+                        f"Dashboard: Start sequence complete. Initial setpoints sent P={p_kw:.2f}kW, Q={q_kvar:.2f}kvar."
+                    )
+                else:
+                    logging.warning("Dashboard: Plant enabled but failed to send immediate start setpoints.")
+
+            cmd_thread = threading.Thread(target=start_sequence)
+            cmd_thread.daemon = True
+            cmd_thread.start()
+            return 'starting'
+
+        if button_id == 'stop-button':
+            logging.info("Dashboard: Stop button clicked.")
+
+            def stop_sequence():
+                safe_stop_plant()
+
+            cmd_thread = threading.Thread(target=stop_sequence)
+            cmd_thread.daemon = True
+            cmd_thread.start()
+            return 'stopping'
+
+        raise PreventUpdate
+
+    # ============================================================
+    # RECORD/STOP BUTTONS (MEASUREMENT LOGGING ONLY)
+    # ============================================================
+    @app.callback(
+        Output('recording-action', 'data'),
+        [Input('record-button', 'n_clicks'),
+         Input('record-stop-button', 'n_clicks')],
+        prevent_initial_call=True
+    )
+    def handle_record_buttons(record_clicks, record_stop_clicks):
+        ctx = callback_context
+        if not ctx.triggered:
+            raise PreventUpdate
+
+        button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+        if button_id == 'record-button':
+            os.makedirs('data', exist_ok=True)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"data/{timestamp}_data.csv"
-            
             with shared_data['lock']:
                 shared_data['measurements_filename'] = filename
-            
-            logging.info(f"Dashboard: Measurements filename set to {filename}")
-        elif button_id == 'stop-button':
-            value_to_write = 0
-            logging.info("Dashboard: Stop button clicked.")
-            
-            # Clear the measurements filename to stop writing to disk
-            with shared_data['lock']:
-                shared_data['measurements_filename'] = None
-            
-            logging.info("Dashboard: Measurements filename cleared.")
-        else:
-            raise PreventUpdate
-        
-        # Run Modbus operation in background to not block UI
-        def send_command():
-            from pyModbusTCP.client import ModbusClient
-            
-            # Read selected plant to determine which one to control
-            with shared_data['lock']:
-                selected_plant = shared_data.get('selected_plant', 'local')
-            
-            if selected_plant == 'remote':
-                host = config.get('PLANT_REMOTE_MODBUS_HOST', '10.117.133.21')
-                port = config.get('PLANT_REMOTE_MODBUS_PORT', 502)
-                enable_reg = config.get('PLANT_REMOTE_ENABLE_REGISTER', 10)
-            else:
-                host = config.get('PLANT_LOCAL_MODBUS_HOST', 'localhost')
-                port = config.get('PLANT_LOCAL_MODBUS_PORT', 5020)
-                enable_reg = config.get('PLANT_ENABLE_REGISTER', 10)
-            
-            client = ModbusClient(host=host, port=port)
-            if not client.open():
-                logging.error(f"Dashboard: Could not connect to {selected_plant} Plant.")
-                return
-            
-            is_ok = client.write_single_register(enable_reg, value_to_write)
-            client.close()
-            
-            if is_ok:
-                logging.info(f"Dashboard: Command sent successfully")
-            else:
-                logging.error("Dashboard: Failed to send command")
-        
-        cmd_thread = threading.Thread(target=send_command)
-        cmd_thread.daemon = True
-        cmd_thread.start()
-        
-        return 'starting' if button_id == 'start-button' else 'stopping'
+            logging.info(f"Dashboard: Recording started/rotated to file {filename}")
+            return f"record:{timestamp}"
+
+        if button_id == 'record-stop-button':
+            stop_recording_and_flush()
+            logging.info("Dashboard: Recording stop requested.")
+            return f"stop:{datetime.now().strftime('%H%M%S')}"
+
+        raise PreventUpdate
     
     # ============================================================
     # MAIN STATUS AND GRAPHS UPDATE (DIRECT SHARED DATA ACCESS)
@@ -1137,11 +1337,14 @@ def dashboard_agent(config, shared_data):
          Output('data-fetcher-status-display', 'children'),
          Output('last-update', 'children'),
          Output('start-button', 'disabled'),
-         Output('stop-button', 'disabled')],
+         Output('stop-button', 'disabled'),
+         Output('recording-status', 'children'),
+         Output('record-stop-button', 'disabled')],
         [Input('interval-component', 'n_intervals'),
-         Input('system-status', 'data')]
+         Input('system-status', 'data'),
+         Input('recording-action', 'data')]
     )
-    def update_status_and_graphs(n, system_status):
+    def update_status_and_graphs(n, system_status, recording_action):
         nonlocal last_modbus_status
         
         # Modbus status check (with timeout to prevent blocking)
@@ -1219,6 +1422,7 @@ def dashboard_agent(config, shared_data):
             measurements_df = shared_data.get('measurements_df', pd.DataFrame()).copy()
             active_source = shared_data.get('active_schedule_source', 'manual')
             df_status = shared_data.get('data_fetcher_status', {}).copy()
+            measurements_filename = shared_data.get('measurements_filename')
             if active_source == 'api':
                 schedule_df = shared_data.get('api_schedule_df', pd.DataFrame()).copy()
             else:
@@ -1237,6 +1441,12 @@ def dashboard_agent(config, shared_data):
             df_text = "API: Not connected"
         
         last_update = f"Last update: {datetime.now().strftime('%H:%M:%S')}"
+        if measurements_filename:
+            recording_text = f"Recording: On ({os.path.basename(measurements_filename)})"
+            record_stop_disabled = False
+        else:
+            recording_text = "Recording: Off"
+            record_stop_disabled = True
         
         # Convert measurements timestamp to datetime
         if not measurements_df.empty and 'timestamp' in measurements_df.columns:
@@ -1313,7 +1523,18 @@ def dashboard_agent(config, shared_data):
         fig.update_yaxes(title_text="Power (kvar)", row=3, col=1, gridcolor='#e2e8f0')
         fig.update_xaxes(title_text="Time", row=3, col=1, gridcolor='#e2e8f0')
         
-        return fig, status_class, [html.Span(className='status-dot'), status_text], source_text, df_text, last_update, start_disabled, stop_disabled
+        return (
+            fig,
+            status_class,
+            [html.Span(className='status-dot'), status_text],
+            source_text,
+            df_text,
+            last_update,
+            start_disabled,
+            stop_disabled,
+            recording_text,
+            record_stop_disabled
+        )
     
     # ============================================================
     # LOG FILE SELECTOR OPTIONS

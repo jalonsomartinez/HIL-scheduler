@@ -76,7 +76,7 @@ flowchart TD
 ## User Experience Goals
 
 ### For Operators
-1. **Simple Controls**: Start/Stop buttons for immediate control
+1. **Simple Controls**: Separate scheduler Start/Stop and recording Record/Stop controls
 2. **Clear Visualization**: Step-function graphs showing power setpoints
 3. **Status Awareness**: Clear indication of running/stopped state
 4. **Data Accessibility**: CSV files for post-run analysis
@@ -93,14 +93,21 @@ flowchart TD
 1. Director starts all agent threads
 2. Data Fetcher generates random schedule and writes to CSV
 3. Dashboard launches and waits for user to click Start
-4. User clicks Start → Dashboard writes enable flag to PPC
-5. Scheduler begins reading schedule and sending setpoints
+4. User clicks Start → Dashboard enables selected plant, sends latest schedule setpoint immediately, and sets `scheduler_running=True`
+5. Scheduler begins/continues sending schedule setpoints while `scheduler_running=True`
 6. Battery applies setpoints and tracks SoC
-7. Measurement Agent logs all data
+7. Measurement Agent logs continuously, independent of scheduler start/stop
 
 ### Emergency Stop
 1. User clicks Stop on dashboard
-2. Dashboard writes disable flag to PPC
-3. PPC sends 0kW setpoint to battery
-4. Battery maintains current SoC
-5. Measurement continues logging (showing 0kW applied)
+2. Dashboard sets `scheduler_running=False` and sends 0 kW / 0 kvar setpoints
+3. Dashboard waits until measured battery active and reactive powers are both below 1.0
+4. Dashboard disables the plant (force-disable after timeout with warning)
+5. Measurement continues logging unless user also stops recording
+
+### Recording Workflow
+1. User clicks Record in the plot card
+2. Dashboard creates a new timestamped filename (`data/YYYYMMDD_HHMMSS_data.csv`)
+3. Measurement agent rotates to that file and writes periodically
+4. User clicks Record again to rotate to a new file (previous file flushed)
+5. User clicks recording Stop to flush and stop writing to disk

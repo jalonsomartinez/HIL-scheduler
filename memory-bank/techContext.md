@@ -69,6 +69,7 @@ shared_data = {
     "manual_schedule_df": pd.DataFrame(),   # Manual schedule (random/CSV)
     "api_schedule_df": pd.DataFrame(),      # API-fetched schedule
     "active_schedule_source": "manual",     # 'manual' or 'api'
+    "scheduler_running": False,             # Scheduler dispatch gate (True=dispatch)
     
     # Plant selection (dual plant support)
     "selected_plant": "local",              # 'local' or 'remote'
@@ -100,6 +101,12 @@ shared_data = {
     "shutdown_event": threading.Event(),    # Graceful shutdown signal
 }
 ```
+
+**Control Decoupling Pattern (2026-02-17):**
+- Scheduler control: dashboard Start/Stop toggles `scheduler_running` and plant enable/disable sequencing.
+- Recording control: dashboard Record/Stop toggles `measurements_filename` and file flushing.
+- Schedule switch: safe plant stop only (no measurement flush).
+- Plant switch: safe plant stop + measurement flush/clear.
 
 ## Logging System
 

@@ -16,7 +16,7 @@ The HIL Scheduler is an agent-based Python application that acts as a real-time 
 2. **Real-time Execution**: Execute power setpoints at the correct time
 3. **Battery Simulation**: Track State of Charge (SoC) and apply power limits
 4. **Data Logging**: Record all measurements to CSV for analysis
-5. **Visualization**: Provide live dashboard with start/stop controls
+5. **Visualization**: Provide live dashboard with independent scheduler and recording controls
 
 ### Operating Modes
 - **Local Emulation Mode**: Runs PPC and Battery as local Modbus servers (for testing)

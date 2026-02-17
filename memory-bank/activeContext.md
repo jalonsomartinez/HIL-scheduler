@@ -1,7 +1,52 @@
 # Active Context: HIL Scheduler
 
 ## Current Focus
-Fixed dashboard initial state loading issue where startup configuration (plant and schedule source) was not reflected in the UI.
+Decoupled scheduler control from recording control in the dashboard and implemented safe stop behavior.
+
+## Recent Changes (2026-02-17) - Scheduler/Recording Decoupling
+
+### Overview
+Implemented the dashboard behavior split:
+- `Start/Stop` now controls only scheduler + plant operation.
+- New `Record/Stop` controls measurement file recording independently.
+- Schedule source switches now stop the plant safely but preserve measurements.
+- Plant switches keep safe stop + flush/clear behavior to avoid mixing local/remote datasets.
+
+### Files Modified
+1. **[`hil_scheduler.py`](hil_scheduler.py)**:
+   - Added `scheduler_running` to `shared_data` (default `False`)
+
+2. **[`scheduler_agent.py`](scheduler_agent.py)**:
+   - Added scheduler dispatch gating on `shared_data['scheduler_running']`
+   - Scheduler now sends no setpoints while paused
+   - Resets cached previous setpoints while paused so Start sends immediately on resume
+
+3. **[`dashboard_agent.py`](dashboard_agent.py)**:
+   - Added helper functions:
+     - `get_selected_plant_modbus_config()`
+     - `set_enable()`
+     - `send_setpoints()`
+     - `wait_until_battery_power_below_threshold()`
+     - `safe_stop_plant()`
+     - `stop_recording_and_flush()`
+   - Updated Start/Stop callback semantics:
+     - Start: sets `scheduler_running=True`, enables plant, sends latest setpoint immediately
+     - Stop: runs safe-stop sequence (zero setpoints → wait below 1kW/kvar threshold → disable)
+   - Added new recording controls in plot card:
+     - `record-button`
+     - `record-stop-button`
+     - recording status text
+   - Added recording callback for file start/rotation/stop behavior
+   - Updated schedule switch flow to safe-stop only (no measurement flush)
+   - Kept plant switch flow as safe-stop + flush/clear
+
+4. **[`assets/custom.css`](assets/custom.css)**:
+   - Added styles for record controls row and responsive behavior
+
+### Behavior Notes
+- Safe stop timeout default is 30 seconds; plant is force-disabled on timeout with warning log.
+- Safe stop threshold checks battery measured active and reactive power (`abs(P_batt)<1`, `abs(Q_batt)<1`).
+- Record button while already recording rotates to a new timestamped file.
 
 ## Recent Changes (2026-02-02) - Dashboard Initial State Loading Fix
 
@@ -688,24 +733,26 @@ Split the monolithic schedule management into two decoupled schedules:
 - **Tab 3: Status & Plots** - Active source selector, live graphs, system status
 
 ## Next Steps
-- Test the simplified architecture with direct writes/reads
-- Verify measurements appear immediately in dashboard (no delay)
-- Verify files are created in `data/` folder with correct timestamps
-- Test that Stop button stops writing and Start creates new file
-- Monitor system for any lock contention issues (not expected)
+- Run manual end-to-end validation of decoupled controls on both local and remote plants:
+  - Start/Stop only affects scheduler/plant operation
+  - Record/Stop only affects file recording
+- Validate safe-stop timeout path with unavailable/slow plant responses
+- Add automated tests for `scheduler_running` gating and recording rotation behavior
+- Confirm schedule switch preserves recording session and measurement DataFrame
+- Confirm plant switch flushes/clears measurements and prevents mixed datasets
 
 ## Architecture Notes
 
 ### New Data Flow (Measurement Files)
 ```
-User clicks Start:
+User clicks Record:
   Dashboard → generates filename "data/20260201_154500_data.csv"
   Dashboard → stores in shared_data['measurements_filename']
   
 Measurement Agent (polling every 1s):
   Detects filename change → flushes old data → clears DataFrame → starts new file
   
-User clicks Stop:
+User clicks Record Stop:
   Dashboard → sets shared_data['measurements_filename'] = None
   
 Measurement Agent:
@@ -719,12 +766,13 @@ shared_data = {
     "manual_schedule_df": pd.DataFrame(),
     "api_schedule_df": pd.DataFrame(),
     "active_schedule_source": "manual",
+    "scheduler_running": False,
     
     # API configuration
     "api_password": None,
     "data_fetcher_status": {...},
     
-    # Measurement file (NEW)
+    # Measurement file (recording control)
     "measurements_filename": None,  # Set by dashboard, polled by measurement agent
     
     # Existing data
@@ -735,7 +783,8 @@ shared_data = {
 ```
 
 ### Key Files
-- [`dashboard_agent.py`](dashboard_agent.py): Three-tab dashboard + filename management
+- [`dashboard_agent.py`](dashboard_agent.py): Scheduler control + safe stop + recording controls
+- [`scheduler_agent.py`](scheduler_agent.py): Dispatch gating via `scheduler_running`
 - [`measurement_agent.py`](measurement_agent.py): Filename polling + measurement logging
-- [`hil_scheduler.py`](hil_scheduler.py): Updated shared data with measurements_filename
+- [`hil_scheduler.py`](hil_scheduler.py): Updated shared data with `measurements_filename` + `scheduler_running`
 - [`data/`](data/): New folder for measurement files
