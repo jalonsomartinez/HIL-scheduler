@@ -194,8 +194,11 @@ if __name__ == "__main__":
     #######Uso para posteo de mediciones
     response_timestamp_1 = api.post_lib_SOC_kWh(500.0, timestamp="2026-01-29T12:00:00+00:00")
     print("Response for posting LIB SOC kWh:", response_timestamp_1)
-    print()
     response_timestamp_2 = api.post_lib_P_W(250.0)
     print("Response for posting LIB P W:", response_timestamp_2)
+    response_timestamp_3 = api.post_lib_Q_VAr(250.0)
+    print("Response for posting LIB Q var:", response_timestamp_3)
+    response_timestamp_4 = api.post_lib_V_V(250.0)
+    print("Response for posting LIB V V:", response_timestamp_4)
 
 
