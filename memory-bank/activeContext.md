@@ -1,7 +1,27 @@
 # Active Context: HIL Scheduler
 
 ## Current Focus
-Daily per-plant recording files with measurement-agent-owned persistence and in-memory current-day file caching for plotting.
+Drift-free measurement triggering with fixed-step scheduling, plus daily per-plant recording files with measurement-agent-owned persistence and in-memory current-day file caching for plotting.
+
+## Recent Changes (2026-02-18) - Drift-Free Measurement Triggering
+
+### Overview
+Replaced elapsed-time measurement triggering in `measurement_agent.py` with an anchored step scheduler to avoid cumulative timestamp drift.
+
+### Key Behavior Changes
+- Measurement trigger timing now uses a fixed startup anchor rounded up to the next whole second.
+- Trigger evaluation now uses monotonic step index (`floor((now_mono - anchor_mono) / measurement_period)`).
+- Only the latest pending step is executed when delayed (missed intermediate steps are skipped).
+- Each step is consumed once, even if Modbus read fails (no repeated attempts in the same step).
+- Measurement row `timestamp` now uses the scheduled trigger step time (on-grid), not read-completion time.
+- Existing recording/session behaviors remain unchanged (leading/trailing null boundaries, midnight file routing, compression, cache updates).
+
+### Files Modified
+1. **[`measurement_agent.py`](measurement_agent.py)**:
+   - Added fixed measurement anchors (`measurement_anchor_wall`, `measurement_anchor_mono`).
+   - Added per-step execution state (`last_executed_trigger_step`).
+   - Updated `take_measurement` signature to accept scheduled timestamp.
+   - Replaced `last_measurement_time` drift-prone logic with anchored step scheduling.
 
 ## Recent Changes (2026-02-17) - Timezone-Consistent Timestamps
 

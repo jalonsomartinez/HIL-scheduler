@@ -300,7 +300,14 @@ modbus_remote:
 **Other Agents (Consistent Pattern):**
 - Scheduler: Uses `SCHEDULER_PERIOD_S` config
 - Plant: Uses `PLANT_PERIOD_S` config  
-- Measurement: Uses `MEASUREMENT_PERIOD_S` and `MEASUREMENTS_WRITE_PERIOD_S` config
+- Measurement: Uses `MEASUREMENT_PERIOD_S` as anchored step size (monotonic step scheduler) and `MEASUREMENTS_WRITE_PERIOD_S` for periodic disk flushes
+
+**Measurement Timing Pattern (2026-02-18):**
+- Startup anchor: measurement schedule starts at startup time rounded up to next second.
+- Trigger evaluation: monotonic step index with `floor((now_mono - anchor_mono) / measurement_period_s)`.
+- Missed-step policy: skip missed intermediate steps; execute only latest pending step.
+- Per-step retry policy: at most one measurement attempt per step even if read fails.
+- Timestamp policy: persisted measurement rows use scheduled step timestamps (grid-aligned), not read-completion timestamps.
 
 **Before (Inconsistent):**
 - Data fetcher had hardcoded values (5s, 30s, 300s) that overrode config

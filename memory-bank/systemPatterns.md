@@ -11,6 +11,18 @@
 - Measurement persistence: write CSV `timestamp` as ISO 8601 with timezone offset.
 - Legacy compatibility: naive historical timestamps are interpreted as configured timezone when loaded.
 
+## Measurement Trigger Scheduling Pattern (2026-02-18)
+
+- Use a fixed measurement wall-clock anchor at agent startup, rounded up to the next whole second.
+- Align a monotonic anchor to the same wall-clock anchor to avoid drift from variable loop/runtime delays.
+- Compute measurement step index as:
+  `current_step = floor((time.monotonic() - measurement_anchor_mono) / measurement_period_s)`.
+- Execute at most once per step:
+  trigger only when `current_step > last_executed_trigger_step`, then mark step consumed immediately.
+- Skip missed intermediate steps (no catch-up burst reads).
+- Persist measurement `timestamp` as the scheduled step time (`anchor_wall + step * period`), not read completion time.
+- Keep recording/session semantics unchanged (null boundaries, midnight routing, periodic disk flush).
+
 ### Agent Base Pattern
 All agents follow a consistent pattern:
 

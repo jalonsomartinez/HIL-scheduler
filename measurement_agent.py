@@ -1,5 +1,6 @@
 import glob
 import logging
+import math
 import os
 import re
 import time
@@ -103,7 +104,12 @@ def measurement_agent(config, shared_data):
     plant_client = None
     cache_context = None
 
-    last_measurement_time = time.time()
+    startup_wall_ts = normalize_timestamp_value(pd.Timestamp(now_tz(config)), tz)
+    measurement_anchor_wall = startup_wall_ts.ceil("s")
+    startup_monotonic = time.monotonic()
+    startup_to_anchor_s = (measurement_anchor_wall - startup_wall_ts).total_seconds()
+    measurement_anchor_mono = startup_monotonic + max(0.0, startup_to_anchor_s)
+    last_executed_trigger_step = -1
     last_write_time = time.time()
 
     recording_active = False
@@ -524,7 +530,7 @@ def measurement_agent(config, shared_data):
             last_real_row_by_file[stopped_file_path] = None
             run_active_by_file[stopped_file_path] = False
 
-    def take_measurement(plant_config):
+    def take_measurement(plant_config, measurement_timestamp):
         """Take a single measurement from the plant. Returns row dict or None."""
         if plant_client is None:
             return None
@@ -585,8 +591,9 @@ def measurement_agent(config, shared_data):
                 return None
             v_poi_pu = regs_v_poi[0] / 100.0
 
+            normalized_measurement_timestamp = normalize_timestamp_value(measurement_timestamp, tz)
             return {
-                "timestamp": pd.Timestamp(now_tz(config)),
+                "timestamp": normalized_measurement_timestamp,
                 "p_setpoint_kw": p_setpoint_kw,
                 "battery_active_power_kw": battery_active_power_kw,
                 "q_setpoint_kvar": q_setpoint_kvar,
@@ -641,28 +648,29 @@ def measurement_agent(config, shared_data):
                     shared_data["measurements_filename"] = recording_file_path
                 logging.info(f"Measurement: Midnight rollover to {recording_file_path}")
 
-        if current_time - last_measurement_time >= measurement_period_s:
-            measurement_row = take_measurement(plant_config)
-            if measurement_row is not None:
-                last_measurement_time = current_time
-                if recording_active:
-                    measurement_ts = normalize_timestamp_value(measurement_row["timestamp"], tz)
-                    if awaiting_first_real_sample:
-                        leading_null_ts = measurement_ts - measurement_period_delta
-                        already_has_boundary = (
-                            session_tail_is_null
-                            and session_tail_ts is not None
-                            and normalize_timestamp_value(session_tail_ts, tz)
-                            == normalize_timestamp_value(leading_null_ts, tz)
-                        )
-                        if not already_has_boundary:
-                            enqueue_row_for_file(build_null_row(leading_null_ts), recording_plant)
-                        awaiting_first_real_sample = False
+        current_step = math.floor((time.monotonic() - measurement_anchor_mono) / measurement_period_s)
+        if current_step >= 0 and current_step > last_executed_trigger_step:
+            last_executed_trigger_step = current_step
+            scheduled_step_ts = measurement_anchor_wall + pd.Timedelta(seconds=current_step * measurement_period_s)
+            measurement_row = take_measurement(plant_config, scheduled_step_ts)
+            if measurement_row is not None and recording_active:
+                measurement_ts = normalize_timestamp_value(measurement_row["timestamp"], tz)
+                if awaiting_first_real_sample:
+                    leading_null_ts = measurement_ts - measurement_period_delta
+                    already_has_boundary = (
+                        session_tail_is_null
+                        and session_tail_ts is not None
+                        and normalize_timestamp_value(session_tail_ts, tz)
+                        == normalize_timestamp_value(leading_null_ts, tz)
+                    )
+                    if not already_has_boundary:
+                        enqueue_row_for_file(build_null_row(leading_null_ts), recording_plant)
+                    awaiting_first_real_sample = False
 
-                    enqueue_row_for_file(measurement_row, recording_plant)
-                    last_real_timestamp = measurement_ts
-                    session_tail_ts = measurement_ts
-                    session_tail_is_null = False
+                enqueue_row_for_file(measurement_row, recording_plant)
+                last_real_timestamp = measurement_ts
+                session_tail_ts = measurement_ts
+                session_tail_is_null = False
 
         if current_time - last_write_time >= write_period_s:
             flush_pending_rows(force=False)

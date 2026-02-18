@@ -2,6 +2,17 @@
 
 ## What Works
 
+### Drift-Free Measurement Triggering (2026-02-18)
+- [x] **Anchored trigger scheduling**: Measurement triggering now starts from startup time rounded up to the next whole second and follows a fixed step grid.
+- [x] **Monotonic step index**: Trigger decision uses monotonic elapsed time with `floor((now_mono - anchor_mono) / measurement_period_s)`.
+- [x] **Skip missed steps**: Delays no longer cause catch-up bursts; only the latest pending step is attempted.
+- [x] **One attempt per step**: A step is consumed once even on Modbus read failure, preventing repeated retries within the same step.
+- [x] **On-grid persisted timestamps**: Measurement rows use scheduled step timestamps rather than read-completion time.
+- [x] **Recording logic preserved**: Null-boundary insertion, midnight routing, compression, and cache update behavior unchanged.
+
+**Files Modified:**
+- [`measurement_agent.py`](measurement_agent.py): Replaced elapsed-time trigger logic with anchored step scheduling and updated `take_measurement` timestamp handling.
+
 ### Timezone-Consistent Timestamp Handling (2026-02-17)
 - [x] **Configurable timezone**: Added `time.timezone` in `config.yaml` and flattened `TIMEZONE_NAME` in config loader with validation/fallback.
 - [x] **Shared timezone utility module**: Added `time_utils.py` for normalization and ISO serialization helpers.
