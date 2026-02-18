@@ -189,8 +189,8 @@ if __name__ == "__main__":
     # lib_mfrr_next_activation_kW = api.mfrr_next_activation()
     # print(lib_mfrr_next_activation_kW)
 
-    #######Uso para posteo de mediciones
-    # response_timestamp = api.post_lib_SOC_kWh(500.0, timestamp="2026-01-29T12:00:00+00:00")
-    # print(response_timestamp)
+    ######Uso para posteo de mediciones
+    response_timestamp = api.post_lib_SOC_kWh(500.0, timestamp="2026-01-29T12:00:00+00:00")
+    print(response_timestamp)
 
 
