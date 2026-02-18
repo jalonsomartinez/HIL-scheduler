@@ -95,7 +95,8 @@ class IstentoreAPI:
             delivery_period_str = period.get("delivery_period")
 
             # 1. Parsear string UTC (naive) → datetime
-            delivery_dt_utc = datetime.strptime(delivery_period_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+            delivery_dt_utc = datetime.fromisoformat(delivery_period_str)
+            # datetime.strptime(delivery_period_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
 
             # 2. ISO 8601 explícito en UTC
             delivery_period_iso_utc = delivery_dt_utc.isoformat()
@@ -179,7 +180,7 @@ if __name__ == "__main__":
     ######### Consultaremos así las consignas para el día siguiente.
     # Consultadas hoy (por ejemplo a las 15:00), que ya estarán disponibles als de mañana, con los delivery periods
     # de mañana entre las 00:00 y las 23:45.
-    lib_day_ahead_setpoints_kW, vrfb_day_ahead_setpoints_kW = api.day_ahead_schedule_between_periods(delivery_period_gte="2026-01-29T23:00:00+00:00", delivery_period_lte="2026-01-30T22:45:00+00:00")
+    lib_day_ahead_setpoints_kW, vrfb_day_ahead_setpoints_kW = api.day_ahead_schedule_between_periods(delivery_period_gte="2026-02-17T23:00:00+00:00", delivery_period_lte="2026-02-18T22:45:00+00:00")
     print("LIB Day-Ahead Setpoints kW:", lib_day_ahead_setpoints_kW)
     print("VRFB Day-Ahead Setpoints kW:", vrfb_day_ahead_setpoints_kW)
 
