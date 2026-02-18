@@ -4,12 +4,14 @@ import math
 import os
 import re
 import time
+from collections import deque
 from datetime import timedelta
 
 import numpy as np
 import pandas as pd
 from pyModbusTCP.client import ModbusClient
 
+from istentore_api import AuthenticationError, IstentoreAPI, IstentoreAPIError
 from utils import hw_to_kw, uint16_to_int
 from time_utils import (
     get_config_tz,
@@ -76,6 +78,7 @@ def measurement_agent(config, shared_data):
     - Writes to daily per-plant files: data/YYYYMMDD_plantname.csv
     - Buffers rows by destination file timestamp-date to handle midnight split correctly.
     - Maintains shared_data['current_file_df'] cache for selected-plant current-day plotting.
+    - Posts SoC/P/Q/V to Istentore API on an independent fixed interval when API mode is active.
     """
     logging.info("Measurement agent started.")
     tz = get_config_tz(config)
@@ -100,6 +103,134 @@ def measurement_agent(config, shared_data):
         except (TypeError, ValueError):
             compression_tolerances[column] = DEFAULT_COMPRESSION_TOLERANCES[column]
 
+    post_measurements_enabled_raw = config.get("ISTENTORE_POST_MEASUREMENTS_IN_API_MODE", True)
+    if isinstance(post_measurements_enabled_raw, bool):
+        post_measurements_enabled = post_measurements_enabled_raw
+    elif isinstance(post_measurements_enabled_raw, str):
+        post_measurements_enabled = (
+            post_measurements_enabled_raw.strip().lower() in ["1", "true", "yes", "on"]
+        )
+    else:
+        post_measurements_enabled = bool(post_measurements_enabled_raw)
+
+    raw_measurement_post_period_s = config.get("ISTENTORE_MEASUREMENT_POST_PERIOD_S", 60)
+    try:
+        measurement_post_period_s = float(raw_measurement_post_period_s)
+        if measurement_post_period_s <= 0:
+            raise ValueError("must be > 0")
+    except (TypeError, ValueError):
+        logging.warning(
+            f"Measurement: Invalid ISTENTORE_MEASUREMENT_POST_PERIOD_S='{raw_measurement_post_period_s}'. "
+            "Using 60 seconds."
+        )
+        measurement_post_period_s = 60.0
+
+    raw_post_queue_maxlen = config.get("ISTENTORE_MEASUREMENT_POST_QUEUE_MAXLEN", 2000)
+    try:
+        post_queue_maxlen = int(raw_post_queue_maxlen)
+        if post_queue_maxlen <= 0:
+            raise ValueError("must be > 0")
+    except (TypeError, ValueError):
+        logging.warning(
+            f"Measurement: Invalid ISTENTORE_MEASUREMENT_POST_QUEUE_MAXLEN='{raw_post_queue_maxlen}'. "
+            "Using 2000."
+        )
+        post_queue_maxlen = 2000
+
+    raw_post_retry_initial_s = config.get("ISTENTORE_MEASUREMENT_POST_RETRY_INITIAL_S", 2)
+    try:
+        post_retry_initial_s = float(raw_post_retry_initial_s)
+        if post_retry_initial_s <= 0:
+            raise ValueError("must be > 0")
+    except (TypeError, ValueError):
+        logging.warning(
+            f"Measurement: Invalid ISTENTORE_MEASUREMENT_POST_RETRY_INITIAL_S='{raw_post_retry_initial_s}'. "
+            "Using 2 seconds."
+        )
+        post_retry_initial_s = 2.0
+
+    raw_post_retry_max_s = config.get("ISTENTORE_MEASUREMENT_POST_RETRY_MAX_S", 60)
+    try:
+        post_retry_max_s = float(raw_post_retry_max_s)
+        if post_retry_max_s <= 0:
+            raise ValueError("must be > 0")
+    except (TypeError, ValueError):
+        logging.warning(
+            f"Measurement: Invalid ISTENTORE_MEASUREMENT_POST_RETRY_MAX_S='{raw_post_retry_max_s}'. "
+            "Using 60 seconds."
+        )
+        post_retry_max_s = 60.0
+    if post_retry_max_s < post_retry_initial_s:
+        post_retry_max_s = post_retry_initial_s
+
+    def normalize_series_id(value, default_value, config_key):
+        if value is None:
+            return None
+        try:
+            series_id = int(value)
+            if series_id <= 0:
+                raise ValueError("must be > 0")
+            return series_id
+        except (TypeError, ValueError):
+            logging.warning(
+                f"Measurement: Invalid {config_key}='{value}'. Using default {default_value}."
+            )
+            return default_value
+
+    posting_series_ids = {
+        "local": {
+            "soc": normalize_series_id(
+                config.get("ISTENTORE_MEASUREMENT_SERIES_LOCAL_SOC_ID", 4),
+                4,
+                "ISTENTORE_MEASUREMENT_SERIES_LOCAL_SOC_ID",
+            ),
+            "p": normalize_series_id(
+                config.get("ISTENTORE_MEASUREMENT_SERIES_LOCAL_P_ID", 6),
+                6,
+                "ISTENTORE_MEASUREMENT_SERIES_LOCAL_P_ID",
+            ),
+            "q": normalize_series_id(
+                config.get("ISTENTORE_MEASUREMENT_SERIES_LOCAL_Q_ID", 7),
+                7,
+                "ISTENTORE_MEASUREMENT_SERIES_LOCAL_Q_ID",
+            ),
+            "v": normalize_series_id(
+                config.get("ISTENTORE_MEASUREMENT_SERIES_LOCAL_V_ID", 8),
+                8,
+                "ISTENTORE_MEASUREMENT_SERIES_LOCAL_V_ID",
+            ),
+        },
+        "remote": {
+            "soc": normalize_series_id(
+                config.get("ISTENTORE_MEASUREMENT_SERIES_REMOTE_SOC_ID", 4),
+                4,
+                "ISTENTORE_MEASUREMENT_SERIES_REMOTE_SOC_ID",
+            ),
+            "p": normalize_series_id(
+                config.get("ISTENTORE_MEASUREMENT_SERIES_REMOTE_P_ID", 6),
+                6,
+                "ISTENTORE_MEASUREMENT_SERIES_REMOTE_P_ID",
+            ),
+            "q": normalize_series_id(
+                config.get("ISTENTORE_MEASUREMENT_SERIES_REMOTE_Q_ID", 7),
+                7,
+                "ISTENTORE_MEASUREMENT_SERIES_REMOTE_Q_ID",
+            ),
+            "v": normalize_series_id(
+                config.get("ISTENTORE_MEASUREMENT_SERIES_REMOTE_V_ID", 8),
+                8,
+                "ISTENTORE_MEASUREMENT_SERIES_REMOTE_V_ID",
+            ),
+        },
+    }
+
+    for plant_name, series_cfg in posting_series_ids.items():
+        disabled = [key for key, series_id in series_cfg.items() if series_id is None]
+        if disabled:
+            logging.info(
+                f"Measurement: API posting disabled for {plant_name} series: {', '.join(disabled)}."
+            )
+
     current_plant = None
     plant_client = None
     cache_context = None
@@ -110,7 +241,14 @@ def measurement_agent(config, shared_data):
     startup_to_anchor_s = (measurement_anchor_wall - startup_wall_ts).total_seconds()
     measurement_anchor_mono = startup_monotonic + max(0.0, startup_to_anchor_s)
     last_executed_trigger_step = -1
+    post_anchor_mono = measurement_anchor_mono
+    last_executed_post_step = -1
     last_write_time = time.time()
+    latest_measurement_for_api = None
+    posting_mode_active = False
+    posting_password_cached = None
+    api_poster = None
+    api_post_queue = deque()
 
     recording_active = False
     recording_plant = None
@@ -530,6 +668,120 @@ def measurement_agent(config, shared_data):
             last_real_row_by_file[stopped_file_path] = None
             run_active_by_file[stopped_file_path] = False
 
+    def ensure_api_poster(password):
+        nonlocal api_poster
+        nonlocal posting_password_cached
+
+        if not password:
+            api_poster = None
+            posting_password_cached = None
+            return None
+
+        if api_poster is None:
+            api_poster = IstentoreAPI(
+                base_url=config.get("ISTENTORE_BASE_URL"),
+                email=config.get("ISTENTORE_EMAIL"),
+                timezone_name=config.get("TIMEZONE_NAME"),
+            )
+            api_poster.set_password(password)
+            posting_password_cached = password
+            return api_poster
+
+        if posting_password_cached != password:
+            api_poster.set_password(password)
+            posting_password_cached = password
+
+        return api_poster
+
+    def to_utc_iso_timestamp(value):
+        ts = normalize_timestamp_value(value, tz)
+        if pd.isna(ts):
+            return None
+        return ts.tz_convert("UTC").strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
+    def enqueue_post_item(series_id, value, timestamp_iso_utc):
+        if series_id is None:
+            return
+        if len(api_post_queue) >= post_queue_maxlen:
+            api_post_queue.popleft()
+            logging.warning(
+                "Measurement: API post queue full; dropping oldest queued measurement payload."
+            )
+        api_post_queue.append(
+            {
+                "series_id": int(series_id),
+                "value": float(value),
+                "timestamp": timestamp_iso_utc,
+                "attempt": 0,
+                "next_try_mono": time.monotonic(),
+            }
+        )
+
+    def enqueue_latest_measurement_posts(snapshot):
+        if not snapshot:
+            return
+
+        row = snapshot.get("row")
+        plant_type = snapshot.get("plant_type", "local")
+        if row is None:
+            return
+
+        timestamp_iso_utc = to_utc_iso_timestamp(row.get("timestamp"))
+        if timestamp_iso_utc is None:
+            logging.warning("Measurement: Skipping API post because measurement timestamp is invalid.")
+            return
+
+        try:
+            soc_kwh = float(row["soc_pu"]) * float(config.get("PLANT_CAPACITY_KWH", 0.0))
+            p_w = float(row["p_poi_kw"]) * 1000.0
+            q_var = float(row["q_poi_kvar"]) * 1000.0
+            v_v = float(row["v_poi_pu"]) * float(config.get("PLANT_POI_VOLTAGE_V", 20000.0))
+        except (KeyError, TypeError, ValueError) as e:
+            logging.warning(f"Measurement: Skipping API post due to invalid measurement values: {e}")
+            return
+
+        series_cfg = posting_series_ids.get(plant_type, posting_series_ids["local"])
+        enqueue_post_item(series_cfg["soc"], soc_kwh, timestamp_iso_utc)
+        enqueue_post_item(series_cfg["p"], p_w, timestamp_iso_utc)
+        enqueue_post_item(series_cfg["q"], q_var, timestamp_iso_utc)
+        enqueue_post_item(series_cfg["v"], v_v, timestamp_iso_utc)
+
+    def drain_api_post_queue(password, max_posts_per_loop=8):
+        if not api_post_queue:
+            return
+
+        poster = ensure_api_poster(password)
+        if poster is None:
+            return
+
+        sent = 0
+        now_mono = time.monotonic()
+        while api_post_queue and sent < max_posts_per_loop:
+            item = api_post_queue[0]
+            if item["next_try_mono"] > now_mono:
+                break
+            api_post_queue.popleft()
+            try:
+                poster.post_measurement(
+                    item["series_id"],
+                    item["value"],
+                    timestamp=item["timestamp"],
+                )
+                sent += 1
+            except (AuthenticationError, IstentoreAPIError, Exception) as e:
+                item["attempt"] += 1
+                delay_s = min(post_retry_initial_s * (2 ** (item["attempt"] - 1)), post_retry_max_s)
+                item["next_try_mono"] = time.monotonic() + delay_s
+                api_post_queue.append(item)
+                logging.warning(
+                    "Measurement: Failed to post measurement series=%s (attempt=%s), retrying in %.1fs: %s",
+                    item["series_id"],
+                    item["attempt"],
+                    delay_s,
+                    e,
+                )
+                break
+
     def take_measurement(plant_config, measurement_timestamp):
         """Take a single measurement from the plant. Returns row dict or None."""
         if plant_client is None:
@@ -616,6 +868,8 @@ def measurement_agent(config, shared_data):
             selected_plant = shared_data.get("selected_plant", "local")
             requested_filename = shared_data.get("measurements_filename")
             current_cache_path = shared_data.get("current_file_path")
+            active_schedule_source = shared_data.get("active_schedule_source", "manual")
+            api_password = shared_data.get("api_password")
 
         expected_cache_path = build_daily_file_path(selected_plant, now_dt)
         new_cache_context = (selected_plant, now_dt.strftime("%Y%m%d"))
@@ -653,6 +907,11 @@ def measurement_agent(config, shared_data):
             last_executed_trigger_step = current_step
             scheduled_step_ts = measurement_anchor_wall + pd.Timedelta(seconds=current_step * measurement_period_s)
             measurement_row = take_measurement(plant_config, scheduled_step_ts)
+            if measurement_row is not None:
+                latest_measurement_for_api = {
+                    "row": measurement_row.copy(),
+                    "plant_type": current_plant or selected_plant,
+                }
             if measurement_row is not None and recording_active:
                 measurement_ts = normalize_timestamp_value(measurement_row["timestamp"], tz)
                 if awaiting_first_real_sample:
@@ -671,6 +930,26 @@ def measurement_agent(config, shared_data):
                 last_real_timestamp = measurement_ts
                 session_tail_ts = measurement_ts
                 session_tail_is_null = False
+
+        posting_mode_now = (
+            post_measurements_enabled
+            and active_schedule_source == "api"
+            and bool(api_password)
+        )
+        if not posting_mode_now and posting_mode_active:
+            if api_post_queue:
+                api_post_queue.clear()
+                logging.info("Measurement: API posting disabled, clearing pending API post queue.")
+            ensure_api_poster(None)
+        posting_mode_active = posting_mode_now
+
+        current_post_step = math.floor((time.monotonic() - post_anchor_mono) / measurement_post_period_s)
+        if posting_mode_active and current_post_step >= 0 and current_post_step > last_executed_post_step:
+            last_executed_post_step = current_post_step
+            enqueue_latest_measurement_posts(latest_measurement_for_api)
+
+        if posting_mode_active:
+            drain_api_post_queue(api_password)
 
         if current_time - last_write_time >= write_period_s:
             flush_pending_rows(force=False)

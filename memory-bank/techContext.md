@@ -292,6 +292,8 @@ modbus_remote:
 - All error conditions use hardcoded 30s backoff (not configurable)
 - `poll_start_time`: Time of day (HH:MM) to start fetching tomorrow's schedule
 - `schedule_period_minutes`: API setpoint validity window used by scheduler/dashboard stale cutoff (default 15 min)
+- `measurement_post_period_s`: API measurement posting interval used by measurement agent (default 60s)
+- `measurement_series_by_plant.*.*`: per-variable series mapping; `null` disables posting for that variable
 - Other agents use their respective `_PERIOD_S` config values consistently
 
 ### Agent Timing Strategy
@@ -304,7 +306,7 @@ modbus_remote:
 **Other Agents (Consistent Pattern):**
 - Scheduler: Uses `SCHEDULER_PERIOD_S` config
 - Plant: Uses `PLANT_PERIOD_S` config  
-- Measurement: Uses `MEASUREMENT_PERIOD_S` as anchored step size (monotonic step scheduler) and `MEASUREMENTS_WRITE_PERIOD_S` for periodic disk flushes
+- Measurement: Uses `MEASUREMENT_PERIOD_S` as anchored step size (monotonic step scheduler), `MEASUREMENTS_WRITE_PERIOD_S` for periodic disk flushes, and `ISTENTORE_MEASUREMENT_POST_PERIOD_S` for API posting cadence
 
 **Measurement Timing Pattern (2026-02-18):**
 - Startup anchor: measurement schedule starts at startup time rounded up to next second.

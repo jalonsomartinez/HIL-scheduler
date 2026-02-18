@@ -2,6 +2,32 @@
 
 ## What Works
 
+### API Measurement Posting Cadence + Retry Queue (2026-02-18)
+- [x] **Independent API post timer**: measurement agent now posts SoC/P/Q/V on `ISTENTORE_MEASUREMENT_POST_PERIOD_S` (default 60s), decoupled from CSV write period.
+- [x] **API-mode gating**: posting runs only when source is API, password is set, and `ISTENTORE_POST_MEASUREMENTS_IN_API_MODE` is true.
+- [x] **Latest-sample policy**: each post tick uses the latest successful measurement sample.
+- [x] **Payload conversions**:
+  - SoC pu → kWh (`soc_pu * PLANT_CAPACITY_KWH`)
+  - P kW → W
+  - Q kvar → VAr
+  - V pu → V (`v_poi_pu * PLANT_POI_VOLTAGE_V`)
+- [x] **UTC ISO timestamps**: measurement payload timestamps are normalized to `YYYY-MM-DDTHH:MM:SS+00:00`.
+- [x] **Bounded retry queue**:
+  - configurable queue max length,
+  - exponential backoff retry,
+  - oldest payload dropped with warning on overflow.
+- [x] **Per-series null disable**:
+  - setting `measurement_series_by_plant.<plant>.<var>: null` now disables posting that variable.
+- [x] **Posting API wrapper support**:
+  - `istentore_api.py` now has generic `post_measurement(...)` plus typed `post_lib_*` / `post_vrfb_*` helpers.
+  - 401 response triggers one re-authentication retry.
+
+**Files Modified:**
+- [`config.yaml`](config.yaml): Added posting interval/retry/series mapping settings under `istentore_api`.
+- [`config_loader.py`](config_loader.py): Added flattening + validation for posting cadence, retries, queue size, and series IDs.
+- [`istentore_api.py`](istentore_api.py): Added measurement posting methods and UTC timestamp normalization.
+- [`measurement_agent.py`](measurement_agent.py): Added independent post scheduler, latest sample snapshot, and retry queue drain loop.
+
 ### API Midnight Rollover + Stale Setpoint Guard (2026-02-18)
 - [x] **Date-aware fetcher status**: Added `today_date` and `tomorrow_date` tracking in `data_fetcher_status`.
 - [x] **Deterministic rollover reconciliation**: On day change, previous fetched tomorrow is promoted to today when dates align; new tomorrow resets to pending.

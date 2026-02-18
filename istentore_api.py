@@ -272,6 +272,104 @@ class IstentoreAPI:
         logging.info(f"Istentore API: Fetched MFRR activation for {delivery_dt_utc.isoformat()}")
         
         return schedule
+
+    def _format_timestamp_iso_utc(self, timestamp=None) -> str:
+        """
+        Normalize timestamp-like input to strict ISO 8601 UTC format.
+
+        Args:
+            timestamp: datetime or ISO timestamp string. If None, use now (UTC).
+
+        Returns:
+            Timestamp string formatted as YYYY-MM-DDTHH:MM:SS+00:00
+        """
+        if timestamp is None:
+            dt_value = datetime.now(timezone.utc)
+        elif isinstance(timestamp, datetime):
+            dt_value = timestamp
+        else:
+            text = str(timestamp).strip()
+            if text.endswith("Z"):
+                text = text[:-1] + "+00:00"
+            dt_value = datetime.fromisoformat(text)
+
+        if dt_value.tzinfo is None:
+            dt_value = dt_value.replace(tzinfo=self.timezone)
+
+        return dt_value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
+    def post_measurement(self, measurement_series_id: int, value: float, timestamp=None) -> dict:
+        """
+        Post one measurement point to /measurements.
+
+        Retries once after re-authentication if the first request returns 401.
+        """
+        if not self.is_authenticated():
+            self.login()
+
+        url = f"{self.base_url}/measurements"
+        timestamp_iso_utc = self._format_timestamp_iso_utc(timestamp)
+        payload = {
+            "measurement_series": int(measurement_series_id),
+            "measurements": [
+                {
+                    "timestamp": timestamp_iso_utc,
+                    "measurement": float(value),
+                }
+            ],
+        }
+
+        for attempt in range(2):
+            headers = {
+                "Authorization": f"Bearer {self._token}",
+                "Content-Type": "application/json",
+            }
+            try:
+                response = requests.post(url, headers=headers, json=payload)
+                response.raise_for_status()
+                return response.json()
+            except requests.exceptions.HTTPError as e:
+                status_code = e.response.status_code if e.response is not None else None
+                if status_code == 401 and attempt == 0:
+                    logging.warning("Istentore API: Token expired while posting measurements, re-authenticating...")
+                    self._token = None
+                    self.login()
+                    continue
+                logging.error(f"Istentore API: HTTP error posting measurements - {e}")
+                raise IstentoreAPIError(f"HTTP error posting measurements: {e}")
+            except AuthenticationError:
+                raise
+            except Exception as e:
+                logging.error(f"Istentore API: Unexpected error posting measurements - {e}")
+                raise IstentoreAPIError(f"Unexpected error posting measurements: {e}")
+
+        raise IstentoreAPIError("Failed to post measurement after authentication retry.")
+
+    # LIB measurement series
+    def post_lib_SOC_kWh(self, value: float, timestamp=None) -> dict:
+        return self.post_measurement(4, value, timestamp=timestamp)
+
+    def post_lib_P_W(self, value: float, timestamp=None) -> dict:
+        return self.post_measurement(6, value, timestamp=timestamp)
+
+    def post_lib_Q_VAr(self, value: float, timestamp=None) -> dict:
+        return self.post_measurement(7, value, timestamp=timestamp)
+
+    def post_lib_V_V(self, value: float, timestamp=None) -> dict:
+        return self.post_measurement(8, value, timestamp=timestamp)
+
+    # VRFB measurement series
+    def post_vrfb_SOC_kWh(self, value: float, timestamp=None) -> dict:
+        return self.post_measurement(5, value, timestamp=timestamp)
+
+    def post_vrfb_P_W(self, value: float, timestamp=None) -> dict:
+        return self.post_measurement(11, value, timestamp=timestamp)
+
+    def post_vrfb_Q_VAr(self, value: float, timestamp=None) -> dict:
+        return self.post_measurement(10, value, timestamp=timestamp)
+
+    def post_vrfb_V_V(self, value: float, timestamp=None) -> dict:
+        return self.post_measurement(9, value, timestamp=timestamp)
     
     def schedule_to_dataframe(self, schedule: dict, default_q_kvar: float = 0.0):
         """

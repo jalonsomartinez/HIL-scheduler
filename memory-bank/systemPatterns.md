@@ -36,6 +36,33 @@
 - Persist measurement `timestamp` as the scheduled step time (`anchor_wall + step * period`), not read completion time.
 - Keep recording/session semantics unchanged (null boundaries, midnight routing, periodic disk flush).
 
+## API Measurement Posting Pattern (2026-02-18)
+
+- Measurement posting to Istentore API is owned by `measurement_agent.py` (same source of truth as measured SoC/P/Q/V values).
+- Posting cadence is independent from:
+  - measurement sampling cadence (`MEASUREMENT_PERIOD_S`),
+  - CSV flush cadence (`MEASUREMENTS_WRITE_PERIOD_S`).
+- Posting trigger uses a fixed monotonic step scheduler:
+  - `post_step = floor((time.monotonic() - post_anchor_mono) / measurement_post_period_s)`.
+- At each post step, agent enqueues payloads built from the latest successful measurement sample.
+- Posting is gated by runtime + config:
+  - `active_schedule_source == "api"`,
+  - API password exists,
+  - `ISTENTORE_POST_MEASUREMENTS_IN_API_MODE` enabled.
+- Payload conversion for API:
+  - `soc_kwh = soc_pu * PLANT_CAPACITY_KWH`
+  - `p_w = p_poi_kw * 1000`
+  - `q_var = q_poi_kvar * 1000`
+  - `v_v = v_poi_pu * PLANT_POI_VOLTAGE_V`
+- Per-variable disable:
+  - if a series ID resolves to `None` (from YAML `null`), that variable is skipped and not enqueued for posting.
+- Posted timestamps are strict UTC ISO (`YYYY-MM-DDTHH:MM:SS+00:00`).
+- Retry strategy:
+  - bounded in-memory queue (`ISTENTORE_MEASUREMENT_POST_QUEUE_MAXLEN`),
+  - exponential backoff between retries (`initial`/`max`),
+  - queue overflow drops oldest payload with warning.
+- Queue is cleared when posting mode is disabled (e.g., switch away from API source).
+
 ### Agent Base Pattern
 All agents follow a consistent pattern:
 

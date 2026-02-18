@@ -26,6 +26,22 @@ istentore_api:
   email: "i-STENTORE"
   poll_start_time: "17:30"  # When to start polling for tomorrow's schedule (HH:MM)
   schedule_period_minutes: 15  # API setpoint validity window before stale fallback to zero
+  post_measurements_in_api_mode: true
+  measurement_post_period_s: 60
+  measurement_post_queue_maxlen: 2000
+  measurement_post_retry_initial_s: 2
+  measurement_post_retry_max_s: 60
+  measurement_series_by_plant:
+    local:
+      soc: 4  # Set to null to disable posting this variable
+      p: null
+      q: null
+      v: null
+    remote:
+      soc: 4
+      p: null
+      q: null
+      v: null
 
 # Timing Configuration
 timing:

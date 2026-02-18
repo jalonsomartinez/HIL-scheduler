@@ -181,6 +181,117 @@ def load_config(config_path="config.yaml"):
         )
         schedule_period_minutes = 15
     config['ISTENTORE_SCHEDULE_PERIOD_MINUTES'] = schedule_period_minutes
+
+    raw_post_measurements = istentore_api.get('post_measurements_in_api_mode', True)
+    if isinstance(raw_post_measurements, bool):
+        post_measurements_in_api_mode = raw_post_measurements
+    elif isinstance(raw_post_measurements, str):
+        post_measurements_in_api_mode = raw_post_measurements.strip().lower() in ['1', 'true', 'yes', 'on']
+    else:
+        post_measurements_in_api_mode = bool(raw_post_measurements)
+    config['ISTENTORE_POST_MEASUREMENTS_IN_API_MODE'] = post_measurements_in_api_mode
+
+    raw_measurement_post_period_s = istentore_api.get('measurement_post_period_s', 60)
+    try:
+        measurement_post_period_s = float(raw_measurement_post_period_s)
+        if measurement_post_period_s <= 0:
+            raise ValueError("must be > 0")
+    except (TypeError, ValueError):
+        logging.warning(
+            f"Invalid istentore_api.measurement_post_period_s='{raw_measurement_post_period_s}'. "
+            "Using default 60."
+        )
+        measurement_post_period_s = 60.0
+    config['ISTENTORE_MEASUREMENT_POST_PERIOD_S'] = measurement_post_period_s
+
+    raw_queue_maxlen = istentore_api.get('measurement_post_queue_maxlen', 2000)
+    try:
+        measurement_post_queue_maxlen = int(raw_queue_maxlen)
+        if measurement_post_queue_maxlen <= 0:
+            raise ValueError("must be > 0")
+    except (TypeError, ValueError):
+        logging.warning(
+            f"Invalid istentore_api.measurement_post_queue_maxlen='{raw_queue_maxlen}'. "
+            "Using default 2000."
+        )
+        measurement_post_queue_maxlen = 2000
+    config['ISTENTORE_MEASUREMENT_POST_QUEUE_MAXLEN'] = measurement_post_queue_maxlen
+
+    raw_retry_initial_s = istentore_api.get('measurement_post_retry_initial_s', 2)
+    try:
+        measurement_post_retry_initial_s = float(raw_retry_initial_s)
+        if measurement_post_retry_initial_s <= 0:
+            raise ValueError("must be > 0")
+    except (TypeError, ValueError):
+        logging.warning(
+            f"Invalid istentore_api.measurement_post_retry_initial_s='{raw_retry_initial_s}'. "
+            "Using default 2."
+        )
+        measurement_post_retry_initial_s = 2.0
+    config['ISTENTORE_MEASUREMENT_POST_RETRY_INITIAL_S'] = measurement_post_retry_initial_s
+
+    raw_retry_max_s = istentore_api.get('measurement_post_retry_max_s', 60)
+    try:
+        measurement_post_retry_max_s = float(raw_retry_max_s)
+        if measurement_post_retry_max_s <= 0:
+            raise ValueError("must be > 0")
+    except (TypeError, ValueError):
+        logging.warning(
+            f"Invalid istentore_api.measurement_post_retry_max_s='{raw_retry_max_s}'. "
+            "Using default 60."
+        )
+        measurement_post_retry_max_s = 60.0
+    if measurement_post_retry_max_s < measurement_post_retry_initial_s:
+        logging.warning(
+            "Invalid retry bounds: istentore_api.measurement_post_retry_max_s is "
+            "lower than measurement_post_retry_initial_s. Clamping max to initial."
+        )
+        measurement_post_retry_max_s = measurement_post_retry_initial_s
+    config['ISTENTORE_MEASUREMENT_POST_RETRY_MAX_S'] = measurement_post_retry_max_s
+
+    measurement_series_by_plant = istentore_api.get('measurement_series_by_plant', {})
+    local_series = measurement_series_by_plant.get('local', {})
+    remote_series = measurement_series_by_plant.get('remote', {})
+
+    def _parse_measurement_series_id(raw_value, default_value, key_name):
+        if raw_value is None:
+            return None
+        try:
+            series_id = int(raw_value)
+            if series_id <= 0:
+                raise ValueError("must be > 0")
+            return series_id
+        except (TypeError, ValueError):
+            logging.warning(
+                f"Invalid istentore_api.measurement_series_by_plant.{key_name}='{raw_value}'. "
+                f"Using default {default_value}."
+            )
+            return default_value
+
+    config['ISTENTORE_MEASUREMENT_SERIES_LOCAL_SOC_ID'] = _parse_measurement_series_id(
+        local_series.get('soc', 4), 4, 'local.soc'
+    )
+    config['ISTENTORE_MEASUREMENT_SERIES_LOCAL_P_ID'] = _parse_measurement_series_id(
+        local_series.get('p', 6), 6, 'local.p'
+    )
+    config['ISTENTORE_MEASUREMENT_SERIES_LOCAL_Q_ID'] = _parse_measurement_series_id(
+        local_series.get('q', 7), 7, 'local.q'
+    )
+    config['ISTENTORE_MEASUREMENT_SERIES_LOCAL_V_ID'] = _parse_measurement_series_id(
+        local_series.get('v', 8), 8, 'local.v'
+    )
+    config['ISTENTORE_MEASUREMENT_SERIES_REMOTE_SOC_ID'] = _parse_measurement_series_id(
+        remote_series.get('soc', 4), 4, 'remote.soc'
+    )
+    config['ISTENTORE_MEASUREMENT_SERIES_REMOTE_P_ID'] = _parse_measurement_series_id(
+        remote_series.get('p', 6), 6, 'remote.p'
+    )
+    config['ISTENTORE_MEASUREMENT_SERIES_REMOTE_Q_ID'] = _parse_measurement_series_id(
+        remote_series.get('q', 7), 7, 'remote.q'
+    )
+    config['ISTENTORE_MEASUREMENT_SERIES_REMOTE_V_ID'] = _parse_measurement_series_id(
+        remote_series.get('v', 8), 8, 'remote.v'
+    )
     
     # Startup configuration
     startup = yaml_config.get('startup', {})

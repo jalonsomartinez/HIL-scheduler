@@ -1,7 +1,51 @@
 # Active Context: HIL Scheduler
 
 ## Current Focus
-Midnight-safe API schedule lifecycle: date-scoped today/tomorrow fetch status with rollover promotion, plus API stale setpoint cutoffs that force safe zero dispatch when schedule data ages past its validity window.
+API-mode measurement posting with independent fixed cadence (default 60s), UTC-ISO payload timestamps, per-plant series mapping, and bounded retry queue behavior decoupled from CSV recording.
+
+## Recent Changes (2026-02-18) - API Measurement Posting Cadence + Retry Queue
+
+### Overview
+Implemented SoC/P/Q/V measurement posting to Istentore API from `measurement_agent.py` on a dedicated posting timer that is independent from both measurement sampling and CSV flush timing.
+
+### Key Behavior Changes
+- New API posting cadence config:
+  - `istentore_api.measurement_post_period_s` (default `60` seconds).
+- New posting gate config:
+  - `istentore_api.post_measurements_in_api_mode` (default `true`).
+- Posting is enabled only when:
+  - schedule source is `api`,
+  - API password is set,
+  - posting config flag is true.
+- Posting source policy:
+  - latest successful measurement sample at each post tick.
+- Payload conversion policy:
+  - SoC: `soc_pu * PLANT_CAPACITY_KWH` → kWh
+  - P: `p_poi_kw * 1000` → W
+  - Q: `q_poi_kvar * 1000` → VAr
+  - V: `v_poi_pu * PLANT_POI_VOLTAGE_V` → V
+- Timestamps for posted payloads are normalized to strict UTC ISO format (`YYYY-MM-DDTHH:MM:SS+00:00`).
+- Added bounded retry queue in measurement agent:
+  - configurable max length,
+  - exponential backoff between retries,
+  - oldest payload dropped with warning when queue is full.
+- Per-series disable semantics added:
+  - setting `measurement_series_by_plant.<plant>.<var>: null` disables posting for that variable.
+- On transition out of posting mode, pending API post queue is cleared.
+- Added posting methods to `istentore_api.py`:
+  - generic `post_measurement(...)`,
+  - typed helpers (`post_lib_*`, `post_vrfb_*`),
+  - 401 re-authentication retry once.
+
+### Files Modified
+1. **[`config.yaml`](config.yaml)**:
+   - Added API measurement posting interval/retry/mapping settings.
+2. **[`config_loader.py`](config_loader.py)**:
+   - Added flattening/validation for `ISTENTORE_MEASUREMENT_POST_*`, posting gate, and per-plant series IDs.
+3. **[`istentore_api.py`](istentore_api.py)**:
+   - Added measurement posting API methods and UTC timestamp normalization.
+4. **[`measurement_agent.py`](measurement_agent.py)**:
+   - Added independent post scheduler, latest-sample snapshot, and bounded retry queue posting loop.
 
 ## Recent Changes (2026-02-18) - API Midnight Rollover + Stale Setpoint Guard
 
