@@ -34,14 +34,14 @@ istentore_api:
   measurement_series_by_plant:
     local:
       soc: 4  # Set to null to disable posting this variable
-      p: null
-      q: null
-      v: null
+      p: 6
+      q: 7
+      v: 8
     remote:
       soc: 4
-      p: null
-      q: null
-      v: null
+      p: 6
+      q: 7
+      v: 8
 
 # Timing Configuration
 timing:
