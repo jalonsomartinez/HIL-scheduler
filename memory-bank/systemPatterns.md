@@ -11,6 +11,19 @@
 - Measurement persistence: write CSV `timestamp` as ISO 8601 with timezone offset.
 - Legacy compatibility: naive historical timestamps are interpreted as configured timezone when loaded.
 
+## API Day Rollover + Stale Setpoint Pattern (2026-02-18)
+
+- Data fetcher status is day-scoped:
+  - `today_date` and `tomorrow_date` are stored alongside fetched flags/counters.
+- Midnight reconciliation rule:
+  - If calendar day changes and previous `tomorrow_date == new today_date` and `tomorrow_fetched=True`, promote previous tomorrow to today's fetched state.
+  - Reset new tomorrow fetch state to pending when tomorrow date changes.
+- Tomorrow API fetch polling remains gated by configured `istentore_api.poll_start_time`.
+- API stale cutoff uses `ISTENTORE_SCHEDULE_PERIOD_MINUTES` (default 15 min):
+  - Scheduler (API source only) and dashboard Start immediate-setpoint path both force `0/0` when `now - selected_row_timestamp` exceeds the window.
+- Dashboard API status surfaces concrete date labels:
+  - `Today (YYYY-MM-DD)` and `Tomorrow (YYYY-MM-DD)` to remove ambiguity across midnight.
+
 ## Measurement Trigger Scheduling Pattern (2026-02-18)
 
 - Use a fixed measurement wall-clock anchor at agent startup, rounded up to the next whole second.
@@ -83,6 +96,8 @@ shared_data = {
         "connected": False,
         "today_fetched": False,
         "tomorrow_fetched": False,
+        "today_date": None,
+        "tomorrow_date": None,
         "today_points": 0,
         "tomorrow_points": 0,
         "last_attempt": None,

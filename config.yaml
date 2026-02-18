@@ -25,6 +25,7 @@ istentore_api:
   base_url: "https://3mku48kfxf.execute-api.eu-south-2.amazonaws.com/default"
   email: "i-STENTORE"
   poll_start_time: "17:30"  # When to start polling for tomorrow's schedule (HH:MM)
+  schedule_period_minutes: 15  # API setpoint validity window before stale fallback to zero
 
 # Timing Configuration
 timing:

@@ -1,7 +1,42 @@
 # Active Context: HIL Scheduler
 
 ## Current Focus
-Drift-free measurement triggering with fixed-step scheduling, plus daily per-plant recording files with measurement-agent-owned persistence and in-memory current-day file caching for plotting.
+Midnight-safe API schedule lifecycle: date-scoped today/tomorrow fetch status with rollover promotion, plus API stale setpoint cutoffs that force safe zero dispatch when schedule data ages past its validity window.
+
+## Recent Changes (2026-02-18) - API Midnight Rollover + Stale Setpoint Guard
+
+### Overview
+Fixed API schedule rollover across midnight and added API setpoint staleness protection for both scheduler dispatch and dashboard immediate-start setpoint selection.
+
+### Key Behavior Changes
+- Data fetcher status is now date-aware:
+  - `today_date` and `tomorrow_date` (ISO `YYYY-MM-DD`) are tracked in `data_fetcher_status`.
+- On day rollover, fetch state is reconciled deterministically:
+  - yesterday's fetched `tomorrow` is promoted to new `today` when dates align,
+  - new `tomorrow` state resets to pending for the new calendar date.
+- Tomorrow polling remains gated by `istentore_api.poll_start_time`.
+- Added configurable API setpoint validity window:
+  - `istentore_api.schedule_period_minutes` (default `15`) flattened as `ISTENTORE_SCHEDULE_PERIOD_MINUTES`.
+- Scheduler now applies stale cutoff for API source only:
+  - if `now - row_ts` exceeds the configured window, dispatches `0.0` kW / `0.0` kvar.
+- Dashboard Start path applies the same API stale cutoff to avoid sending stale setpoints immediately.
+- API status UI now prints concrete dates:
+  - `Today (YYYY-MM-DD)` and `Tomorrow (YYYY-MM-DD)` in API tab and status row.
+
+### Files Modified
+1. **[`config.yaml`](config.yaml)**:
+   - Added `istentore_api.schedule_period_minutes`.
+2. **[`config_loader.py`](config_loader.py)**:
+   - Added validation/flattening for `ISTENTORE_SCHEDULE_PERIOD_MINUTES`.
+3. **[`hil_scheduler.py`](hil_scheduler.py)**:
+   - Added `today_date` / `tomorrow_date` to initial `data_fetcher_status`.
+4. **[`data_fetcher_agent.py`](data_fetcher_agent.py)**:
+   - Added day reconciliation helper and date-bound status updates/promotions.
+5. **[`scheduler_agent.py`](scheduler_agent.py)**:
+   - Added API-only stale setpoint cutoff logic with transition logging.
+6. **[`dashboard_agent.py`](dashboard_agent.py)**:
+   - Added API stale cutoff in `get_latest_schedule_setpoint()`.
+   - Updated API status and control-row date-explicit text.
 
 ## Recent Changes (2026-02-18) - Drift-Free Measurement Triggering
 

@@ -40,6 +40,18 @@ def dashboard_agent(config, shared_data):
     app = Dash(__name__, suppress_callback_exceptions=True)
     tz = get_config_tz(config)
     current_dt = now_tz(config)
+    raw_schedule_period_minutes = config.get("ISTENTORE_SCHEDULE_PERIOD_MINUTES", 15)
+    try:
+        schedule_period_minutes = float(raw_schedule_period_minutes)
+        if schedule_period_minutes <= 0:
+            raise ValueError("must be > 0")
+    except (TypeError, ValueError):
+        logging.warning(
+            f"Dashboard: Invalid ISTENTORE_SCHEDULE_PERIOD_MINUTES='{raw_schedule_period_minutes}'. "
+            "Using 15 minutes."
+        )
+        schedule_period_minutes = 15.0
+    api_validity_window = pd.Timedelta(minutes=schedule_period_minutes)
     
     # Track last Modbus status (only mutable state needed)
     last_modbus_status = None
@@ -647,9 +659,21 @@ def dashboard_agent(config, shared_data):
 
         try:
             schedule_df = normalize_schedule_index(schedule_df, tz)
-            current_row = schedule_df.asof(now_tz(config))
+            now_value = now_tz(config)
+            current_row = schedule_df.asof(now_value)
             if current_row is None or current_row.empty:
                 return 0.0, 0.0
+
+            if active_source == 'api':
+                row_ts = schedule_df.index.asof(now_value)
+                is_stale = pd.isna(row_ts) or (
+                    pd.Timestamp(now_value) - pd.Timestamp(row_ts) > api_validity_window
+                )
+                if is_stale:
+                    logging.warning(
+                        "Dashboard: API setpoint is stale at start time. Sending zero setpoints."
+                    )
+                    return 0.0, 0.0
 
             p_kw = current_row.get('power_setpoint_kw', 0.0)
             q_kvar = current_row.get('reactive_power_setpoint_kvar', 0.0)
@@ -988,11 +1012,25 @@ def dashboard_agent(config, shared_data):
         tomorrow_fetched = status.get('tomorrow_fetched', False)
         today_points = status.get('today_points', 0)
         tomorrow_points = status.get('tomorrow_points', 0)
+        today_date = status.get('today_date')
+        tomorrow_date = status.get('tomorrow_date')
         last_attempt = status.get('last_attempt')
         error = status.get('error')
+
+        now_value = now_tz(config)
+        if not today_date:
+            today_date = now_value.date().isoformat()
+        if not tomorrow_date:
+            tomorrow_date = (now_value + timedelta(days=1)).date().isoformat()
         
-        today_text = f"Today: {'✓ Fetched' if today_fetched else '⏳ Pending'} ({today_points} points)"
-        tomorrow_text = f"Tomorrow: {'✓ Fetched' if tomorrow_fetched else '⏳ Pending'} ({tomorrow_points} points)"
+        today_text = (
+            f"Today ({today_date}): {'✓ Fetched' if today_fetched else '⏳ Pending'} "
+            f"({today_points} points)"
+        )
+        tomorrow_text = (
+            f"Tomorrow ({tomorrow_date}): {'✓ Fetched' if tomorrow_fetched else '⏳ Pending'} "
+            f"({tomorrow_points} points)"
+        )
         
         if error:
             today_text += f" - Error: {error}"
@@ -1454,12 +1492,20 @@ def dashboard_agent(config, shared_data):
         
         if df_status.get('connected'):
             df_text = f"API: Connected"
-            if df_status.get('today_fetched'):
-                df_text += f" | Today: {df_status.get('today_points', 0)} pts"
-            if df_status.get('tomorrow_fetched'):
-                df_text += f" | Tomorrow: {df_status.get('tomorrow_points', 0)} pts"
         else:
             df_text = "API: Not connected"
+
+        now_value = now_tz(config)
+        today_date = df_status.get('today_date') or now_value.date().isoformat()
+        tomorrow_date = df_status.get('tomorrow_date') or (now_value + timedelta(days=1)).date().isoformat()
+        today_state = "fetched" if df_status.get('today_fetched') else "pending"
+        tomorrow_state = "fetched" if df_status.get('tomorrow_fetched') else "pending"
+        df_text += (
+            f" | Today ({today_date}): {today_state} ({df_status.get('today_points', 0)} pts)"
+            f" | Tomorrow ({tomorrow_date}): {tomorrow_state} ({df_status.get('tomorrow_points', 0)} pts)"
+        )
+        if df_status.get('error'):
+            df_text += f" | Error: {df_status.get('error')}"
         
         schedule_df = normalize_schedule_index(schedule_df, tz)
         last_update = f"Last update: {now_tz(config).strftime('%H:%M:%S')}"

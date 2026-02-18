@@ -33,7 +33,6 @@ def data_fetcher_agent(config, shared_data):
     poll_start_time = config.get('ISTENTORE_POLL_START_TIME', '17:30')
     poll_interval_s = config.get('DATA_FETCHER_PERIOD_S', 120)
     error_backoff_s = 30  # Single backoff for all errors
-    first_fetch_done = False  # Track if first fetch was successful
 
     logging.info(f"Data fetcher: poll_interval={poll_interval_s}s, error_backoff={error_backoff_s}s, poll_start_time={poll_start_time}")
     
@@ -65,41 +64,51 @@ def data_fetcher_agent(config, shared_data):
             if api._password != password:
                 api.set_password(password)
                 logging.info("Data fetcher: Password updated.")
-            
-            # Fetch today's schedule if not already fetched
+
+            now = now_tz(config)
+            today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            today_end = today_start + timedelta(days=1) - timedelta(minutes=15)
+            tomorrow_start = today_start + timedelta(days=1)
+            tomorrow_end = tomorrow_start + timedelta(days=1) - timedelta(minutes=15)
+            today_date = today_start.date().isoformat()
+            tomorrow_date = tomorrow_start.date().isoformat()
+
+            _reconcile_day_status(shared_data, today_date, tomorrow_date)
+
             with shared_data['lock']:
-                status = shared_data.get('data_fetcher_status', {})
+                status = shared_data.get('data_fetcher_status', {}).copy()
                 today_fetched = status.get('today_fetched', False)
-            
+                tomorrow_fetched = status.get('tomorrow_fetched', False)
+
             if not today_fetched:
-                logging.info("Data fetcher: Fetching today's schedule...")
+                logging.info(f"Data fetcher: Fetching today's schedule ({today_date})...")
                 try:
-                    now = now_tz(config)
-                    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-                    today_end = today_start + timedelta(days=1) - timedelta(minutes=15)
-                    
                     schedule = api.get_day_ahead_schedule(today_start, today_end)
-                    
+
                     if schedule:
                         df = api.schedule_to_dataframe(schedule)
                         with shared_data['lock']:
                             shared_data['api_schedule_df'] = df
-                        _update_status(shared_data,
+                        _update_status(
+                            shared_data,
                             connected=True,
                             today_fetched=True,
+                            today_date=today_date,
                             today_points=len(df),
-                            error=None
+                            error=None,
                         )
-                        first_fetch_done = True  # Mark first fetch as done
-                        logging.info(f"Data fetcher: Today's schedule fetched ({len(df)} points).")
+                        logging.info(f"Data fetcher: Today's schedule fetched ({today_date}, {len(df)} points).")
                     else:
-                        _update_status(shared_data, 
-                            connected=True, 
+                        _update_status(
+                            shared_data,
+                            connected=True,
                             today_fetched=False,
-                            error="No data available for today"
+                            today_date=today_date,
+                            today_points=0,
+                            error="No data available for today",
                         )
-                        logging.warning("Data fetcher: No schedule available for today.")
-                
+                        logging.warning(f"Data fetcher: No schedule available for today ({today_date}).")
+
                 except AuthenticationError as e:
                     _update_status(shared_data, connected=False, error=f"Authentication failed: {e}")
                     logging.error(f"Data fetcher: Authentication failed: {e}")
@@ -109,57 +118,51 @@ def data_fetcher_agent(config, shared_data):
                 except Exception as e:
                     _update_status(shared_data, error=str(e))
                     logging.error(f"Data fetcher: Error fetching today's schedule: {e}")
-            
-            # Check if it's time to poll for tomorrow's schedule
-            now = now_tz(config)
+
             current_time = now.strftime("%H:%M")
-            
-            with shared_data['lock']:
-                status = shared_data.get('data_fetcher_status', {})
-                tomorrow_fetched = status.get('tomorrow_fetched', False)
-            
             if not tomorrow_fetched and current_time >= poll_start_time:
-                logging.info("Data fetcher: Polling for tomorrow's schedule...")
+                logging.info(f"Data fetcher: Polling tomorrow's schedule ({tomorrow_date})...")
                 try:
-                    tomorrow_start = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-                    tomorrow_end = tomorrow_start + timedelta(days=1) - timedelta(minutes=15)
-                    
                     schedule = api.get_day_ahead_schedule(tomorrow_start, tomorrow_end)
-                    
+
                     if schedule:
                         df = api.schedule_to_dataframe(schedule)
-                        
-                        # Get existing schedule reference (brief lock)
+
                         with shared_data['lock']:
                             existing_df = shared_data['api_schedule_df']
-                        
-                        # DataFrame operations outside lock
+
                         if not existing_df.empty:
-                            # Remove overlapping periods
                             non_overlapping = existing_df.index.difference(df.index)
                             existing_df = existing_df.loc[non_overlapping]
                             combined_df = pd.concat([existing_df, df]).sort_index()
                         else:
                             combined_df = df
-                        
-                        # Brief lock only for assignment
+
                         with shared_data['lock']:
                             shared_data['api_schedule_df'] = combined_df
-                        
-                        _update_status(shared_data, 
+
+                        _update_status(
+                            shared_data,
                             connected=True,
                             tomorrow_fetched=True,
+                            tomorrow_date=tomorrow_date,
                             tomorrow_points=len(df),
-                            error=None
+                            error=None,
                         )
-                        logging.info(f"Data fetcher: Tomorrow's schedule fetched ({len(df)} points).")
+                        logging.info(f"Data fetcher: Tomorrow's schedule fetched ({tomorrow_date}, {len(df)} points).")
                     else:
-                        logging.info("Data fetcher: Tomorrow's schedule not yet available.")
-                
+                        logging.info(f"Data fetcher: Tomorrow's schedule not yet available ({tomorrow_date}).")
+
+                except AuthenticationError as e:
+                    _update_status(shared_data, connected=False, error=f"Authentication failed: {e}")
+                    logging.error(f"Data fetcher: Authentication failed: {e}")
+                    api = None
+                    time.sleep(error_backoff_s)
+                    continue
                 except Exception as e:
+                    _update_status(shared_data, error=str(e))
                     logging.error(f"Data fetcher: Error fetching tomorrow's schedule: {e}")
-            
-            # Update last attempt timestamp
+
             _update_status(shared_data, last_attempt=now.isoformat())
 
             # Sleep until next check
@@ -178,6 +181,51 @@ def _update_status(shared_data, **kwargs):
         if 'data_fetcher_status' not in shared_data:
             shared_data['data_fetcher_status'] = {}
         shared_data['data_fetcher_status'].update(kwargs)
+
+
+def _reconcile_day_status(shared_data, today_date, tomorrow_date):
+    """
+    Keep day-scoped fetch flags aligned with current local dates.
+
+    On day rollover:
+    - Promote yesterday's fetched "tomorrow" to new "today" when dates align.
+    - Reset stale tomorrow flags/points for the newly calculated tomorrow date.
+    """
+    with shared_data['lock']:
+        status = shared_data.get('data_fetcher_status', {}).copy()
+
+    previous_today_date = status.get('today_date')
+    previous_tomorrow_date = status.get('tomorrow_date')
+    previous_tomorrow_fetched = status.get('tomorrow_fetched', False)
+    previous_tomorrow_points = status.get('tomorrow_points', 0)
+
+    updates = {}
+    if previous_today_date != today_date:
+        can_promote_tomorrow = previous_tomorrow_fetched and previous_tomorrow_date == today_date
+        if can_promote_tomorrow:
+            updates['today_fetched'] = True
+            updates['today_points'] = previous_tomorrow_points
+            logging.info(
+                f"Data fetcher: Day rollover detected. Promoted fetched tomorrow ({today_date}) to today."
+            )
+        else:
+            updates['today_fetched'] = False
+            updates['today_points'] = 0
+            logging.info(
+                f"Data fetcher: Day rollover detected. Reset today's fetch state for {today_date}."
+            )
+
+    if previous_tomorrow_date != tomorrow_date:
+        updates['tomorrow_fetched'] = False
+        updates['tomorrow_points'] = 0
+
+    if previous_today_date != today_date:
+        updates['today_date'] = today_date
+    if previous_tomorrow_date != tomorrow_date:
+        updates['tomorrow_date'] = tomorrow_date
+
+    if updates:
+        _update_status(shared_data, **updates)
 
 
 if __name__ == "__main__":

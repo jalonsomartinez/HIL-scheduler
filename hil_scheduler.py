@@ -76,6 +76,8 @@ def main():
             "connected": False,
             "today_fetched": False,
             "tomorrow_fetched": False,
+            "today_date": None,
+            "tomorrow_date": None,
             "today_points": 0,
             "tomorrow_points": 0,
             "last_attempt": None,

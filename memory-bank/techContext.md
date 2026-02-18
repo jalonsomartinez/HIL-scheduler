@@ -93,6 +93,8 @@ shared_data = {
         "connected": False,
         "today_fetched": False,
         "tomorrow_fetched": False,
+        "today_date": None,
+        "tomorrow_date": None,
         "today_points": 0,
         "tomorrow_points": 0,
         "last_attempt": None,
@@ -241,6 +243,7 @@ timing:
 # Istentore API
 istentore_api:
   poll_start_time: "17:30"
+  schedule_period_minutes: 15
 
 # Plant Model
 plant:
@@ -288,6 +291,7 @@ modbus_remote:
 - `data_fetcher_period_s`: How often to poll Istentore API for schedule updates (default 120s = 2 minutes)
 - All error conditions use hardcoded 30s backoff (not configurable)
 - `poll_start_time`: Time of day (HH:MM) to start fetching tomorrow's schedule
+- `schedule_period_minutes`: API setpoint validity window used by scheduler/dashboard stale cutoff (default 15 min)
 - Other agents use their respective `_PERIOD_S` config values consistently
 
 ### Agent Timing Strategy

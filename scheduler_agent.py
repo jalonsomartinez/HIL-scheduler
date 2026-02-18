@@ -19,6 +19,18 @@ def scheduler_agent(config, shared_data):
     """
     logging.info("Scheduler agent started.")
     tz = get_config_tz(config)
+    raw_schedule_period_minutes = config.get("ISTENTORE_SCHEDULE_PERIOD_MINUTES", 15)
+    try:
+        schedule_period_minutes = float(raw_schedule_period_minutes)
+        if schedule_period_minutes <= 0:
+            raise ValueError("must be > 0")
+    except (TypeError, ValueError):
+        logging.warning(
+            f"Scheduler: Invalid ISTENTORE_SCHEDULE_PERIOD_MINUTES='{raw_schedule_period_minutes}'. "
+            "Using 15 minutes."
+        )
+        schedule_period_minutes = 15.0
+    api_validity_window = pd.Timedelta(minutes=schedule_period_minutes)
     
     # Track current plant selection and config
     current_plant = None
@@ -61,6 +73,7 @@ def scheduler_agent(config, shared_data):
     previous_p_setpoint = None
     previous_q_setpoint = None
     last_active_source = None
+    last_api_stale_state = None
     
     while not shared_data['shutdown_event'].is_set():
         start_loop_time = time.time()
@@ -113,23 +126,60 @@ def scheduler_agent(config, shared_data):
             if not scheduler_running:
                 previous_p_setpoint = None
                 previous_q_setpoint = None
+                last_api_stale_state = None
             else:
+                now = now_tz(config)
                 # Handle None or empty schedule - send 0 setpoint
                 if schedule_df is None or schedule_df.empty:
                     current_p_setpoint = 0.0
                     current_q_setpoint = 0.0
+                    if active_source == 'api':
+                        if last_api_stale_state is not True:
+                            logging.warning(
+                                "Scheduler: API schedule is empty/unavailable. Sending zero setpoints."
+                            )
+                        last_api_stale_state = True
+                    else:
+                        last_api_stale_state = None
                 else:
                     schedule_df = normalize_schedule_index(schedule_df, tz)
                     # Use asof for robust lookup (outside lock - DataFrame is not being modified)
-                    current_row = schedule_df.asof(now_tz(config))
+                    current_row = schedule_df.asof(now)
                     
                     if current_row is None or current_row.empty:
-                        logging.info("No current row found in schedule, sending 0 setpoint")
                         current_p_setpoint = 0.0
                         current_q_setpoint = 0.0
+                        if active_source == 'api':
+                            if last_api_stale_state is not True:
+                                logging.warning(
+                                    "Scheduler: No current API row found. Sending zero setpoints."
+                                )
+                            last_api_stale_state = True
+                        else:
+                            logging.info("No current row found in schedule, sending 0 setpoint")
+                            last_api_stale_state = None
                     else:
                         current_p_setpoint = current_row['power_setpoint_kw']
                         current_q_setpoint = current_row.get('reactive_power_setpoint_kvar', 0.0)
+
+                        if active_source == 'api':
+                            row_ts = schedule_df.index.asof(now)
+                            is_stale = pd.isna(row_ts) or (
+                                pd.Timestamp(now) - pd.Timestamp(row_ts) > api_validity_window
+                            )
+                            if is_stale:
+                                current_p_setpoint = 0.0
+                                current_q_setpoint = 0.0
+                            if is_stale != last_api_stale_state:
+                                if is_stale:
+                                    logging.warning(
+                                        "Scheduler: API setpoint is stale. Sending zero setpoints."
+                                    )
+                                else:
+                                    logging.info("Scheduler: API setpoint freshness recovered.")
+                            last_api_stale_state = is_stale
+                        else:
+                            last_api_stale_state = None
                         
                         # Check for NaN values and send 0 instead
                         if pd.isna(current_p_setpoint) or pd.isna(current_q_setpoint):

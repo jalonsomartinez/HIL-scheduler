@@ -169,6 +169,18 @@ def load_config(config_path="config.yaml"):
     config['ISTENTORE_EMAIL'] = istentore_api.get('email', 'i-STENTORE')
     config['ISTENTORE_POLL_INTERVAL_MIN'] = istentore_api.get('poll_interval_min', 10)
     config['ISTENTORE_POLL_START_TIME'] = istentore_api.get('poll_start_time', '17:30')
+    raw_schedule_period_minutes = istentore_api.get('schedule_period_minutes', 15)
+    try:
+        schedule_period_minutes = int(raw_schedule_period_minutes)
+        if schedule_period_minutes <= 0:
+            raise ValueError("must be > 0")
+    except (TypeError, ValueError):
+        logging.warning(
+            f"Invalid istentore_api.schedule_period_minutes='{raw_schedule_period_minutes}'. "
+            "Using default 15."
+        )
+        schedule_period_minutes = 15
+    config['ISTENTORE_SCHEDULE_PERIOD_MINUTES'] = schedule_period_minutes
     
     # Startup configuration
     startup = yaml_config.get('startup', {})
