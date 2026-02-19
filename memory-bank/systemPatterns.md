@@ -54,6 +54,11 @@
   - `p_w = p_poi_kw * 1000`
   - `q_var = q_poi_kvar * 1000`
   - `v_v = v_poi_pu * PLANT_POI_VOLTAGE_V`
+- Conversion factors (`PLANT_CAPACITY_KWH`, `PLANT_POI_VOLTAGE_V`) are parsed once during agent initialization and reused for each post tick.
+- Payload validation gate:
+  - each source value is parsed as float and must be finite,
+  - invalid values (non-numeric, `NaN`, `inf`) are skipped with warning logs,
+  - `None` values are not added to the retry queue.
 - Per-variable disable:
   - if a series ID resolves to `None` (from YAML `null`), that variable is skipped and not enqueued for posting.
 - Posted timestamps are strict UTC ISO (`YYYY-MM-DDTHH:MM:SS+00:00`).

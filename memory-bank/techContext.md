@@ -33,6 +33,21 @@
 - Runtime policy: internal schedule + measurement timestamps are timezone-aware and normalized to configured timezone.
 - Backward compatibility: naive legacy timestamps are interpreted as configured timezone.
 
+### Measurement API Payload Hardening (2026-02-19)
+
+- `measurement_agent.py` now centralizes API posting conversions in helper logic:
+  - `soc_pu -> soc_kwh`
+  - `p_poi_kw -> p_w`
+  - `q_poi_kvar -> q_var`
+  - `v_poi_pu -> v_v`
+- Conversion factors are parsed/validated once at startup from config:
+  - `PLANT_CAPACITY_KWH`
+  - `PLANT_POI_VOLTAGE_V`
+- Payload numeric validation is enforced before enqueue:
+  - non-numeric, `NaN`, and `inf` values are skipped,
+  - `None` values are not queued for retry,
+  - warnings are logged for skipped invalid values.
+
 ### Multi-threaded Agent Pattern
 Each agent runs in its own thread with:
 - Independent execution loop with configurable period

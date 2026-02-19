@@ -3,6 +3,31 @@
 ## Current Focus
 API-mode measurement posting with independent fixed cadence (default 60s), UTC-ISO payload timestamps, per-plant series mapping, and bounded retry queue behavior decoupled from CSV recording.
 
+## Recent Changes (2026-02-19) - API Payload Hardening + Conversion Refactor
+
+### Overview
+Hardened API measurement posting in `measurement_agent.py` by centralizing unit conversion logic and filtering invalid numeric values before queueing payloads.
+
+### Key Behavior Changes
+- Conversion logic is now explicit and centralized in helper methods:
+  - SoC: `soc_pu * PLANT_CAPACITY_KWH` -> kWh
+  - P: `p_poi_kw * 1000` -> W
+  - Q: `q_poi_kvar * 1000` -> VAr
+  - V: `v_poi_pu * PLANT_POI_VOLTAGE_V` -> V
+- Conversion factors from config are parsed/validated once at startup:
+  - `PLANT_CAPACITY_KWH`
+  - `PLANT_POI_VOLTAGE_V`
+- Added numeric hardening for posting payloads:
+  - non-numeric, `NaN`, and `inf` values are skipped with warning logs,
+  - `None` values are not enqueued into the API retry queue.
+- Payload queue semantics and posting cadence remain unchanged.
+
+### Files Modified
+1. **[`measurement_agent.py`](measurement_agent.py)**:
+   - Added `finite_float(...)` and `build_api_post_values(...)` helpers.
+   - Added one-time parsing/validation for conversion config values.
+   - Added `None` guard in enqueue path to prevent invalid queue entries.
+
 ## Recent Changes (2026-02-18) - API Measurement Posting Cadence + Retry Queue
 
 ### Overview

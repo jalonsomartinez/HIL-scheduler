@@ -163,6 +163,24 @@ def measurement_agent(config, shared_data):
     if post_retry_max_s < post_retry_initial_s:
         post_retry_max_s = post_retry_initial_s
 
+    raw_plant_capacity_kwh = config.get("PLANT_CAPACITY_KWH", 0.0)
+    try:
+        plant_capacity_kwh = float(raw_plant_capacity_kwh)
+    except (TypeError, ValueError):
+        logging.warning(
+            f"Measurement: Invalid PLANT_CAPACITY_KWH='{raw_plant_capacity_kwh}'. Using 0.0."
+        )
+        plant_capacity_kwh = 0.0
+
+    raw_plant_poi_voltage_v = config.get("PLANT_POI_VOLTAGE_V", 20000.0)
+    try:
+        plant_poi_voltage_v = float(raw_plant_poi_voltage_v)
+    except (TypeError, ValueError):
+        logging.warning(
+            f"Measurement: Invalid PLANT_POI_VOLTAGE_V='{raw_plant_poi_voltage_v}'. Using 20000.0."
+        )
+        plant_poi_voltage_v = 20000.0
+
     def normalize_series_id(value, default_value, config_key):
         if value is None:
             return None
@@ -699,8 +717,43 @@ def measurement_agent(config, shared_data):
             return None
         return ts.tz_convert("UTC").strftime("%Y-%m-%dT%H:%M:%S+00:00")
 
+    def finite_float(value, label):
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            logging.warning(f"Measurement: Invalid {label}='{value}' for API posting; skipping.")
+            return None
+        if not math.isfinite(number):
+            logging.warning(f"Measurement: Non-finite {label}='{value}' for API posting; skipping.")
+            return None
+        return number
+
+    def build_api_post_values(row):
+        """Build per-variable API payload values using explicit target units."""
+        result = {}
+
+        soc_pu = finite_float(row.get("soc_pu"), "soc_pu")
+        if soc_pu is not None:
+            result["soc"] = soc_pu * plant_capacity_kwh  # kWh
+
+        p_poi_kw = finite_float(row.get("p_poi_kw"), "p_poi_kw")
+        if p_poi_kw is not None:
+            result["p"] = p_poi_kw * 1000.0  # W
+
+        q_poi_kvar = finite_float(row.get("q_poi_kvar"), "q_poi_kvar")
+        if q_poi_kvar is not None:
+            result["q"] = q_poi_kvar * 1000.0  # VAr
+
+        v_poi_pu = finite_float(row.get("v_poi_pu"), "v_poi_pu")
+        if v_poi_pu is not None:
+            result["v"] = v_poi_pu * plant_poi_voltage_v  # V
+
+        return result
+
     def enqueue_post_item(series_id, value, timestamp_iso_utc):
         if series_id is None:
+            return
+        if value is None:
             return
         if len(api_post_queue) >= post_queue_maxlen:
             api_post_queue.popleft()
@@ -731,20 +784,27 @@ def measurement_agent(config, shared_data):
             logging.warning("Measurement: Skipping API post because measurement timestamp is invalid.")
             return
 
-        try:
-            soc_kwh = float(row["soc_pu"]) * float(config.get("PLANT_CAPACITY_KWH", 0.0))
-            p_w = float(row["p_poi_kw"]) * 1000.0
-            q_var = float(row["q_poi_kvar"]) * 1000.0
-            v_v = float(row["v_poi_pu"]) * float(config.get("PLANT_POI_VOLTAGE_V", 20000.0))
-        except (KeyError, TypeError, ValueError) as e:
-            logging.warning(f"Measurement: Skipping API post due to invalid measurement values: {e}")
+        post_values = build_api_post_values(row)
+        if not post_values:
+            logging.warning("Measurement: Skipping API post due to missing/invalid measurement values.")
             return
 
         series_cfg = posting_series_ids.get(plant_type, posting_series_ids["local"])
-        enqueue_post_item(series_cfg["soc"], soc_kwh, timestamp_iso_utc)
-        enqueue_post_item(series_cfg["p"], p_w, timestamp_iso_utc)
-        enqueue_post_item(series_cfg["q"], q_var, timestamp_iso_utc)
-        enqueue_post_item(series_cfg["v"], v_v, timestamp_iso_utc)
+        enqueue_post_item(series_cfg["soc"], post_values.get("soc"), timestamp_iso_utc)
+        enqueue_post_item(series_cfg["p"], post_values.get("p"), timestamp_iso_utc)
+        enqueue_post_item(series_cfg["q"], post_values.get("q"), timestamp_iso_utc)
+        enqueue_post_item(series_cfg["v"], post_values.get("v"), timestamp_iso_utc)
+
+        logging.debug(
+            "Measurement: Enqueued API payloads plant=%s ts=%s "
+            "soc_kwh=%s p_w=%s q_var=%s v_v=%s",
+            plant_type,
+            timestamp_iso_utc,
+            post_values.get("soc"),
+            post_values.get("p"),
+            post_values.get("q"),
+            post_values.get("v"),
+        )
 
     def drain_api_post_queue(password, max_posts_per_loop=8):
         if not api_post_queue:

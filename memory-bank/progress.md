@@ -2,6 +2,16 @@
 
 ## What Works
 
+### API Payload Hardening for Measurement Posting (2026-02-19)
+- [x] **Explicit conversion pipeline preserved**: API posting still uses SoC->kWh, P->W, Q->VAr, V->V conversions.
+- [x] **Conversion helper refactor**: Conversion logic moved into dedicated helpers for clearer maintenance and reduced duplication.
+- [x] **One-time conversion factor validation**: `PLANT_CAPACITY_KWH` and `PLANT_POI_VOLTAGE_V` are parsed/validated once per agent startup.
+- [x] **Invalid numeric payload filtering**: non-numeric, `NaN`, and `inf` values are skipped before enqueueing API payloads.
+- [x] **Queue hardening**: `None` payload values are ignored, preventing bad retries and queue pollution.
+
+**Files Modified:**
+- [`measurement_agent.py`](measurement_agent.py): Added conversion helpers, finite-value filtering, and queue guards.
+
 ### API Measurement Posting Cadence + Retry Queue (2026-02-18)
 - [x] **Independent API post timer**: measurement agent now posts SoC/P/Q/V on `ISTENTORE_MEASUREMENT_POST_PERIOD_S` (default 60s), decoupled from CSV write period.
 - [x] **API-mode gating**: posting runs only when source is API, password is set, and `ISTENTORE_POST_MEASUREMENTS_IN_API_MODE` is true.
