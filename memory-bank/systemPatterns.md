@@ -110,6 +110,30 @@
   - queue overflow drops oldest payload with warning.
 - Queue is cleared when posting mode is disabled (e.g., switch away from API source).
 
+## API Measurement Posting Observability Pattern (2026-02-19)
+
+- Runtime posting telemetry lives in shared state:
+  - `measurement_post_status[plant_id]` for `lib` and `vrfb`.
+- Per-plant status schema:
+  - `posting_enabled`
+  - `last_success` (`timestamp`, `metric`, `value`, `series_id`, `measurement_timestamp`)
+  - `last_attempt` (`timestamp`, `metric`, `value`, `series_id`, `measurement_timestamp`, `attempt`, `result`, `error`, `next_retry_seconds`)
+  - `last_error` (`timestamp`, `message`)
+  - `pending_queue_count`
+  - `oldest_pending_age_s`
+  - `last_enqueue`
+- Queue attribution pattern:
+  - each queued payload now includes `plant_id` and `metric` in addition to `series_id/value/timestamp/attempt/retry`.
+- Telemetry update points:
+  - on enqueue: update `last_enqueue`,
+  - before send attempt: write `last_attempt` with `result=attempting`,
+  - on success: update `last_success`, set `last_attempt.result=success`, clear `last_error`,
+  - on failure: update `last_attempt.result=failed` with error + retry ETA, and set `last_error`.
+- Queue health derivation:
+  - recompute `pending_queue_count` and `oldest_pending_age_s` per plant from current in-memory queue contents each loop.
+- UI presentation contract (API Schedule tab):
+  - summary cards per plant expose success/attempt/error/queue observability without changing posting semantics.
+
 ### Agent Base Pattern
 All agents follow a consistent pattern:
 

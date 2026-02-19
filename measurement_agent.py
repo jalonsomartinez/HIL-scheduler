@@ -99,6 +99,74 @@ def measurement_agent(config, shared_data):
             "cache_context": None,
         }
 
+    def empty_post_status():
+        return {
+            "posting_enabled": False,
+            "last_success": None,
+            "last_attempt": None,
+            "last_error": None,
+            "pending_queue_count": 0,
+            "oldest_pending_age_s": None,
+            "last_enqueue": None,
+        }
+
+    def ensure_post_status_locked():
+        status_map = shared_data.get("measurement_post_status")
+        if not isinstance(status_map, dict):
+            status_map = {}
+        for plant_id in plant_ids:
+            existing = status_map.get(plant_id)
+            merged = empty_post_status()
+            if isinstance(existing, dict):
+                merged.update(existing)
+            status_map[plant_id] = merged
+        shared_data["measurement_post_status"] = status_map
+        return status_map
+
+    def now_iso_local():
+        return serialize_iso_with_tz(now_tz(config), tz=tz)
+
+    def update_post_status(plant_id, **fields):
+        if plant_id not in plant_ids:
+            return
+        with shared_data["lock"]:
+            status_map = ensure_post_status_locked()
+            status_map[plant_id].update(fields)
+
+    def set_posting_enabled(enabled):
+        with shared_data["lock"]:
+            status_map = ensure_post_status_locked()
+            for plant_id in plant_ids:
+                status_map[plant_id]["posting_enabled"] = bool(enabled)
+
+    def refresh_post_queue_status():
+        now_mono = time.monotonic()
+        queue_count_by_plant = {plant_id: 0 for plant_id in plant_ids}
+        oldest_age_by_plant = {plant_id: None for plant_id in plant_ids}
+
+        for item in api_post_queue:
+            plant_id = item.get("plant_id")
+            if plant_id not in queue_count_by_plant:
+                continue
+
+            queue_count_by_plant[plant_id] += 1
+            enqueued_mono = item.get("enqueued_mono")
+            if isinstance(enqueued_mono, (int, float)):
+                age_s = max(0.0, now_mono - float(enqueued_mono))
+                current_oldest = oldest_age_by_plant[plant_id]
+                if current_oldest is None or age_s > current_oldest:
+                    oldest_age_by_plant[plant_id] = age_s
+
+        with shared_data["lock"]:
+            status_map = ensure_post_status_locked()
+            for plant_id in plant_ids:
+                status_map[plant_id]["pending_queue_count"] = int(queue_count_by_plant[plant_id])
+                oldest_age_s = oldest_age_by_plant[plant_id]
+                status_map[plant_id]["oldest_pending_age_s"] = None if oldest_age_s is None else round(float(oldest_age_s), 1)
+
+    with shared_data["lock"]:
+        ensure_post_status_locked()
+
     def get_plant_name(plant_id):
         plant_cfg = plants_cfg.get(plant_id, {})
         return plant_cfg.get("name", plant_id.upper()), plant_id
@@ -410,7 +478,7 @@ def measurement_agent(config, shared_data):
             return None
         return number
 
-    def enqueue_post_item(series_id, value, timestamp_iso_utc):
+    def enqueue_post_item(plant_id, metric, series_id, value, timestamp_iso_utc):
         if series_id is None or value is None:
             return
         if len(api_post_queue) >= post_queue_maxlen:
@@ -418,13 +486,17 @@ def measurement_agent(config, shared_data):
             logging.warning("Measurement: API queue full, dropping oldest payload")
         api_post_queue.append(
             {
+                "plant_id": plant_id,
+                "metric": str(metric),
                 "series_id": int(series_id),
                 "value": float(value),
                 "timestamp": timestamp_iso_utc,
                 "attempt": 0,
                 "next_try_mono": time.monotonic(),
+                "enqueued_mono": time.monotonic(),
             }
         )
+        update_post_status(plant_id, last_enqueue=now_iso_local())
 
     def to_utc_iso(value):
         ts = normalize_timestamp_value(value, tz)
@@ -458,10 +530,10 @@ def measurement_agent(config, shared_data):
             q_value = q_poi_kvar * 1000.0 if q_poi_kvar is not None else None
             v_value = v_poi_pu * poi_voltage_v if v_poi_pu is not None and poi_voltage_v is not None else None
 
-            enqueue_post_item(series.get("soc"), soc_value, timestamp_iso)
-            enqueue_post_item(series.get("p"), p_value, timestamp_iso)
-            enqueue_post_item(series.get("q"), q_value, timestamp_iso)
-            enqueue_post_item(series.get("v"), v_value, timestamp_iso)
+            enqueue_post_item(plant_id, "soc", series.get("soc"), soc_value, timestamp_iso)
+            enqueue_post_item(plant_id, "p", series.get("p"), p_value, timestamp_iso)
+            enqueue_post_item(plant_id, "q", series.get("q"), q_value, timestamp_iso)
+            enqueue_post_item(plant_id, "v", series.get("v"), v_value, timestamp_iso)
 
     def drain_api_post_queue(password, max_posts_per_loop=12):
         if not api_post_queue:
@@ -479,14 +551,73 @@ def measurement_agent(config, shared_data):
                 break
 
             api_post_queue.popleft()
+            plant_id = item.get("plant_id")
+            metric = item.get("metric")
+            attempt_no = int(item.get("attempt", 0)) + 1
+            measurement_timestamp = item.get("timestamp")
+            attempt_ts = now_iso_local()
+            update_post_status(
+                plant_id,
+                last_attempt={
+                    "timestamp": attempt_ts,
+                    "metric": metric,
+                    "value": item.get("value"),
+                    "series_id": item.get("series_id"),
+                    "measurement_timestamp": measurement_timestamp,
+                    "attempt": attempt_no,
+                    "result": "attempting",
+                    "error": None,
+                    "next_retry_seconds": None,
+                },
+            )
             try:
                 poster.post_measurement(item["series_id"], item["value"], timestamp=item["timestamp"])
                 sent += 1
+                success_ts = now_iso_local()
+                update_post_status(
+                    plant_id,
+                    last_success={
+                        "timestamp": success_ts,
+                        "metric": metric,
+                        "value": item.get("value"),
+                        "series_id": item.get("series_id"),
+                        "measurement_timestamp": measurement_timestamp,
+                    },
+                    last_attempt={
+                        "timestamp": success_ts,
+                        "metric": metric,
+                        "value": item.get("value"),
+                        "series_id": item.get("series_id"),
+                        "measurement_timestamp": measurement_timestamp,
+                        "attempt": attempt_no,
+                        "result": "success",
+                        "error": None,
+                        "next_retry_seconds": None,
+                    },
+                    last_error=None,
+                )
             except (AuthenticationError, IstentoreAPIError, Exception) as exc:
                 item["attempt"] += 1
                 delay_s = min(post_retry_initial_s * (2 ** (item["attempt"] - 1)), post_retry_max_s)
                 item["next_try_mono"] = time.monotonic() + delay_s
                 api_post_queue.append(item)
+                error_text = str(exc)
+                failure_ts = now_iso_local()
+                update_post_status(
+                    plant_id,
+                    last_attempt={
+                        "timestamp": failure_ts,
+                        "metric": metric,
+                        "value": item.get("value"),
+                        "series_id": item.get("series_id"),
+                        "measurement_timestamp": measurement_timestamp,
+                        "attempt": int(item.get("attempt", 0)),
+                        "result": "failed",
+                        "error": error_text,
+                        "next_retry_seconds": round(float(delay_s), 1),
+                    },
+                    last_error={"timestamp": failure_ts, "message": error_text},
+                )
                 logging.warning(
                     "Measurement: API post failed series=%s attempt=%s retry_in=%.1fs error=%s",
                     item["series_id"],
@@ -609,6 +740,8 @@ def measurement_agent(config, shared_data):
         posting_mode_now = (
             post_measurements_enabled and active_schedule_source == "api" and bool(api_password)
         )
+        set_posting_enabled(posting_mode_now)
+
         if not posting_mode_now and posting_mode_active:
             if api_post_queue:
                 api_post_queue.clear()
@@ -622,6 +755,8 @@ def measurement_agent(config, shared_data):
 
         if posting_mode_active:
             drain_api_post_queue(api_password)
+
+        refresh_post_queue_status()
 
         if current_time - last_write_time >= write_period_s:
             flush_pending_rows(force=False)

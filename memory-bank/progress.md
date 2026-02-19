@@ -2,6 +2,31 @@
 
 ## What Works
 
+### API Measurement Posting Observability in API Tab (2026-02-19)
+- [x] **Shared runtime observability state**:
+  - added `measurement_post_status` to `shared_data`,
+  - per-plant schema includes `posting_enabled`, `last_success`, `last_attempt`, `last_error`, `pending_queue_count`, `oldest_pending_age_s`, `last_enqueue`.
+- [x] **Posting queue context enrichment**:
+  - queued API payloads now include `plant_id` and `metric` for plant/metric attribution in telemetry.
+- [x] **Measurement agent lifecycle instrumentation**:
+  - enqueue updates `last_enqueue`,
+  - attempts update `last_attempt`,
+  - successful posts update `last_success` and clear `last_error`,
+  - failed posts update `last_error` and retry ETA in `last_attempt`,
+  - per-plant queue stats are recomputed continuously from in-memory queue contents.
+- [x] **API tab observability UI**:
+  - added "Measurement Posting" section under API connection status,
+  - added LIB/VRFB summary cards showing last success, last attempt, last error, queue depth, oldest pending age, and last enqueue.
+- [x] **Retry behavior unchanged**:
+  - existing exponential backoff, queue bounds, and mode-gated posting behavior preserved.
+- [x] **Syntax validation passed**:
+  - `python3 -m py_compile hil_scheduler.py measurement_agent.py dashboard_agent.py`.
+
+**Files Modified:**
+- [`hil_scheduler.py`](hil_scheduler.py): Added `measurement_post_status` initialization.
+- [`measurement_agent.py`](measurement_agent.py): Added posting telemetry status updates and per-item queue context.
+- [`dashboard_agent.py`](dashboard_agent.py): Added API posting summary cards and callback outputs.
+
 ### Dashboard Regression Recovery + Dual-Plant Safety Hardening (2026-02-19)
 - [x] **Logs tab restored**:
   - reintroduced dashboard Logs tab,

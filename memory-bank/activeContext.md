@@ -3,6 +3,36 @@
 ## Current Focus
 Dual logical plant parallel operation (LIB + VRFB) with global source/transport selection and per-plant controls/recording/plots.
 
+## Recent Changes (2026-02-19) - API Measurement Posting Observability in Dashboard
+
+### Overview
+Added first-class runtime telemetry and API tab visibility for measurement posting health (success/attempt/error/queue) per plant.
+
+### Key Behavior Changes
+- Added new shared runtime key:
+  - `measurement_post_status[plant_id]` with posting observability state.
+- Measurement posting queue items now carry posting context:
+  - `plant_id` and `metric` (`soc|p|q|v`) are stored in each queue item.
+- Measurement agent now updates per-plant telemetry during posting lifecycle:
+  - `posting_enabled` flag each loop,
+  - `last_enqueue` on enqueue,
+  - `last_attempt` before and after send attempt (success/fail result),
+  - `last_success` on successful post,
+  - `last_error` on failure,
+  - `pending_queue_count` and `oldest_pending_age_s` recomputed from in-memory queue.
+- API Schedule tab now includes a dedicated "Measurement Posting" section:
+  - one summary card per plant (LIB, VRFB),
+  - shows last successful post and last attempted post,
+  - shows latest error text (if any),
+  - shows queue depth, oldest pending age, and last enqueue timestamp.
+- Existing retry/backoff/send behavior is unchanged:
+  - observability-only enhancement.
+
+### Files Modified
+1. `hil_scheduler.py`
+2. `measurement_agent.py`
+3. `dashboard_agent.py`
+
 ## Recent Changes (2026-02-19) - Dashboard Regression Recovery + Safety Hardening
 
 ### Overview

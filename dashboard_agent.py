@@ -771,6 +771,7 @@ def dashboard_agent(config, shared_data):
                                         ],
                                     ),
                                     html.Div(id="api-connection-status", className="status-text"),
+                                    html.Div(id="api-measurement-posting-status"),
                                     dcc.Graph(id="api-preview-graph"),
                                 ],
                             )
@@ -1234,7 +1235,11 @@ def dashboard_agent(config, shared_data):
         return fig
 
     @app.callback(
-        [Output("api-connection-status", "children"), Output("api-preview-graph", "figure")],
+        [
+            Output("api-connection-status", "children"),
+            Output("api-measurement-posting-status", "children"),
+            Output("api-preview-graph", "figure"),
+        ],
         [Input("interval-component", "n_intervals"), Input("set-password-btn", "n_clicks"), Input("disconnect-api-btn", "n_clicks")],
         [State("api-password", "value")],
     )
@@ -1256,6 +1261,10 @@ def dashboard_agent(config, shared_data):
                 plant_id: shared_data.get("api_schedule_df_by_plant", {}).get(plant_id, pd.DataFrame()).copy()
                 for plant_id in plant_ids
             }
+            post_status_map = {
+                plant_id: dict((shared_data.get("measurement_post_status", {}) or {}).get(plant_id, {}) or {})
+                for plant_id in plant_ids
+            }
 
         connected = "Connected" if status.get("connected") else "Not connected"
         auth_state = "Password set" if api_password else "Password not set"
@@ -1269,6 +1278,101 @@ def dashboard_agent(config, shared_data):
         )
         if status.get("error"):
             status_text += f" | Error: {status.get('error')}"
+
+        def format_ts(value):
+            ts = normalize_timestamp_value(value, tz)
+            if pd.isna(ts):
+                return None
+            return ts.strftime("%Y-%m-%d %H:%M:%S %Z")
+
+        def format_value(value):
+            try:
+                return f"{float(value):.3f}"
+            except (TypeError, ValueError):
+                return "n/a"
+
+        def metric_label(metric):
+            mapping = {"soc": "SoC", "p": "P", "q": "Q", "v": "V"}
+            return mapping.get(str(metric).lower(), str(metric).upper())
+
+        def build_plant_posting_card(plant_id):
+            plant_status = post_status_map.get(plant_id, {})
+            posting_enabled = bool(plant_status.get("posting_enabled", False))
+
+            last_success = plant_status.get("last_success") if isinstance(plant_status.get("last_success"), dict) else None
+            if last_success:
+                success_ts = format_ts(last_success.get("timestamp")) or "n/a"
+                success_meas_ts = format_ts(last_success.get("measurement_timestamp")) or "n/a"
+                success_text = (
+                    f"Metric={metric_label(last_success.get('metric'))} "
+                    f"Series={last_success.get('series_id')} "
+                    f"Value={format_value(last_success.get('value'))} | "
+                    f"Measurement ts: {success_meas_ts} | Sent: {success_ts}"
+                )
+            else:
+                success_text = "No successful post yet."
+
+            last_attempt = plant_status.get("last_attempt") if isinstance(plant_status.get("last_attempt"), dict) else None
+            if last_attempt:
+                attempt_ts = format_ts(last_attempt.get("timestamp")) or "n/a"
+                attempt_result = str(last_attempt.get("result") or "unknown").upper()
+                attempt_text = (
+                    f"Metric={metric_label(last_attempt.get('metric'))} "
+                    f"Series={last_attempt.get('series_id')} "
+                    f"Value={format_value(last_attempt.get('value'))} "
+                    f"Attempt={last_attempt.get('attempt')} "
+                    f"Result={attempt_result} | At: {attempt_ts}"
+                )
+                next_retry_s = last_attempt.get("next_retry_seconds")
+                if next_retry_s is not None and attempt_result == "FAILED":
+                    attempt_text += f" | Next retry in ~{next_retry_s}s"
+            else:
+                attempt_text = "No attempts yet."
+
+            last_error = plant_status.get("last_error") if isinstance(plant_status.get("last_error"), dict) else None
+            if last_error:
+                error_ts = format_ts(last_error.get("timestamp")) or "n/a"
+                error_text = f"{error_ts}: {last_error.get('message')}"
+            else:
+                error_text = "No errors."
+
+            pending_count = int(plant_status.get("pending_queue_count", 0) or 0)
+            oldest_age_s = plant_status.get("oldest_pending_age_s")
+            oldest_age_text = "n/a" if oldest_age_s is None else f"{oldest_age_s}s"
+            last_enqueue_text = format_ts(plant_status.get("last_enqueue")) or "n/a"
+
+            return html.Div(
+                style={
+                    "border": "1px solid #e2e8f0",
+                    "borderRadius": "10px",
+                    "padding": "12px",
+                    "backgroundColor": "#f8fafc",
+                },
+                children=[
+                    html.H4(f"{plant_name(plant_id)}", style={"margin": "0 0 8px 0"}),
+                    html.Div(f"Posting enabled: {posting_enabled}", className="status-text"),
+                    html.Div(f"Pending queue: {pending_count} | Oldest pending age: {oldest_age_text}", className="status-text"),
+                    html.Div(f"Last enqueue: {last_enqueue_text}", className="status-text"),
+                    html.Div(f"Last successful post: {success_text}", className="status-text"),
+                    html.Div(f"Last attempt: {attempt_text}", className="status-text"),
+                    html.Div(f"Last error: {error_text}", className="status-text"),
+                ],
+            )
+
+        posting_cards = html.Div(
+            style={"marginTop": "12px"},
+            children=[
+                html.H4("Measurement Posting", style={"margin": "0 0 8px 0"}),
+                html.Div(
+                    style={
+                        "display": "grid",
+                        "gridTemplateColumns": "repeat(auto-fit, minmax(320px, 1fr))",
+                        "gap": "12px",
+                    },
+                    children=[build_plant_posting_card(plant_id) for plant_id in plant_ids],
+                ),
+            ],
+        )
 
         fig = go.Figure()
         colors = {"lib": "#2563eb", "vrfb": "#16a34a"}
@@ -1299,7 +1403,7 @@ def dashboard_agent(config, shared_data):
         )
         fig.update_xaxes(gridcolor="#e2e8f0")
         fig.update_yaxes(title_text="kW", gridcolor="#e2e8f0")
-        return status_text, fig
+        return status_text, posting_cards, fig
 
     @app.callback(
         [

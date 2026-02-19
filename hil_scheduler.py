@@ -19,6 +19,21 @@ def _empty_df_by_plant(plant_ids):
     return {plant_id: pd.DataFrame() for plant_id in plant_ids}
 
 
+def _default_measurement_post_status_by_plant(plant_ids):
+    return {
+        plant_id: {
+            "posting_enabled": False,
+            "last_success": None,
+            "last_attempt": None,
+            "last_error": None,
+            "pending_queue_count": 0,
+            "oldest_pending_age_s": None,
+            "last_enqueue": None,
+        }
+        for plant_id in plant_ids
+    }
+
+
 def main():
     """Director agent: load config, initialize shared runtime, and start agents."""
     config = load_config("config.yaml")
@@ -56,6 +71,7 @@ def main():
             "current_file_df_by_plant": _empty_df_by_plant(plant_ids),
             "pending_rows_by_file": {},
             "measurements_df": pd.DataFrame(),
+            "measurement_post_status": _default_measurement_post_status_by_plant(plant_ids),
             "api_password": None,
             "data_fetcher_status": {
                 "connected": False,

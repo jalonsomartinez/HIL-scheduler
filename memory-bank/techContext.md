@@ -56,6 +56,25 @@
 - Plot persistence contract:
   - Plotly `layout.uirevision` is set for both plant charts and preview graphs to preserve zoom/pan across interval refreshes.
 
+### API Posting Observability Runtime Contract (2026-02-19)
+
+- New shared runtime key initialized in `hil_scheduler.py`:
+  - `measurement_post_status` (dict keyed by `lib` / `vrfb`).
+- `measurement_agent.py` now populates posting telemetry in real time:
+  - posting mode enabled flag,
+  - last enqueue timestamp,
+  - last attempt payload/result/error/retry ETA,
+  - last successful post payload,
+  - last error summary,
+  - per-plant queue depth and oldest pending age.
+- API payload queue entries are enriched with attribution context:
+  - `plant_id` and `metric` (`soc|p|q|v`) are carried with each queue item.
+- `dashboard_agent.py` API tab now renders posting telemetry:
+  - callback adds output `api-measurement-posting-status`,
+  - UI section renders per-plant cards under API connection status with success/attempt/error/queue details.
+- Timestamp display policy in API tab:
+  - values are normalized and displayed in configured timezone via existing `time_utils` helpers.
+
 ### Timezone Utilities and Conventions (2026-02-17)
 
 - New module: [`time_utils.py`](time_utils.py)
