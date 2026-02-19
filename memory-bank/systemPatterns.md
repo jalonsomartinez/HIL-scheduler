@@ -2,6 +2,48 @@
 
 ## Agent Architecture
 
+## Dual Logical Plant Parallel Pattern (2026-02-19)
+
+- Runtime plant model is now fixed logical IDs: `lib` and `vrfb`.
+- Schedule source is global:
+  - `active_schedule_source` in `{'manual', 'api'}` applies to both plants.
+- Transport mode is global:
+  - `transport_mode` in `{'local', 'remote'}` applies to both plants.
+- Scheduler dispatch gate is per plant:
+  - `scheduler_running_by_plant[plant_id]`.
+- Schedule dataframes are per plant:
+  - `manual_schedule_df_by_plant[plant_id]`
+  - `api_schedule_df_by_plant[plant_id]`
+- Recording control is per plant:
+  - `measurements_filename_by_plant[plant_id]` (`None` means recording off for that plant).
+- Plot cache is per plant:
+  - `current_file_path_by_plant[plant_id]`
+  - `current_file_df_by_plant[plant_id]`
+- Local emulation mode hosts two in-app Modbus servers (LIB + VRFB) simultaneously.
+- Remote mode connects both logical plants to their configured remote endpoints.
+- Data fetcher parses one API response and populates both schedule maps:
+  - LIB net power: `lib_to_vpp_kw - vpp_to_lib_kw`
+  - VRFB net power: `vrfb_to_vpp_kw - vpp_to_vrfb_kw`
+
+## Dashboard Safe Switch + Stateful Controls Pattern (2026-02-19)
+
+- Dashboard tabs are now: `Status & Plots`, `Manual Schedule`, `API Schedule`, `Logs`.
+- Logs tab uses a dual-source pattern:
+  - live session logs from `shared_data['session_logs']`,
+  - historical log files selected from `logs/*.log`.
+- Source-switch pattern is confirmation-first and safety-gated:
+  - clicking Manual/API shows `schedule-switch-modal`,
+  - on confirm: set `schedule_switching=True`, safe-stop both plants, then set `active_schedule_source`, then clear switching flag.
+- Per-plant operational transition state is explicit:
+  - `plant_transition_by_plant[plant_id]` tracks `starting|running|stopping|stopped|unknown`.
+- Button render logic is derived from runtime transition + recording state:
+  - Start/Stop disable and labels from transition state,
+  - Record/Stop Recording disable and labels from `measurements_filename_by_plant[plant_id]`.
+- Safe-stop helper contract returns structured outcome:
+  - `{"threshold_reached": bool, "disable_ok": bool}`,
+  - logs each phase for traceability.
+- Plot update pattern preserves interactive zoom via stable Plotly `uirevision` keys.
+
 ## Timezone Handling Pattern (2026-02-17)
 
 - Canonical runtime timestamp model: timezone-aware datetimes in configured timezone (`time.timezone`, default `Europe/Madrid`).
@@ -106,7 +148,7 @@ def agent_name(config, shared_data):
 | **Scheduler** | Separate | Setpoint dispatcher | Reads active source → Plant Modbus |
 | **Plant** | Separate | Merged PPC + Battery simulation | Single Modbus server, internal battery sim |
 | **Measurement** | Separate | Data logger | Reads Plant Modbus → measurements.csv |
-| **Dashboard** | Separate | UI server | Three tabs: Manual, API, Status & Plots |
+| **Dashboard** | Separate | UI server | Four tabs: Status & Plots, Manual, API, Logs |
 
 ### Shared Data Structure
 

@@ -1,139 +1,120 @@
 import logging
-import pandas as pd
+import os
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
+
+import pandas as pd
 
 from config_loader import load_config
-from logger_config import setup_logging
-from scheduler_agent import scheduler_agent
-from data_fetcher_agent import data_fetcher_agent
-from plant_agent import plant_agent
-from measurement_agent import measurement_agent
 from dashboard_agent import dashboard_agent
+from data_fetcher_agent import data_fetcher_agent
+from logger_config import setup_logging
+from measurement_agent import measurement_agent
+from plant_agent import plant_agent
+from scheduler_agent import scheduler_agent
+
+
+def _empty_df_by_plant(plant_ids):
+    return {plant_id: pd.DataFrame() for plant_id in plant_ids}
 
 
 def main():
-    """
-    Director Agent: Sets up and runs all other agents.
-    """
-    
-    # --- Configuration ---
+    """Director agent: load config, initialize shared runtime, and start agents."""
     config = load_config("config.yaml")
-    
-    # Pre-initialize shared data structures for logging
+    plant_ids = tuple(config.get("PLANT_IDS", ("lib", "vrfb")))
+
     shared_data = {
         "session_logs": [],
         "log_lock": threading.Lock(),
     }
-    
-    # Set up logging with console, file, and session handlers
+
     setup_logging(config, shared_data)
     logging.info("Director agent starting the application.")
-    
-    # --- Create shared data ---
-    # Get startup values from config, with defaults
+
     startup_schedule_source = config.get("STARTUP_SCHEDULE_SOURCE", "manual")
-    startup_plant = config.get("STARTUP_PLANT", "local")
-    
-    # Validate startup values
+    startup_transport_mode = config.get("STARTUP_TRANSPORT_MODE", "local")
+
     if startup_schedule_source not in ["manual", "api"]:
-        logging.warning(f"Invalid STARTUP_SCHEDULE_SOURCE '{startup_schedule_source}', using 'manual'")
+        logging.warning("Invalid STARTUP_SCHEDULE_SOURCE '%s', using 'manual'", startup_schedule_source)
         startup_schedule_source = "manual"
-    if startup_plant not in ["local", "remote"]:
-        logging.warning(f"Invalid STARTUP_PLANT '{startup_plant}', using 'local'")
-        startup_plant = "local"
-    
-    logging.info(f"Startup configuration: schedule_source='{startup_schedule_source}', plant='{startup_plant}'")
-    
-    # Merge pre-initialized logging structures with the rest of shared_data
-    shared_data.update({
-        # Dataframe that holds the manual schedule (random/CSV)
-        "manual_schedule_df": pd.DataFrame(),
-        # Dataframe that holds the API-fetched schedule
-        "api_schedule_df": pd.DataFrame(),
-        # Which schedule is currently active: 'manual' or 'api'
-        "active_schedule_source": startup_schedule_source,
-        # Dataframe that holds the measurements
-        "measurements_df": pd.DataFrame(),
-        # Current measurements filename (set by dashboard on start, read by measurement agent)
-        "measurements_filename": None,
-        # Current selected-plant/day file cache for plotting
-        "current_file_path": None,
-        "current_file_df": pd.DataFrame(),
-        # Pending rows grouped by destination file path
-        "pending_rows_by_file": {},
-        # Scheduler runtime control: True = dispatch schedule setpoints, False = hold
-        "scheduler_running": False,
-        # Lock for shared data
-        "lock": threading.Lock(),
-        # Event to signal shutdown
-        "shutdown_event": threading.Event(),
-        # API password (set by dashboard, read by data_fetcher)
-        "api_password": None,
-        # Data fetcher status (set by data_fetcher, read by dashboard)
-        "data_fetcher_status": {
-            "connected": False,
-            "today_fetched": False,
-            "tomorrow_fetched": False,
-            "today_date": None,
-            "tomorrow_date": None,
-            "today_points": 0,
-            "tomorrow_points": 0,
-            "last_attempt": None,
-            "error": None,
-        },
-        # Selected plant: 'local' or 'remote'
-        "selected_plant": startup_plant,
-        # Plant switching status: True when a switch is in progress
-        "plant_switching": False,
-        # Schedule switching status: True when a switch is in progress
-        "schedule_switching": False,
-        # Log file path for the current session
-        "log_file_path": None,
-    })
-    
-    # Set the log file path after setup_logging has created it
-    import os
-    from datetime import datetime
-    today = datetime.now().strftime('%Y-%m-%d')
-    shared_data["log_file_path"] = os.path.join(os.path.dirname(__file__), 'logs', f'{today}_hil_scheduler.log')
-    
+
+    if startup_transport_mode not in ["local", "remote"]:
+        logging.warning("Invalid STARTUP_TRANSPORT_MODE '%s', using 'local'", startup_transport_mode)
+        startup_transport_mode = "local"
+
+    shared_data.update(
+        {
+            "manual_schedule_df_by_plant": _empty_df_by_plant(plant_ids),
+            "api_schedule_df_by_plant": _empty_df_by_plant(plant_ids),
+            "active_schedule_source": startup_schedule_source,
+            "transport_mode": startup_transport_mode,
+            "scheduler_running_by_plant": {plant_id: False for plant_id in plant_ids},
+            "plant_transition_by_plant": {plant_id: "stopped" for plant_id in plant_ids},
+            "measurements_filename_by_plant": {plant_id: None for plant_id in plant_ids},
+            "current_file_path_by_plant": {plant_id: None for plant_id in plant_ids},
+            "current_file_df_by_plant": _empty_df_by_plant(plant_ids),
+            "pending_rows_by_file": {},
+            "measurements_df": pd.DataFrame(),
+            "api_password": None,
+            "data_fetcher_status": {
+                "connected": False,
+                "today_fetched": False,
+                "tomorrow_fetched": False,
+                "today_date": None,
+                "tomorrow_date": None,
+                "today_points": 0,
+                "tomorrow_points": 0,
+                "today_points_by_plant": {plant_id: 0 for plant_id in plant_ids},
+                "tomorrow_points_by_plant": {plant_id: 0 for plant_id in plant_ids},
+                "last_attempt": None,
+                "error": None,
+            },
+            "schedule_switching": False,
+            "transport_switching": False,
+            "lock": threading.Lock(),
+            "shutdown_event": threading.Event(),
+            "log_file_path": None,
+        }
+    )
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    shared_data["log_file_path"] = os.path.join(
+        os.path.dirname(__file__),
+        "logs",
+        f"{today}_hil_scheduler.log",
+    )
+
+    threads = []
     try:
-        # --- Create and start agent threads ---
         threads = [
-            threading.Thread(target=data_fetcher_agent, args=(config, shared_data)),
-            threading.Thread(target=scheduler_agent, args=(config, shared_data)),
-            threading.Thread(target=plant_agent, args=(config, shared_data)),
-            threading.Thread(target=measurement_agent, args=(config, shared_data)),
-            threading.Thread(target=dashboard_agent, args=(config, shared_data))
+            threading.Thread(target=data_fetcher_agent, args=(config, shared_data), daemon=True),
+            threading.Thread(target=scheduler_agent, args=(config, shared_data), daemon=True),
+            threading.Thread(target=plant_agent, args=(config, shared_data), daemon=True),
+            threading.Thread(target=measurement_agent, args=(config, shared_data), daemon=True),
+            threading.Thread(target=dashboard_agent, args=(config, shared_data), daemon=True),
         ]
-        
-        for t in threads:
-            t.start()
-        
+
+        for thread in threads:
+            thread.start()
+
         logging.info("All agents started.")
         logging.info("Dashboard available at http://127.0.0.1:8050/")
-        logging.info("Use the dashboard to select a schedule mode and generate/upload a schedule.")
-        
-        # Run indefinitely until interrupted (no fixed end time)
+
         while not shared_data["shutdown_event"].is_set():
             time.sleep(1)
-    
+
     except KeyboardInterrupt:
         logging.info("Keyboard interrupt received. Shutting down...")
-    except Exception as e:
-        logging.error(f"An unexpected error occurred in the director: {e}")
+    except Exception as exc:
+        logging.error("An unexpected error occurred in the director: %s", exc)
     finally:
-        # --- Shutdown sequence ---
         logging.info("Director initiating shutdown...")
         shared_data["shutdown_event"].set()
-        
-        logging.info("Waiting for agent threads to finish...")
-        for t in threads:
-            t.join()
-        logging.info("All agent threads have finished.")
-        
+
+        for thread in threads:
+            thread.join(timeout=10)
+
         logging.info("Application shutdown complete.")
 
 

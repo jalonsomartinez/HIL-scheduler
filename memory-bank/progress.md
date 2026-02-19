@@ -2,6 +2,60 @@
 
 ## What Works
 
+### Dashboard Regression Recovery + Dual-Plant Safety Hardening (2026-02-19)
+- [x] **Logs tab restored**:
+  - reintroduced dashboard Logs tab,
+  - current session live log stream,
+  - historical log file selector (`logs/*.log`).
+- [x] **Manual/API source switch safety restored**:
+  - confirmation modal reintroduced,
+  - source switch now safe-stops both plants before applying new source,
+  - recording state is preserved during source switch.
+- [x] **Per-plant transition state model added**:
+  - `plant_transition_by_plant` added to shared runtime,
+  - states used by dashboard controls: `starting|running|stopping|stopped|unknown`.
+- [x] **Stateful per-plant control buttons**:
+  - Start/Stop/Record/Stop Recording labels and disable rules now reflect runtime state.
+- [x] **Safe-stop observability improved**:
+  - start/stop and safe-stop phase logs are now emitted explicitly in dashboard flow.
+- [x] **Plot zoom persistence restored**:
+  - stable `uirevision` keys added to status plots and preview figures.
+- [x] **Regression verification pass completed**:
+  - transport switch flow still safe-stops both and clears recording/cache as designed,
+  - immediate start setpoint send and API stale cutoff logic retained,
+  - dual-plant recording/posting contracts unchanged.
+
+### Dual-Plant Parallel Control Refactor (2026-02-19)
+- [x] **Plant-centric configuration schema**: Added canonical `plants.lib` / `plants.vrfb` with `model`, `modbus.local`, `modbus.remote`, and `measurement_series`.
+- [x] **Global selectors with per-plant execution**:
+  - global `active_schedule_source`
+  - global `transport_mode`
+  - per-plant scheduler gates via `scheduler_running_by_plant`.
+- [x] **Per-plant schedule storage**:
+  - `manual_schedule_df_by_plant`
+  - `api_schedule_df_by_plant`.
+- [x] **API dual schedule parsing**:
+  - `istentore_api.get_day_ahead_schedules(...)` returns `{'lib': ..., 'vrfb': ...}`.
+  - LIB and VRFB setpoints are ingested from one API response.
+- [x] **Scheduler parallel dispatch**:
+  - maintains per-plant clients and setpoint caches,
+  - applies API stale cutoff independently per plant.
+- [x] **Dual local emulation**:
+  - `plant_agent.py` now hosts both LIB and VRFB local servers concurrently.
+- [x] **Per-plant recording + cache**:
+  - `measurements_filename_by_plant`
+  - `current_file_path_by_plant`
+  - `current_file_df_by_plant`.
+- [x] **Per-plant API measurement posting**:
+  - posts SoC/P/Q/V using logical plant measurement series (`lib`/`vrfb`).
+- [x] **Dashboard dual-plant rendering**:
+  - stacked LIB + VRFB cards,
+  - per-plant Start/Stop and Record/Stop,
+  - separate plots for each plant scale,
+  - global transport toggle with confirmation/safe-stop switch flow.
+- [x] **Memory bank updated**:
+  - `systemPatterns.md`, `techContext.md`, `activeContext.md`, `progress.md` updated with new runtime contract.
+
 ### API Payload Hardening for Measurement Posting (2026-02-19)
 - [x] **Explicit conversion pipeline preserved**: API posting still uses SoC->kWh, P->W, Q->VAr, V->V conversions.
 - [x] **Conversion helper refactor**: Conversion logic moved into dedicated helpers for clearer maintenance and reduced duplication.

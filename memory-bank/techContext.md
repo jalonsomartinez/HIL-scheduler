@@ -21,6 +21,41 @@
 
 ## Architecture Patterns
 
+### Dual-Plant Runtime Contract (2026-02-19)
+
+- Config loader now exposes canonical plant-centric runtime keys:
+  - `PLANTS`: nested dict keyed by `lib` and `vrfb`
+  - `PLANT_IDS`: `('lib', 'vrfb')`
+  - `STARTUP_TRANSPORT_MODE`: global startup transport (`local`/`remote`)
+- `config.yaml` canonical schema is now:
+  - `startup.transport_mode`
+  - `plants.lib` and `plants.vrfb` with:
+    - `model`
+    - `modbus.local` and `modbus.remote`
+    - `measurement_series`
+- Legacy compatibility remains for one transition cycle:
+  - old top-level `modbus_local`/`modbus_remote` and `measurement_series_by_plant` are translated into `PLANTS` with warnings.
+- Shared runtime state is per-plant for schedule/recording/plot caches:
+  - `manual_schedule_df_by_plant`
+  - `api_schedule_df_by_plant`
+  - `scheduler_running_by_plant`
+  - `plant_transition_by_plant`
+  - `measurements_filename_by_plant`
+  - `current_file_path_by_plant`
+  - `current_file_df_by_plant`
+
+### Dashboard Runtime UX Contract (2026-02-19)
+
+- `dashboard_agent.py` now uses four tabs (`Status & Plots`, `Manual Schedule`, `API Schedule`, `Logs`).
+- Logs UI contract:
+  - `log-file-selector` options refreshed from `logs/*.log`,
+  - `logs-display` shows either live session logs or parsed historical file content.
+- Schedule source UI contract:
+  - source toggle is modal-confirmed via `schedule-switch-modal`,
+  - confirm path safe-stops both plants before backend source update.
+- Plot persistence contract:
+  - Plotly `layout.uirevision` is set for both plant charts and preview graphs to preserve zoom/pan across interval refreshes.
+
 ### Timezone Utilities and Conventions (2026-02-17)
 
 - New module: [`time_utils.py`](time_utils.py)

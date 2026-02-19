@@ -1,7 +1,74 @@
 # Active Context: HIL Scheduler
 
 ## Current Focus
-API-mode measurement posting with independent fixed cadence (default 60s), UTC-ISO payload timestamps, per-plant series mapping, and bounded retry queue behavior decoupled from CSV recording.
+Dual logical plant parallel operation (LIB + VRFB) with global source/transport selection and per-plant controls/recording/plots.
+
+## Recent Changes (2026-02-19) - Dashboard Regression Recovery + Safety Hardening
+
+### Overview
+Recovered dashboard functionality lost during the dual-plant migration and hardened plant-control safety/state UX.
+
+### Key Behavior Changes
+- Logs tab restored as a fourth dashboard tab with:
+  - current-session live stream from `shared_data['session_logs']`,
+  - historical file selection from `logs/*.log`.
+- Added global schedule-source switch confirmation modal:
+  - switching source now safe-stops both plants before applying the new source,
+  - recording is preserved during source switching.
+- Added per-plant transition runtime state:
+  - `plant_transition_by_plant[plant_id]` with `starting|running|stopping|stopped|unknown`.
+- Start/Stop/Record controls are now stateful per plant:
+  - button labels and disabled states reflect runtime transitions and recording activity.
+- Safe-stop logging expanded:
+  - explicit logs for scheduler gate-off, zero setpoint write, decay wait, disable result, and final outcome.
+- Plot zoom/pan persistence restored with stable Plotly `uirevision` keys:
+  - per-plant status plots keyed by `plant_id + source + transport`,
+  - stable keys for manual and API preview figures.
+
+### Files Modified
+1. `dashboard_agent.py`
+2. `hil_scheduler.py`
+3. `assets/custom.css`
+
+## Recent Changes (2026-02-19) - Dual-Plant Parallel Refactor
+
+### Overview
+Implemented the dual logical plant architecture requested for concurrent LIB and VRFB operation across config, runtime state, API ingestion, scheduler, plant emulation, measurement posting/recording, and dashboard controls.
+
+### Key Behavior Changes
+- Configuration is now plant-centric under `plants.lib` and `plants.vrfb`.
+- Global runtime selectors:
+  - `active_schedule_source` (`manual`/`api`)
+  - `transport_mode` (`local`/`remote`)
+- Per-plant runtime control:
+  - independent `Start/Stop` scheduler gate via `scheduler_running_by_plant`
+  - independent `Record/Stop` via `measurements_filename_by_plant`
+- Local mode now emulates both plants simultaneously (two Modbus servers).
+- Data fetcher now parses and stores both API schedules from one market response:
+  - LIB and VRFB net powers in separate per-plant dataframes.
+- Scheduler now dispatches setpoints to LIB and VRFB in parallel.
+- Measurement agent now:
+  - reads both plants each measurement step,
+  - maintains independent recording session boundaries per plant,
+  - maintains independent per-plant plot caches,
+  - posts API measurements by logical plant series IDs (LIB/VRFB).
+- Dashboard now:
+  - uses global schedule-source toggle,
+  - uses global transport toggle with confirmation modal and safe-stop flow,
+  - renders stacked LIB and VRFB cards with independent controls and separate plots,
+  - supports plant-specific manual schedule editing.
+
+### Files Modified
+1. `config.yaml`
+2. `config_loader.py`
+3. `hil_scheduler.py`
+4. `istentore_api.py`
+5. `data_fetcher_agent.py`
+6. `scheduler_agent.py`
+7. `plant_agent.py`
+8. `measurement_agent.py`
+9. `dashboard_agent.py`
+10. `assets/custom.css`
 
 ## Recent Changes (2026-02-19) - API Payload Hardening + Conversion Refactor
 
