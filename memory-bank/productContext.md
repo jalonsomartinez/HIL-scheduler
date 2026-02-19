@@ -1,113 +1,62 @@
 # Product Context: HIL Scheduler
 
-## Why This Project Exists
+## Why This Exists
+The system closes the operational gap between market/control schedules and plant-level setpoint execution for two battery assets. It allows hardware-in-the-loop operation with equivalent control flows in local emulation and remote transport.
 
-This application serves as a **Hardware-in-the-Loop (HIL) scheduler** for testing and operating grid-connected battery energy storage systems. It bridges the gap between high-level power schedules and low-level battery control systems.
+## Primary Users
+1. Operators running live tests and needing safe controls.
+2. Engineers validating schedule logic, telemetry, and API integration.
 
-## Problems It Solves
+## Core User Outcomes
+1. Start and stop dispatch safely per plant.
+2. Record clean per-plant measurement sessions without mixed datasets.
+3. Switch schedule source or transport mode with guarded transitions.
+4. See real-time status for schedule freshness and API posting health.
 
-### 1. Schedule Execution Gap
-Power schedules often come in coarse time resolutions (e.g., 5-minute intervals from grid operators), but batteries need continuous setpoint updates. The scheduler:
-- Interpolates coarse schedules to 1-minute resolution
-- Further interpolates to 1-second execution granularity
-- Ensures smooth power transitions
+## Product Behavior
+### Scheduling
+- Manual schedules are prepared per plant from random generation or CSV upload.
+- API schedules are fetched per plant from one market response.
+- A global source selector chooses whether scheduler dispatch reads manual or API maps.
 
-### 2. Safe Battery Operation
-Batteries have strict operational boundaries:
-- **SoC Limits**: Prevents over-charging (>capacity) and over-discharging (<0)
-- **Power Limiting**: Automatically limits power when SoC boundaries would be exceeded
-- **Warning System**: Logs warnings when power limiting occurs
+### Dispatch
+- Dispatch enable is per plant through `scheduler_running_by_plant`.
+- Start enables plant and applies immediate setpoint selection.
+- Stop executes safe-stop flow (gate off, zero setpoints, decay wait, disable).
 
-### 3. Testing Without Hardware
-The local emulation mode allows:
-- Testing schedules without physical battery hardware
-- Safe development and validation of control algorithms
-- Simulation of different battery capacities and initial SoC states
+### Recording
+- Recording enable is per plant through `measurements_filename_by_plant`.
+- Measurement agent owns boundary insertion, buffering, and flushes.
+- Rows are routed by row timestamp to daily per-plant files.
 
-### 4. Real-time Monitoring
-The dashboard provides:
-- Live visualization of scheduled vs actual power
-- Battery State of Charge tracking
-- Start/Stop controls for immediate intervention
-- Status indicators for operational state
+### Observability
+- API tab shows fetch status (today/tomorrow) plus measurement posting telemetry.
+- Logs tab exposes live session logs and selectable historical log files.
 
-## How It Works
+## UX Intent
+1. Clear separation between dispatch control and recording control.
+2. Explicit transition states (`starting`, `running`, `stopping`, `stopped`, `unknown`).
+3. Safe confirmation flows before global source/transport changes.
+4. Stable plot interactions during periodic refresh.
 
-```mermaid
-flowchart TD
-    subgraph Data["Data Layer"]
-        CSV[schedule_source.csv]
-        MEAS[measurements.csv]
-    end
-    
-    subgraph Agents["Agent Threads"]
-        DF[data_fetcher_agent]
-        SCH[scheduler_agent]
-        PPC[ppc_agent]
-        BAT[battery_agent]
-        MEASAGENT[measurement_agent]
-        DIR[hil_scheduler director]
-    end
-    
-    subgraph Communication["Modbus TCP"]
-        PPC_SERVER[PPC Modbus Server]
-        BAT_SERVER[Battery Modbus Server]
-    end
-    
-    subgraph External["External Systems"]
-        REAL_PPC[Real PPC Hardware]
-        REAL_BAT[Real Battery]
-    end
-    
-    CSV --> DF
-    DF -->|schedule_final_df| SCH
-    SCH -->|power setpoint| PPC_SERVER
-    PPC -->|forward setpoint| BAT_SERVER
-    BAT -->|SoC & actual power| BAT_SERVER
-    MEASAGENT -->|read all| MEAS
-    MEASAGENT -->|log data| MEAS
-    
-    PPC_SERVER -.->|if remote| REAL_PPC
-    BAT_SERVER -.->|if remote| REAL_BAT
-    
-    DIR -->|starts/stops| Agents
-```
+## Critical Workflows
+### Start Plant Dispatch
+1. User starts plant card.
+2. Dashboard sets transition to `starting`, enables plant, and sends immediate setpoint.
+3. Scheduler loop continues dispatch while the plant gate is true.
+4. Transition resolves to `running` on observed plant state.
 
-## User Experience Goals
+### Stop Plant Dispatch
+1. User stops plant card.
+2. Dashboard executes safe-stop helper.
+3. Helper returns `{threshold_reached, disable_ok}` and transition resolves accordingly.
 
-### For Operators
-1. **Simple Controls**: Separate scheduler Start/Stop and recording Record/Stop controls
-2. **Clear Visualization**: Step-function graphs showing power setpoints
-3. **Status Awareness**: Clear indication of running/stopped state
-4. **Data Accessibility**: CSV files for post-run analysis
+### Switch Global Source or Transport
+1. User confirms switch in modal.
+2. Dashboard safely stops both plants.
+3. Dashboard updates global selector and clears switching flag.
 
-### For Developers
-1. **Configurable Parameters**: All timing, power limits, and Modbus settings in config.py
-2. **Clear Logging**: Structured logging for debugging multi-threaded issues
-3. **Modular Agents**: Each agent is self-contained and can be tested independently
-4. **Safe Defaults**: Conservative battery limits to prevent simulation errors
-
-## Key Workflows
-
-### Starting a Schedule Run
-1. Director starts all agent threads
-2. Data Fetcher generates random schedule and writes to CSV
-3. Dashboard launches and waits for user to click Start
-4. User clicks Start → Dashboard enables selected plant, sends latest schedule setpoint immediately, and sets `scheduler_running=True`
-5. Scheduler begins/continues sending schedule setpoints while `scheduler_running=True`
-6. Battery applies setpoints and tracks SoC
-7. Measurement Agent logs continuously, independent of scheduler start/stop
-
-### Emergency Stop
-1. User clicks Stop on dashboard
-2. Dashboard sets `scheduler_running=False` and sends 0 kW / 0 kvar setpoints
-3. Dashboard waits until measured battery active and reactive powers are both below 1.0
-4. Dashboard disables the plant (force-disable after timeout with warning)
-5. Measurement continues logging unless user also stops recording
-
-### Recording Workflow
-1. User clicks Record in the plot card
-2. Dashboard sets daily per-plant target filename (`data/YYYYMMDD_plantname.csv`)
-3. Measurement agent inserts null/session boundaries and buffers timestamp-routed rows
-4. Measurement agent flushes buffered rows periodically (`measurements_write_period_s`)
-5. User clicks recording Stop to append trailing null, flush pending rows, and stop recording
+### Record Session
+1. User sets recording on for one plant.
+2. Measurement agent writes null/session boundaries and measurement rows.
+3. User stops recording; trailing boundary and forced flush complete session.

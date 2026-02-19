@@ -1,119 +1,123 @@
 # Memory Bank
 
-I am an expert software engineer with a unique characteristic: my memory resets completely between sessions. This isn't a limitation - it's what drives me to maintain perfect documentation. After each reset, I rely ENTIRELY on my Memory Bank to understand the project and continue work effectively. I MUST read ALL memory bank files at the start of EVERY task - this is not optional. The files are located in the `memory-bank/` folder
+I am an expert software engineer with a unique characteristic: my memory resets completely between sessions. After each reset, I rely entirely on the Memory Bank to understand the project and continue work effectively.
 
-## Memory Bank Structure
+## Active vs Archive
 
-The Memory Bank consists of core files and optional context files, all in Markdown format. Files build upon each other in a clear hierarchy:
-
-flowchart TD
-    PB[projectbrief.md] --> PC[productContext.md]
-    PB --> SP[systemPatterns.md]
-    PB --> TC[techContext.md]
-
-    PC --> AC[activeContext.md]
-    SP --> AC
-    TC --> AC
-
-    AC --> P[progress.md]
-
-### Core Files (Required)
+### Active Memory (always load at task start)
+Load only these files from `memory-bank/` at the start of every task:
 1. `projectbrief.md`
-   - Foundation document that shapes all other files
-   - Created at project start if it doesn't exist
-   - Defines core requirements and goals
-   - Source of truth for project scope
+2. `productContext.md`
+3. `systemPatterns.md`
+4. `techContext.md`
+5. `activeContext.md`
+6. `progress.md`
+7. `roadmap.md`
+
+### Archive Memory (load on demand)
+Historical material is stored in `docs/memory-archive/`.
+- Archive files are not auto-loaded.
+- Load archive files only when the user asks for history, forensic context, or deep backtracking.
+
+## File Purpose and Size Budgets
+
+1. `projectbrief.md` (target <= 600 words)
+- Scope, goals, success criteria, hard constraints.
+
+2. `productContext.md` (target <= 900 words)
+- Why the product exists, user workflows, UX intent.
+
+3. `systemPatterns.md` (target <= 1500 words)
+- Canonical runtime contracts, state model, and operational patterns.
+
+4. `techContext.md` (target <= 1400 words)
+- Stack, configuration schema, module responsibilities, operational constraints.
+
+5. `activeContext.md` (target <= 1200 words)
+- Current focus, open risks/decisions, compressed rolling change log.
+
+6. `progress.md` (target <= 1500 words)
+- Compact status board: working now, in progress, next, known issues.
+
+7. `roadmap.md` (target <= 800 words)
+- Prioritized forward plan.
+
+## Required Section Templates
+
+Use these templates when updating active memory files:
+
+1. `projectbrief.md`
+- `Overview`
+- `Core Goals`
+- `Runtime Model`
+- `In Scope`
+- `Hard Constraints`
+- `Success Criteria`
 
 2. `productContext.md`
-   - Why this project exists
-   - Problems it solves
-   - How it should work
-   - User experience goals
+- `Why This Exists`
+- `Primary Users`
+- `Core User Outcomes`
+- `Product Behavior`
+- `UX Intent`
+- `Critical Workflows`
 
-3. `activeContext.md`
-   - Current work focus
-   - Recent changes
-   - Next steps
-   - Active decisions and considerations
-   - Important patterns and preferences
-   - Learnings and project insights
+3. `systemPatterns.md`
+- `Canonical Runtime Contracts`
+- `Authoritative Shared State`
+- `Agent Responsibilities`
+- `Operational Patterns`
+- `Time and Timestamp Conventions`
+- `Locking Discipline`
 
-4. `systemPatterns.md`
-   - System architecture
-   - Key technical decisions
-   - Design patterns in use
-   - Component relationships
-   - Critical implementation paths
+4. `techContext.md`
+- `Technology Stack`
+- `Repository Runtime Modules`
+- `Configuration Schema`
+- `Runtime Contracts Exposed by Config Loader`
+- `Modbus and Unit Conventions`
+- `Logging Behavior`
+- `Operational Constraints`
 
-5. `techContext.md`
-   - Technologies used
-   - Development setup
-   - Technical constraints
-   - Dependencies
-   - Tool usage patterns
+5. `activeContext.md`
+- `Current Focus (Now)`
+- `Open Decisions and Risks`
+- `Rolling Change Log (Compressed, 30-Day Window)`
 
 6. `progress.md`
-   - What works
-   - What's left to build
-   - Current status
-   - Known issues
-   - Evolution of project decisions
+- `Working Now`
+- `In Progress`
+- `Next`
+- `Known Issues / Gaps`
+- `Current Project Phase`
 
-### Additional Context
-Create additional files/folders within memory-bank/ when they help organize:
-- Complex feature documentation
-- Integration specifications
-- API documentation
-- Testing strategies
-- Deployment procedures
+7. `roadmap.md`
+- `Goal`
+- `Priority Order`
+- `Exit Criteria for Current Phase`
 
-## Core Workflows
+## Retention Policy
 
-### Plan Mode
-flowchart TD
-    Start[Start] --> ReadFiles[Read Memory Bank]
-    ReadFiles --> CheckFiles{Files Complete?}
-
-    CheckFiles -->|No| Plan[Create Plan]
-    Plan --> Document[Document in Chat]
-
-    CheckFiles -->|Yes| Verify[Verify Context]
-    Verify --> Strategy[Develop Strategy]
-    Strategy --> Present[Present Approach]
-
-### Act Mode
-flowchart TD
-    Start[Start] --> Context[Check Memory Bank]
-    Context --> Update[Update Documentation]
-    Update --> Execute[Execute Task]
-    Execute --> Document[Document Changes]
+- Active memory keeps current truth plus a compressed rolling 30-day log.
+- Historical narratives older than 30 days move to `docs/memory-archive/`.
+- Historical details are archived, not deleted.
 
 ## Documentation Updates
 
-Memory Bank updates occur when:
-1. Discovering new project patterns
-2. After implementing significant changes
-3. When user requests with **update memory bank** (MUST review ALL files)
-4. When context needs clarification
+Update active memory when:
+1. New runtime patterns are introduced.
+2. Significant behavior changes are merged.
+3. The user requests **update memory bank**.
+4. Current state or next steps are unclear.
 
-flowchart TD
-    Start[Update Process]
+When user requests **update memory bank**:
+1. Review all active memory files.
+2. Reconcile docs with current code/config reality.
+3. Compress drift/noise and archive stale narrative content.
+4. Refresh `activeContext.md`, `progress.md`, and `roadmap.md` first.
 
-    subgraph Process
-        P1[Review ALL Files]
-        P2[Document Current State]
-        P3[Clarify Next Steps]
-        P4[Document Insights & Patterns]
+When user requests **update mb & git**:
+- Perform the same full memory update.
+- Then commit and sync git once for that request.
 
-        P1 --> P2 --> P3 --> P4
-    end
-
-    Start --> Process
-
-Note: When triggered by **update memory bank**, I MUST review every memory bank file, even if some don't require updates. Focus particularly on activeContext.md and progress.md as they track current state.
-
-Note2: When user requests **update mb & git** I will perform a full update as if **update memory bank** was requested, and I will also **commit & sync git**.
-
-Note3: I will never automatically commit or sync git without explicit orders. If I'm asked to do it, I will do it only that one time unless I'm asked later to do it again expliticly.
-
-REMEMBER: After every memory reset, I begin completely fresh. The Memory Bank is my only link to previous work. It must be maintained with precision and clarity, as my effectiveness depends entirely on its accuracy.
+I never commit or sync git unless explicitly asked.

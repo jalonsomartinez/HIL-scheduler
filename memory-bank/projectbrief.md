@@ -1,46 +1,42 @@
 # Project Brief: HIL Scheduler
 
 ## Overview
-The HIL Scheduler is an agent-based Python application that acts as a real-time power schedule executor for grid-connected battery systems. It reads power setpoint schedules and executes them in real-time, sending all setpoint changes to a grid-connected battery.
+HIL Scheduler is a multi-agent Python application that executes active and reactive power setpoints for two logical battery plants (`lib` and `vrfb`) using Modbus TCP. It supports local emulation and remote hardware transport, with a real-time dashboard for control and observability.
 
-## Core Requirements
+## Core Goals
+1. Execute schedule setpoints at the configured scheduler cadence.
+2. Maintain safe SoC-constrained battery behavior in local emulation.
+3. Support manual and API schedule sources with controlled switching.
+4. Record measurement sessions per plant/day for traceability.
+5. Surface operational and API posting health in the dashboard.
 
-### Primary Purpose
-- Read power setpoint schedules from CSV files
-- Execute schedules in real-time with second-level precision
-- Interface with battery systems via Modbus TCP protocol
-- Provide real-time monitoring through a web-based dashboard
+## Runtime Model
+- Logical plants: `lib`, `vrfb`.
+- Global selectors:
+  - `active_schedule_source`: `manual` or `api`.
+  - `transport_mode`: `local` or `remote`.
+- Per-plant controls:
+  - dispatch gate via `scheduler_running_by_plant[plant_id]`.
+  - recording gate via `measurements_filename_by_plant[plant_id]`.
 
-### Functional Goals
-1. **Schedule Management**: Generate and interpolate power schedules (5-min to 1-min resolution)
-2. **Real-time Execution**: Execute power setpoints at the correct time
-3. **Battery Simulation**: Track State of Charge (SoC) and apply power limits
-4. **Data Logging**: Record all measurements to CSV for analysis
-5. **Visualization**: Provide live dashboard with independent scheduler and recording controls
+## In Scope
+- Threaded agents: director, data fetcher, scheduler, plant emulator, measurement, dashboard.
+- Day-ahead API schedule ingestion and stale-setpoint guardrails.
+- Per-plant Modbus endpoint management for local and remote modes.
+- CSV measurement persistence and in-memory plot caches.
+- API measurement posting with retry queue and observability state.
 
-### Operating Modes
-- **Local Emulation Mode**: Runs PPC and Battery as local Modbus servers (for testing)
-- **Remote Hardware Mode**: Connects to real battery hardware via Modbus TCP
-
-## Project Scope
-
-### In Scope
-- Multi-threaded agent architecture
-- Modbus TCP communication layer
-- Schedule generation and interpolation
-- Battery SoC tracking with boundary protection
-- Real-time dashboard with Plotly/Dash
-- CSV-based data persistence
-
-### Key Constraints
-- Power range: -1000 kW to +1000 kW
-- Default battery capacity: 50 kWh (configurable)
-- Default schedule duration: 0.5 hours (configurable)
-- Modbus register size: 16-bit unsigned (requires conversion for signed values)
+## Hard Constraints
+- Power registers are 16-bit signed values encoded through two's complement (hW scale).
+- Local emulation runs one Modbus server per logical plant simultaneously.
+- Plant model limits come from `config.yaml`:
+  - `lib`: 500 kWh, P +/-1000 kW, Q +/-600 kvar.
+  - `vrfb`: 3000 kWh, P +/-3000 kW, Q +/-1200 kvar.
+- Timestamps are timezone-aware in configured timezone (`time.timezone`).
 
 ## Success Criteria
-1. Accurate schedule execution with 1-second resolution
-2. Proper battery SoC tracking and limit enforcement
-3. Successful Modbus communication with both local and remote hardware
-4. Functional dashboard with real-time updates
-5. Complete data logging for post-analysis
+1. Correct per-plant dispatch from selected schedule source.
+2. Safe start/stop flows with explicit transition states.
+3. Reliable per-plant recording files (`data/YYYYMMDD_<plant>.csv`).
+4. Accurate API status (today/tomorrow windows, stale cutoff behavior).
+5. Actionable dashboard visibility for API posting success/failure/queue state.
