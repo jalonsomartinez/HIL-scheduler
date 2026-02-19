@@ -1,49 +1,31 @@
 # HIL Scheduler Configuration
-# This file contains all configuration parameters for the HIL Scheduler application
 
-# General Settings
 general:
   log_level: INFO
 
-# Timezone Configuration
 time:
   timezone: "Europe/Madrid"
 
-# Schedule Settings
 schedule:
   source_csv: "schedule_source.csv"
   duration_h: 0.5
   default_resolution_min: 5
 
-# Startup Configuration
 startup:
-  schedule_source: "manual"    # Options: "manual" or "api"
-  plant: "local"               # Options: "local" or "remote"
+  schedule_source: "manual"    # manual | api
+  transport_mode: "local"      # local | remote
 
-# Istentore API Configuration
 istentore_api:
   base_url: "https://3mku48kfxf.execute-api.eu-south-2.amazonaws.com/default"
   email: "i-STENTORE"
-  poll_start_time: "17:30"  # When to start polling for tomorrow's schedule (HH:MM)
-  schedule_period_minutes: 15  # API setpoint validity window before stale fallback to zero
+  poll_start_time: "17:30"
+  schedule_period_minutes: 15
   post_measurements_in_api_mode: true
   measurement_post_period_s: 60
   measurement_post_queue_maxlen: 2000
   measurement_post_retry_initial_s: 2
   measurement_post_retry_max_s: 60
-  measurement_series_by_plant:
-    local:
-      soc: 4  # Set to null to disable posting this variable
-      p: 6
-      q: 7
-      v: 8
-    remote:
-      soc: 4
-      p: 6
-      q: 7
-      v: 8
 
-# Timing Configuration
 timing:
   data_fetcher_period_s: 120
   scheduler_period_s: 2
@@ -51,7 +33,6 @@ timing:
   measurement_period_s: 2
   measurements_write_period_s: 60
 
-# Recording Configuration
 recording:
   compression:
     enabled: true
@@ -65,64 +46,91 @@ recording:
       q_poi_kvar: 0.1
       v_poi_pu: 0.001
 
-# Plant Configuration
-plant:
-  capacity_kwh: 500.0
-  initial_soc_pu: 0.5
-  
-  # Power limits for the battery
-  power_limits:
-    p_max_kw: 1000.0    # Maximum active power (kW)
-    p_min_kw: -1000.0   # Minimum active power (kW, negative for charging)
-    q_max_kvar: 600.0   # Maximum reactive power (kvar)
-    q_min_kvar: -600.0  # Minimum reactive power (kvar)
-  
-  # POI voltage (fixed value, no impedance model)
-  poi_voltage_v: 20000.0  # POI voltage in Volts (20 kV)
+plants:
+  lib:
+    name: "LIB"
+    model:
+      capacity_kwh: 500.0
+      initial_soc_pu: 0.5
+      power_limits:
+        p_max_kw: 1000.0
+        p_min_kw: -1000.0
+        q_max_kvar: 600.0
+        q_min_kvar: -600.0
+      poi_voltage_v: 20000.0
+    modbus:
+      local:
+        host: "localhost"
+        port: 5020
+        registers:
+          p_setpoint_in: 86
+          p_poi: 290
+          p_battery: 270
+          q_setpoint_in: 88
+          q_poi: 292
+          q_battery: 272
+          v_poi: 296
+          enable: 1
+          soc: 281
+      remote:
+        host: "10.117.133.21"
+        port: 502
+        registers:
+          p_setpoint_in: 86
+          p_poi: 290
+          p_battery: 270
+          q_setpoint_in: 88
+          q_poi: 292
+          q_battery: 272
+          v_poi: 296
+          enable: 1
+          soc: 281
+    measurement_series:
+      soc: 4
+      p: 6
+      q: 7
+      v: 8
 
-# Modbus Configuration - Local Plant (Emulated)
-modbus_local:
-  host: "localhost"
-  port: 5020
-  name: "local"
-  description: "Local emulated plant running in plant_agent"
-
-  # Register Map (all 16-bit registers)
-  registers:
-    # Active Power
-    p_setpoint_in: 86        # 16-bit signed: Active power setpoint from scheduler (hW)
-    p_poi: 290               # 16-bit signed: Active power at POI (hW)
-    p_battery: 270           # 16-bit signed: Actual battery active power after SoC limiting (hW)
-    # Reactive Power
-    q_setpoint_in: 88        # 16-bit signed: Reactive power setpoint from scheduler (hW)
-    q_poi: 292               # 16-bit signed: Reactive power at POI (hW)
-    q_battery: 272           # 16-bit signed: Actual battery reactive power (hW)
-    # Voltage
-    v_poi: 296               # 16-bit unsigned: Voltage at POI (per-unit x100) 
-    # Control and Status
-    enable: 1                # 16-bit: Enable flag (0=disabled, 1=enabled)
-    soc: 281                 # 16-bit unsigned: State of Charge (per-unit x10000)
-    
-
-# Modbus Configuration - Remote Plant (RTDS HIL) 
-modbus_remote:
-  host: "10.117.133.21"
-  port: 502
-  name: "remote"
-  description: "Remote HIL plant"
-
-  # Register Map
-  registers:
-    # Active Power
-    p_setpoint_in: 86       # 16-bit signed: Active power setpoint from scheduler (hW) (SP)
-    p_poi: 290              # 16-bit signed: Active power at POI (hW) (MEDIDA)
-    p_battery: 270          # 16-bit signed: Actual battery active power after SoC limiting (hW) (MEDIDA)
-    # Reactive Power
-    q_setpoint_in: 88       # 16-bit signed: Reactive power setpoint from scheduler (hW) (SP)
-    q_poi: 292              # 16-bit signed: Reactive power at POI (hW) (MEDIDA)
-    q_battery: 272          # 16-bit signed: Actual battery reactive power (hW) (MEDIDA)
-    # Voltage
-    v_poi: 296              # 16-bit unsigned: Voltage at POI (per-unit x100) (MEDIDA)
-    # Control and Status
-    enable: 1               # 16-bit: Enable flag (0=disabled, 1=enabled)
-    soc: 281                # 16-bit unsigned: State of Charge (per-unit x10000) (MEDIDA)
+  vrfb:
+    name: "VRFB"
+    model:
+      capacity_kwh: 3000.0
+      initial_soc_pu: 0.5
+      power_limits:
+        p_max_kw: 3000.0
+        p_min_kw: -3000.0
+        q_max_kvar: 1200.0
+        q_min_kvar: -1200.0
+      poi_voltage_v: 20000.0
+    modbus:
+      local:
+        host: "localhost"
+        port: 5021
+        registers:
+          p_setpoint_in: 86
+          p_poi: 290
+          p_battery: 270
+          q_setpoint_in: 88
+          q_poi: 292
+          q_battery: 272
+          v_poi: 296
+          enable: 1
+          soc: 281
+      remote:
+        host: "10.117.133.22"
+        port: 502
+        registers:
+          p_setpoint_in: 86
+          p_poi: 290
+          p_battery: 270
+          q_setpoint_in: 88
+          q_poi: 292
+          q_battery: 272
+          v_poi: 296
+          enable: 1
+          soc: 281
+    measurement_series:
+      soc: 5
+      p: 11
+      q: 10
+      v: 9

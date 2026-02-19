@@ -1,15 +1,14 @@
-"""
-Configuration loader module for HIL Scheduler.
-Loads configuration from YAML file and provides it as a flat dictionary.
-"""
+"""Configuration loader for HIL Scheduler."""
 
-import yaml
 import logging
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import yaml
 
+
+DEFAULT_TIMEZONE_NAME = "Europe/Madrid"
 DEFAULT_MEASUREMENT_COMPRESSION_TOLERANCES = {
     "p_setpoint_kw": 0.0,
     "battery_active_power_kw": 0.1,
@@ -20,282 +19,451 @@ DEFAULT_MEASUREMENT_COMPRESSION_TOLERANCES = {
     "q_poi_kvar": 0.1,
     "v_poi_pu": 0.001,
 }
-DEFAULT_TIMEZONE_NAME = "Europe/Madrid"
+DEFAULT_REGISTERS = {
+    "p_setpoint_in": 86,
+    "p_battery": 270,
+    "q_setpoint_in": 88,
+    "q_battery": 272,
+    "enable": 1,
+    "soc": 281,
+    "p_poi": 290,
+    "q_poi": 292,
+    "v_poi": 296,
+}
+DEFAULT_MODEL = {
+    "capacity_kwh": 50.0,
+    "initial_soc_pu": 0.5,
+    "power_limits": {
+        "p_max_kw": 1000.0,
+        "p_min_kw": -1000.0,
+        "q_max_kvar": 600.0,
+        "q_min_kvar": -600.0,
+    },
+    "poi_voltage_v": 20000.0,
+}
+
+
+def _parse_bool(value, default):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ["1", "true", "yes", "on"]
+    if value is None:
+        return default
+    return bool(value)
+
+
+def _parse_float(value, default, key_name, min_value=None):
+    try:
+        result = float(value)
+        if min_value is not None and result < min_value:
+            raise ValueError("below minimum")
+        return result
+    except (TypeError, ValueError):
+        logging.warning("Invalid %s='%s'. Using default %s.", key_name, value, default)
+        return default
+
+
+def _parse_int(value, default, key_name, min_value=None):
+    try:
+        result = int(value)
+        if min_value is not None and result < min_value:
+            raise ValueError("below minimum")
+        return result
+    except (TypeError, ValueError):
+        logging.warning("Invalid %s='%s'. Using default %s.", key_name, value, default)
+        return default
+
+
+def _parse_timezone(timezone_name):
+    try:
+        ZoneInfo(timezone_name)
+        return timezone_name
+    except (ZoneInfoNotFoundError, TypeError, ValueError):
+        logging.warning(
+            "Invalid time.timezone='%s'. Using default '%s'.",
+            timezone_name,
+            DEFAULT_TIMEZONE_NAME,
+        )
+        return DEFAULT_TIMEZONE_NAME
+
+
+def _normalize_registers(raw_registers, prefix):
+    registers = {}
+    for key, default in DEFAULT_REGISTERS.items():
+        registers[key] = _parse_int(raw_registers.get(key, default), default, f"{prefix}.registers.{key}")
+    return registers
+
+
+def _normalize_model(raw_model, prefix):
+    power_limits_raw = raw_model.get("power_limits", {})
+    defaults = DEFAULT_MODEL["power_limits"]
+    model = {
+        "capacity_kwh": _parse_float(
+            raw_model.get("capacity_kwh", DEFAULT_MODEL["capacity_kwh"]),
+            DEFAULT_MODEL["capacity_kwh"],
+            f"{prefix}.model.capacity_kwh",
+            min_value=0.0,
+        ),
+        "initial_soc_pu": _parse_float(
+            raw_model.get("initial_soc_pu", DEFAULT_MODEL["initial_soc_pu"]),
+            DEFAULT_MODEL["initial_soc_pu"],
+            f"{prefix}.model.initial_soc_pu",
+        ),
+        "power_limits": {
+            "p_max_kw": _parse_float(
+                power_limits_raw.get("p_max_kw", defaults["p_max_kw"]),
+                defaults["p_max_kw"],
+                f"{prefix}.model.power_limits.p_max_kw",
+            ),
+            "p_min_kw": _parse_float(
+                power_limits_raw.get("p_min_kw", defaults["p_min_kw"]),
+                defaults["p_min_kw"],
+                f"{prefix}.model.power_limits.p_min_kw",
+            ),
+            "q_max_kvar": _parse_float(
+                power_limits_raw.get("q_max_kvar", defaults["q_max_kvar"]),
+                defaults["q_max_kvar"],
+                f"{prefix}.model.power_limits.q_max_kvar",
+            ),
+            "q_min_kvar": _parse_float(
+                power_limits_raw.get("q_min_kvar", defaults["q_min_kvar"]),
+                defaults["q_min_kvar"],
+                f"{prefix}.model.power_limits.q_min_kvar",
+            ),
+        },
+        "poi_voltage_v": _parse_float(
+            raw_model.get("poi_voltage_v", DEFAULT_MODEL["poi_voltage_v"]),
+            DEFAULT_MODEL["poi_voltage_v"],
+            f"{prefix}.model.poi_voltage_v",
+            min_value=0.0,
+        ),
+    }
+    return model
+
+
+def _normalize_series(raw_series, prefix, defaults):
+    result = {}
+    for key, default in defaults.items():
+        value = raw_series.get(key, default)
+        if value is None:
+            result[key] = None
+            continue
+        result[key] = _parse_int(value, default, f"{prefix}.measurement_series.{key}", min_value=1)
+    return result
+
+
+def _normalize_transport_endpoint(raw_endpoint, prefix, default_host, default_port):
+    endpoint = {
+        "host": str(raw_endpoint.get("host", default_host)),
+        "port": _parse_int(raw_endpoint.get("port", default_port), default_port, f"{prefix}.port", min_value=1),
+        "registers": _normalize_registers(raw_endpoint.get("registers", {}), prefix),
+    }
+    return endpoint
+
+
+def _normalize_plants_new_schema(yaml_config):
+    plants_raw = yaml_config.get("plants", {})
+    defaults_by_plant = {
+        "lib": {"soc": 4, "p": 6, "q": 7, "v": 8},
+        "vrfb": {"soc": 5, "p": 11, "q": 10, "v": 9},
+    }
+    plants = {}
+
+    for plant_id in ("lib", "vrfb"):
+        raw = plants_raw.get(plant_id, {})
+        if not raw:
+            logging.warning("Missing plants.%s section. Using defaults.", plant_id)
+
+        model = _normalize_model(raw.get("model", {}), f"plants.{plant_id}")
+        modbus_raw = raw.get("modbus", {})
+
+        local_endpoint = _normalize_transport_endpoint(
+            modbus_raw.get("local", {}),
+            f"plants.{plant_id}.modbus.local",
+            "localhost",
+            5020 if plant_id == "lib" else 5021,
+        )
+        remote_endpoint = _normalize_transport_endpoint(
+            modbus_raw.get("remote", {}),
+            f"plants.{plant_id}.modbus.remote",
+            "10.117.133.21" if plant_id == "lib" else "10.117.133.22",
+            502,
+        )
+
+        plants[plant_id] = {
+            "id": plant_id,
+            "name": str(raw.get("name", plant_id.upper())),
+            "model": model,
+            "modbus": {
+                "local": local_endpoint,
+                "remote": remote_endpoint,
+            },
+            "measurement_series": _normalize_series(
+                raw.get("measurement_series", {}),
+                f"plants.{plant_id}",
+                defaults_by_plant[plant_id],
+            ),
+        }
+
+    return plants
+
+
+def _build_legacy_plants(yaml_config):
+    logging.warning(
+        "Using legacy config schema. Please migrate to 'plants.lib'/'plants.vrfb' with startup.transport_mode."
+    )
+
+    legacy_model = _normalize_model(yaml_config.get("plant", {}), "plant")
+    modbus_local = yaml_config.get("modbus_local", {})
+    modbus_remote = yaml_config.get("modbus_remote", {})
+
+    local_ep = _normalize_transport_endpoint(modbus_local, "modbus_local", "localhost", 5020)
+    remote_ep = _normalize_transport_endpoint(modbus_remote, "modbus_remote", "10.117.133.21", 502)
+
+    series_root = yaml_config.get("istentore_api", {}).get("measurement_series_by_plant", {})
+    lib_series = _normalize_series(series_root.get("local", {}), "istentore_api.measurement_series_by_plant.local", {"soc": 4, "p": 6, "q": 7, "v": 8})
+    vrfb_series = _normalize_series(series_root.get("remote", {}), "istentore_api.measurement_series_by_plant.remote", {"soc": 5, "p": 11, "q": 10, "v": 9})
+
+    # Legacy had transport endpoints, not logical plant endpoints.
+    # For one-release compatibility we map:
+    # - LIB local/remote from legacy local/remote
+    # - VRFB local duplicated from legacy local with port fallback 5021
+    # - VRFB remote duplicated from legacy remote
+    vrfb_local = {
+        "host": local_ep["host"],
+        "port": local_ep["port"] + 1 if local_ep["port"] == 5020 else local_ep["port"],
+        "registers": dict(local_ep["registers"]),
+    }
+    vrfb_remote = {
+        "host": remote_ep["host"],
+        "port": remote_ep["port"],
+        "registers": dict(remote_ep["registers"]),
+    }
+
+    return {
+        "lib": {
+            "id": "lib",
+            "name": str(modbus_local.get("name", "LIB")),
+            "model": dict(legacy_model),
+            "modbus": {"local": local_ep, "remote": remote_ep},
+            "measurement_series": lib_series,
+        },
+        "vrfb": {
+            "id": "vrfb",
+            "name": "VRFB",
+            "model": dict(legacy_model),
+            "modbus": {"local": vrfb_local, "remote": vrfb_remote},
+            "measurement_series": vrfb_series,
+        },
+    }
+
+
+def _set_legacy_flat_keys(config, plants):
+    lib = plants["lib"]
+    vrfb = plants["vrfb"]
+
+    lib_local = lib["modbus"]["local"]
+    lib_remote = lib["modbus"]["remote"]
+
+    config["PLANT_CAPACITY_KWH"] = lib["model"]["capacity_kwh"]
+    config["PLANT_INITIAL_SOC_PU"] = lib["model"]["initial_soc_pu"]
+    config["PLANT_P_MAX_KW"] = lib["model"]["power_limits"]["p_max_kw"]
+    config["PLANT_P_MIN_KW"] = lib["model"]["power_limits"]["p_min_kw"]
+    config["PLANT_Q_MAX_KVAR"] = lib["model"]["power_limits"]["q_max_kvar"]
+    config["PLANT_Q_MIN_KVAR"] = lib["model"]["power_limits"]["q_min_kvar"]
+    config["PLANT_POI_VOLTAGE_V"] = lib["model"]["poi_voltage_v"]
+
+    config["PLANT_LOCAL_NAME"] = lib["name"]
+    config["PLANT_REMOTE_NAME"] = vrfb["name"]
+
+    config["PLANT_LOCAL_MODBUS_HOST"] = lib_local["host"]
+    config["PLANT_LOCAL_MODBUS_PORT"] = lib_local["port"]
+    config["PLANT_REMOTE_MODBUS_HOST"] = lib_remote["host"]
+    config["PLANT_REMOTE_MODBUS_PORT"] = lib_remote["port"]
+
+    for key, value in lib_local["registers"].items():
+        if key == "p_setpoint_in":
+            config["PLANT_P_SETPOINT_REGISTER"] = value
+        elif key == "p_battery":
+            config["PLANT_P_BATTERY_ACTUAL_REGISTER"] = value
+        elif key == "q_setpoint_in":
+            config["PLANT_Q_SETPOINT_REGISTER"] = value
+        elif key == "q_battery":
+            config["PLANT_Q_BATTERY_ACTUAL_REGISTER"] = value
+        elif key == "enable":
+            config["PLANT_ENABLE_REGISTER"] = value
+        elif key == "soc":
+            config["PLANT_SOC_REGISTER"] = value
+        elif key == "p_poi":
+            config["PLANT_P_POI_REGISTER"] = value
+        elif key == "q_poi":
+            config["PLANT_Q_POI_REGISTER"] = value
+        elif key == "v_poi":
+            config["PLANT_V_POI_REGISTER"] = value
+
+    for key, value in lib_remote["registers"].items():
+        if key == "p_setpoint_in":
+            config["PLANT_REMOTE_P_SETPOINT_REGISTER"] = value
+        elif key == "p_battery":
+            config["PLANT_REMOTE_P_BATTERY_ACTUAL_REGISTER"] = value
+        elif key == "q_setpoint_in":
+            config["PLANT_REMOTE_Q_SETPOINT_REGISTER"] = value
+        elif key == "q_battery":
+            config["PLANT_REMOTE_Q_BATTERY_ACTUAL_REGISTER"] = value
+        elif key == "enable":
+            config["PLANT_REMOTE_ENABLE_REGISTER"] = value
+        elif key == "soc":
+            config["PLANT_REMOTE_SOC_REGISTER"] = value
+        elif key == "p_poi":
+            config["PLANT_REMOTE_P_POI_REGISTER"] = value
+        elif key == "q_poi":
+            config["PLANT_REMOTE_Q_POI_REGISTER"] = value
+        elif key == "v_poi":
+            config["PLANT_REMOTE_V_POI_REGISTER"] = value
 
 
 def load_config(config_path="config.yaml"):
-    """
-    Load configuration from YAML file and return as a flat dictionary
-    compatible with the existing agent interface.
-    
-    Args:
-        config_path: Path to the YAML configuration file
-        
-    Returns:
-        dict: Flat configuration dictionary
-    """
+    """Load configuration from YAML and return validated runtime dict."""
     config_file = Path(config_path)
-    
     if not config_file.exists():
         raise FileNotFoundError(f"Configuration file not found: {config_path}")
-    
-    with open(config_file, 'r') as f:
-        yaml_config = yaml.safe_load(f)
-    
-    # Convert nested YAML structure to flat dictionary for backward compatibility
+
+    with open(config_file, "r", encoding="utf-8") as handle:
+        yaml_config = yaml.safe_load(handle) or {}
+
     config = {}
-    
-    # General settings
-    general = yaml_config.get('general', {})
-    log_level_str = general.get('log_level', 'INFO')
-    config['LOG_LEVEL'] = getattr(logging, log_level_str.upper(), logging.INFO)
 
-    # Timezone settings
-    time_config = yaml_config.get('time', {})
-    timezone_name = time_config.get('timezone', DEFAULT_TIMEZONE_NAME)
-    try:
-        ZoneInfo(timezone_name)
-        config['TIMEZONE_NAME'] = timezone_name
-    except (ZoneInfoNotFoundError, TypeError, ValueError):
-        logging.warning(
-            f"Invalid time.timezone='{timezone_name}'. "
-            f"Using default '{DEFAULT_TIMEZONE_NAME}'."
-        )
-        config['TIMEZONE_NAME'] = DEFAULT_TIMEZONE_NAME
-    config['SCHEDULE_START_TIME'] = datetime.now(ZoneInfo(config['TIMEZONE_NAME'])).replace(microsecond=0)
-    
-    # Schedule settings
-    schedule = yaml_config.get('schedule', {})
-    config['SCHEDULE_SOURCE_CSV'] = schedule.get('source_csv', 'schedule_source.csv')
-    config['SCHEDULE_DURATION_H'] = schedule.get('duration_h', 0.5)
-    config['SCHEDULE_DEFAULT_RESOLUTION_MIN'] = schedule.get('default_resolution_min', 5)
-    
-    # Timing settings
-    timing = yaml_config.get('timing', {})
-    config['DATA_FETCHER_PERIOD_S'] = timing.get('data_fetcher_period_s', 1)
-    config['SCHEDULER_PERIOD_S'] = timing.get('scheduler_period_s', 1)
-    config['PLANT_PERIOD_S'] = timing.get('plant_period_s', 5)
-    config['MEASUREMENT_PERIOD_S'] = timing.get('measurement_period_s', 2)
-    config['MEASUREMENTS_WRITE_PERIOD_S'] = timing.get('measurements_write_period_s', 2)
+    general = yaml_config.get("general", {})
+    log_level_str = str(general.get("log_level", "INFO")).upper()
+    config["LOG_LEVEL"] = getattr(logging, log_level_str, logging.INFO)
 
-    # Recording settings
-    recording = yaml_config.get('recording', {})
-    compression = recording.get('compression', {})
-    enabled_raw = compression.get('enabled', True)
-    if isinstance(enabled_raw, bool):
-        compression_enabled = enabled_raw
-    elif isinstance(enabled_raw, str):
-        compression_enabled = enabled_raw.strip().lower() in ['1', 'true', 'yes', 'on']
-    else:
-        compression_enabled = bool(enabled_raw)
-    config['MEASUREMENT_COMPRESSION_ENABLED'] = compression_enabled
+    time_cfg = yaml_config.get("time", {})
+    config["TIMEZONE_NAME"] = _parse_timezone(time_cfg.get("timezone", DEFAULT_TIMEZONE_NAME))
+    config["SCHEDULE_START_TIME"] = datetime.now(ZoneInfo(config["TIMEZONE_NAME"])).replace(microsecond=0)
 
-    raw_tolerances = compression.get('tolerances', {})
+    schedule_cfg = yaml_config.get("schedule", {})
+    config["SCHEDULE_SOURCE_CSV"] = schedule_cfg.get("source_csv", "schedule_source.csv")
+    config["SCHEDULE_DURATION_H"] = _parse_float(schedule_cfg.get("duration_h", 0.5), 0.5, "schedule.duration_h")
+    config["SCHEDULE_DEFAULT_RESOLUTION_MIN"] = _parse_int(
+        schedule_cfg.get("default_resolution_min", 5),
+        5,
+        "schedule.default_resolution_min",
+        min_value=1,
+    )
+
+    timing_cfg = yaml_config.get("timing", {})
+    config["DATA_FETCHER_PERIOD_S"] = _parse_float(
+        timing_cfg.get("data_fetcher_period_s", 120), 120, "timing.data_fetcher_period_s", min_value=0.1
+    )
+    config["SCHEDULER_PERIOD_S"] = _parse_float(
+        timing_cfg.get("scheduler_period_s", 1), 1, "timing.scheduler_period_s", min_value=0.1
+    )
+    config["PLANT_PERIOD_S"] = _parse_float(
+        timing_cfg.get("plant_period_s", 1), 1, "timing.plant_period_s", min_value=0.1
+    )
+    config["MEASUREMENT_PERIOD_S"] = _parse_float(
+        timing_cfg.get("measurement_period_s", 1), 1, "timing.measurement_period_s", min_value=0.1
+    )
+    config["MEASUREMENTS_WRITE_PERIOD_S"] = _parse_float(
+        timing_cfg.get("measurements_write_period_s", 60),
+        60,
+        "timing.measurements_write_period_s",
+        min_value=0.1,
+    )
+
+    recording_cfg = yaml_config.get("recording", {})
+    compression_cfg = recording_cfg.get("compression", {})
+    config["MEASUREMENT_COMPRESSION_ENABLED"] = _parse_bool(compression_cfg.get("enabled", True), True)
+
+    tolerances_cfg = compression_cfg.get("tolerances", {})
     tolerances = {}
     for key, default_value in DEFAULT_MEASUREMENT_COMPRESSION_TOLERANCES.items():
-        raw_value = raw_tolerances.get(key, default_value)
-        try:
-            parsed_value = float(raw_value)
-            if parsed_value < 0:
-                raise ValueError("negative tolerance")
-            tolerances[key] = parsed_value
-        except (TypeError, ValueError):
-            logging.warning(
-                f"Invalid recording.compression.tolerances.{key}='{raw_value}'. "
-                f"Using default {default_value}."
-            )
-            tolerances[key] = default_value
-    config['MEASUREMENT_COMPRESSION_TOLERANCES'] = tolerances
-    
-    # Plant settings
-    plant = yaml_config.get('plant', {})
-    config['PLANT_CAPACITY_KWH'] = plant.get('capacity_kwh', 50.0)
-    config['PLANT_INITIAL_SOC_PU'] = plant.get('initial_soc_pu', 0.5)
-    
-    # Plant power limits
-    power_limits = plant.get('power_limits', {})
-    config['PLANT_P_MAX_KW'] = power_limits.get('p_max_kw', 1000.0)
-    config['PLANT_P_MIN_KW'] = power_limits.get('p_min_kw', -1000.0)
-    config['PLANT_Q_MAX_KVAR'] = power_limits.get('q_max_kvar', 600.0)
-    config['PLANT_Q_MIN_KVAR'] = power_limits.get('q_min_kvar', -600.0)
-    
-    # POI voltage (fixed value, no impedance model)
-    config['PLANT_POI_VOLTAGE_V'] = plant.get('poi_voltage_v', 20000.0)
-    
-    # Modbus Local Plant settings (emulated)
-    modbus_local = yaml_config.get('modbus_local', {})
-    config['PLANT_LOCAL_MODBUS_HOST'] = modbus_local.get('host', 'localhost')
-    config['PLANT_LOCAL_MODBUS_PORT'] = modbus_local.get('port', 5020)
-    config['PLANT_LOCAL_NAME'] = modbus_local.get('name', 'local')
-    
-    # Modbus Remote Plant settings (real hardware)
-    modbus_remote = yaml_config.get('modbus_remote', {})
-    config['PLANT_REMOTE_MODBUS_HOST'] = modbus_remote.get('host', '10.117.133.21')
-    config['PLANT_REMOTE_MODBUS_PORT'] = modbus_remote.get('port', 502)
-    config['PLANT_REMOTE_NAME'] = modbus_remote.get('name', 'remote')
-    
-    # Default to local plant for backward compatibility
-    config['PLANT_MODBUS_HOST'] = config['PLANT_LOCAL_MODBUS_HOST']
-    config['PLANT_MODBUS_PORT'] = config['PLANT_LOCAL_MODBUS_PORT']
-    
-    # Modbus registers - use local as default (agents will switch based on selected_plant)
-    registers = modbus_local.get('registers', {})
-    config['PLANT_P_SETPOINT_REGISTER'] = registers.get('p_setpoint_in', 0)
-    config['PLANT_P_BATTERY_ACTUAL_REGISTER'] = registers.get('p_battery', 2)
-    config['PLANT_Q_SETPOINT_REGISTER'] = registers.get('q_setpoint_in', 4)
-    config['PLANT_Q_BATTERY_ACTUAL_REGISTER'] = registers.get('q_battery', 6)
-    config['PLANT_ENABLE_REGISTER'] = registers.get('enable', 10)
-    config['PLANT_SOC_REGISTER'] = registers.get('soc', 12)
-    config['PLANT_P_POI_REGISTER'] = registers.get('p_poi', 14)
-    config['PLANT_Q_POI_REGISTER'] = registers.get('q_poi', 16)
-    config['PLANT_V_POI_REGISTER'] = registers.get('v_poi', 18)
-    
-    # Remote plant registers (can be customized independently)
-    remote_registers = modbus_remote.get('registers', {})
-    config['PLANT_REMOTE_P_SETPOINT_REGISTER'] = remote_registers.get('p_setpoint_in', 0)
-    config['PLANT_REMOTE_P_BATTERY_ACTUAL_REGISTER'] = remote_registers.get('p_battery', 2)
-    config['PLANT_REMOTE_Q_SETPOINT_REGISTER'] = remote_registers.get('q_setpoint_in', 4)
-    config['PLANT_REMOTE_Q_BATTERY_ACTUAL_REGISTER'] = remote_registers.get('q_battery', 6)
-    config['PLANT_REMOTE_ENABLE_REGISTER'] = remote_registers.get('enable', 10)
-    config['PLANT_REMOTE_SOC_REGISTER'] = remote_registers.get('soc', 12)
-    config['PLANT_REMOTE_P_POI_REGISTER'] = remote_registers.get('p_poi', 14)
-    config['PLANT_REMOTE_Q_POI_REGISTER'] = remote_registers.get('q_poi', 16)
-    config['PLANT_REMOTE_V_POI_REGISTER'] = remote_registers.get('v_poi', 18)
-    
-
-    # Istentore API settings
-    istentore_api = yaml_config.get('istentore_api', {})
-    config['ISTENTORE_BASE_URL'] = istentore_api.get('base_url', 'https://3mku48kfxf.execute-api.eu-south-2.amazonaws.com/default')
-    config['ISTENTORE_EMAIL'] = istentore_api.get('email', 'i-STENTORE')
-    config['ISTENTORE_POLL_INTERVAL_MIN'] = istentore_api.get('poll_interval_min', 10)
-    config['ISTENTORE_POLL_START_TIME'] = istentore_api.get('poll_start_time', '17:30')
-    raw_schedule_period_minutes = istentore_api.get('schedule_period_minutes', 15)
-    try:
-        schedule_period_minutes = int(raw_schedule_period_minutes)
-        if schedule_period_minutes <= 0:
-            raise ValueError("must be > 0")
-    except (TypeError, ValueError):
-        logging.warning(
-            f"Invalid istentore_api.schedule_period_minutes='{raw_schedule_period_minutes}'. "
-            "Using default 15."
+        tolerances[key] = _parse_float(
+            tolerances_cfg.get(key, default_value),
+            default_value,
+            f"recording.compression.tolerances.{key}",
+            min_value=0.0,
         )
-        schedule_period_minutes = 15
-    config['ISTENTORE_SCHEDULE_PERIOD_MINUTES'] = schedule_period_minutes
+    config["MEASUREMENT_COMPRESSION_TOLERANCES"] = tolerances
 
-    raw_post_measurements = istentore_api.get('post_measurements_in_api_mode', True)
-    if isinstance(raw_post_measurements, bool):
-        post_measurements_in_api_mode = raw_post_measurements
-    elif isinstance(raw_post_measurements, str):
-        post_measurements_in_api_mode = raw_post_measurements.strip().lower() in ['1', 'true', 'yes', 'on']
+    api_cfg = yaml_config.get("istentore_api", {})
+    config["ISTENTORE_BASE_URL"] = api_cfg.get("base_url", "https://3mku48kfxf.execute-api.eu-south-2.amazonaws.com/default")
+    config["ISTENTORE_EMAIL"] = api_cfg.get("email", "i-STENTORE")
+    config["ISTENTORE_POLL_START_TIME"] = api_cfg.get("poll_start_time", "17:30")
+    config["ISTENTORE_SCHEDULE_PERIOD_MINUTES"] = _parse_int(
+        api_cfg.get("schedule_period_minutes", 15),
+        15,
+        "istentore_api.schedule_period_minutes",
+        min_value=1,
+    )
+    config["ISTENTORE_POST_MEASUREMENTS_IN_API_MODE"] = _parse_bool(
+        api_cfg.get("post_measurements_in_api_mode", True),
+        True,
+    )
+    config["ISTENTORE_MEASUREMENT_POST_PERIOD_S"] = _parse_float(
+        api_cfg.get("measurement_post_period_s", 60),
+        60,
+        "istentore_api.measurement_post_period_s",
+        min_value=0.1,
+    )
+    config["ISTENTORE_MEASUREMENT_POST_QUEUE_MAXLEN"] = _parse_int(
+        api_cfg.get("measurement_post_queue_maxlen", 2000),
+        2000,
+        "istentore_api.measurement_post_queue_maxlen",
+        min_value=1,
+    )
+    config["ISTENTORE_MEASUREMENT_POST_RETRY_INITIAL_S"] = _parse_float(
+        api_cfg.get("measurement_post_retry_initial_s", 2),
+        2,
+        "istentore_api.measurement_post_retry_initial_s",
+        min_value=0.1,
+    )
+    config["ISTENTORE_MEASUREMENT_POST_RETRY_MAX_S"] = _parse_float(
+        api_cfg.get("measurement_post_retry_max_s", 60),
+        60,
+        "istentore_api.measurement_post_retry_max_s",
+        min_value=0.1,
+    )
+    if config["ISTENTORE_MEASUREMENT_POST_RETRY_MAX_S"] < config["ISTENTORE_MEASUREMENT_POST_RETRY_INITIAL_S"]:
+        config["ISTENTORE_MEASUREMENT_POST_RETRY_MAX_S"] = config["ISTENTORE_MEASUREMENT_POST_RETRY_INITIAL_S"]
+
+    if "plants" in yaml_config:
+        plants = _normalize_plants_new_schema(yaml_config)
     else:
-        post_measurements_in_api_mode = bool(raw_post_measurements)
-    config['ISTENTORE_POST_MEASUREMENTS_IN_API_MODE'] = post_measurements_in_api_mode
+        plants = _build_legacy_plants(yaml_config)
 
-    raw_measurement_post_period_s = istentore_api.get('measurement_post_period_s', 60)
-    try:
-        measurement_post_period_s = float(raw_measurement_post_period_s)
-        if measurement_post_period_s <= 0:
-            raise ValueError("must be > 0")
-    except (TypeError, ValueError):
-        logging.warning(
-            f"Invalid istentore_api.measurement_post_period_s='{raw_measurement_post_period_s}'. "
-            "Using default 60."
-        )
-        measurement_post_period_s = 60.0
-    config['ISTENTORE_MEASUREMENT_POST_PERIOD_S'] = measurement_post_period_s
+    config["PLANTS"] = plants
+    config["PLANT_IDS"] = tuple(["lib", "vrfb"])
 
-    raw_queue_maxlen = istentore_api.get('measurement_post_queue_maxlen', 2000)
-    try:
-        measurement_post_queue_maxlen = int(raw_queue_maxlen)
-        if measurement_post_queue_maxlen <= 0:
-            raise ValueError("must be > 0")
-    except (TypeError, ValueError):
-        logging.warning(
-            f"Invalid istentore_api.measurement_post_queue_maxlen='{raw_queue_maxlen}'. "
-            "Using default 2000."
-        )
-        measurement_post_queue_maxlen = 2000
-    config['ISTENTORE_MEASUREMENT_POST_QUEUE_MAXLEN'] = measurement_post_queue_maxlen
+    startup_cfg = yaml_config.get("startup", {})
+    transport_mode_raw = startup_cfg.get("transport_mode", startup_cfg.get("plant", "local"))
+    transport_mode = str(transport_mode_raw).strip().lower()
+    if transport_mode not in ["local", "remote"]:
+        logging.warning("Invalid startup.transport_mode='%s'. Using 'local'.", transport_mode_raw)
+        transport_mode = "local"
 
-    raw_retry_initial_s = istentore_api.get('measurement_post_retry_initial_s', 2)
-    try:
-        measurement_post_retry_initial_s = float(raw_retry_initial_s)
-        if measurement_post_retry_initial_s <= 0:
-            raise ValueError("must be > 0")
-    except (TypeError, ValueError):
-        logging.warning(
-            f"Invalid istentore_api.measurement_post_retry_initial_s='{raw_retry_initial_s}'. "
-            "Using default 2."
-        )
-        measurement_post_retry_initial_s = 2.0
-    config['ISTENTORE_MEASUREMENT_POST_RETRY_INITIAL_S'] = measurement_post_retry_initial_s
+    schedule_source = str(startup_cfg.get("schedule_source", "manual")).strip().lower()
+    if schedule_source not in ["manual", "api"]:
+        logging.warning("Invalid startup.schedule_source='%s'. Using 'manual'.", schedule_source)
+        schedule_source = "manual"
 
-    raw_retry_max_s = istentore_api.get('measurement_post_retry_max_s', 60)
-    try:
-        measurement_post_retry_max_s = float(raw_retry_max_s)
-        if measurement_post_retry_max_s <= 0:
-            raise ValueError("must be > 0")
-    except (TypeError, ValueError):
-        logging.warning(
-            f"Invalid istentore_api.measurement_post_retry_max_s='{raw_retry_max_s}'. "
-            "Using default 60."
-        )
-        measurement_post_retry_max_s = 60.0
-    if measurement_post_retry_max_s < measurement_post_retry_initial_s:
-        logging.warning(
-            "Invalid retry bounds: istentore_api.measurement_post_retry_max_s is "
-            "lower than measurement_post_retry_initial_s. Clamping max to initial."
-        )
-        measurement_post_retry_max_s = measurement_post_retry_initial_s
-    config['ISTENTORE_MEASUREMENT_POST_RETRY_MAX_S'] = measurement_post_retry_max_s
+    config["STARTUP_TRANSPORT_MODE"] = transport_mode
+    config["STARTUP_SCHEDULE_SOURCE"] = schedule_source
 
-    measurement_series_by_plant = istentore_api.get('measurement_series_by_plant', {})
-    local_series = measurement_series_by_plant.get('local', {})
-    remote_series = measurement_series_by_plant.get('remote', {})
+    # Compatibility aliases for old code paths.
+    config["TRANSPORT_MODE"] = transport_mode
+    config["STARTUP_PLANT"] = transport_mode
+    _set_legacy_flat_keys(config, plants)
 
-    def _parse_measurement_series_id(raw_value, default_value, key_name):
-        if raw_value is None:
-            return None
-        try:
-            series_id = int(raw_value)
-            if series_id <= 0:
-                raise ValueError("must be > 0")
-            return series_id
-        except (TypeError, ValueError):
-            logging.warning(
-                f"Invalid istentore_api.measurement_series_by_plant.{key_name}='{raw_value}'. "
-                f"Using default {default_value}."
-            )
-            return default_value
+    # Compatibility aliases for old measurement-series flat keys.
+    config["ISTENTORE_MEASUREMENT_SERIES_LOCAL_SOC_ID"] = plants["lib"]["measurement_series"]["soc"]
+    config["ISTENTORE_MEASUREMENT_SERIES_LOCAL_P_ID"] = plants["lib"]["measurement_series"]["p"]
+    config["ISTENTORE_MEASUREMENT_SERIES_LOCAL_Q_ID"] = plants["lib"]["measurement_series"]["q"]
+    config["ISTENTORE_MEASUREMENT_SERIES_LOCAL_V_ID"] = plants["lib"]["measurement_series"]["v"]
+    config["ISTENTORE_MEASUREMENT_SERIES_REMOTE_SOC_ID"] = plants["vrfb"]["measurement_series"]["soc"]
+    config["ISTENTORE_MEASUREMENT_SERIES_REMOTE_P_ID"] = plants["vrfb"]["measurement_series"]["p"]
+    config["ISTENTORE_MEASUREMENT_SERIES_REMOTE_Q_ID"] = plants["vrfb"]["measurement_series"]["q"]
+    config["ISTENTORE_MEASUREMENT_SERIES_REMOTE_V_ID"] = plants["vrfb"]["measurement_series"]["v"]
 
-    config['ISTENTORE_MEASUREMENT_SERIES_LOCAL_SOC_ID'] = _parse_measurement_series_id(
-        local_series.get('soc', 4), 4, 'local.soc'
-    )
-    config['ISTENTORE_MEASUREMENT_SERIES_LOCAL_P_ID'] = _parse_measurement_series_id(
-        local_series.get('p', 6), 6, 'local.p'
-    )
-    config['ISTENTORE_MEASUREMENT_SERIES_LOCAL_Q_ID'] = _parse_measurement_series_id(
-        local_series.get('q', 7), 7, 'local.q'
-    )
-    config['ISTENTORE_MEASUREMENT_SERIES_LOCAL_V_ID'] = _parse_measurement_series_id(
-        local_series.get('v', 8), 8, 'local.v'
-    )
-    config['ISTENTORE_MEASUREMENT_SERIES_REMOTE_SOC_ID'] = _parse_measurement_series_id(
-        remote_series.get('soc', 4), 4, 'remote.soc'
-    )
-    config['ISTENTORE_MEASUREMENT_SERIES_REMOTE_P_ID'] = _parse_measurement_series_id(
-        remote_series.get('p', 6), 6, 'remote.p'
-    )
-    config['ISTENTORE_MEASUREMENT_SERIES_REMOTE_Q_ID'] = _parse_measurement_series_id(
-        remote_series.get('q', 7), 7, 'remote.q'
-    )
-    config['ISTENTORE_MEASUREMENT_SERIES_REMOTE_V_ID'] = _parse_measurement_series_id(
-        remote_series.get('v', 8), 8, 'remote.v'
-    )
-    
-    # Startup configuration
-    startup = yaml_config.get('startup', {})
-    config['STARTUP_SCHEDULE_SOURCE'] = startup.get('schedule_source', 'manual')
-    config['STARTUP_PLANT'] = startup.get('plant', 'local')
-    
     return config
