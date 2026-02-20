@@ -9,6 +9,7 @@ from time_utils import DEFAULT_TIMEZONE_NAME, get_timezone
 
 DEFAULT_BASE_URL = "https://3mku48kfxf.execute-api.eu-south-2.amazonaws.com/default"
 DEFAULT_EMAIL = "i-STENTORE"
+AUTH_RETRY_STATUS_CODES = {401, 403}
 
 
 class IstentoreAPIError(Exception):
@@ -58,7 +59,13 @@ class IstentoreAPI:
         except Exception as exc:
             raise IstentoreAPIError(f"Unexpected error during authentication: {exc}") from exc
 
-    def _get_market_products(self, market_id: int, delivery_period_gte: str = None, delivery_period_lte: str = None) -> list:
+    def _get_market_products(
+        self,
+        market_id: int,
+        delivery_period_gte: str = None,
+        delivery_period_lte: str = None,
+        _auth_retry_attempted: bool = False,
+    ) -> list:
         if not self.is_authenticated():
             self.login()
 
@@ -79,11 +86,16 @@ class IstentoreAPI:
             return response.json()
         except requests.exceptions.HTTPError as exc:
             status_code = exc.response.status_code if exc.response is not None else None
-            if status_code == 401:
-                logging.warning("Istentore API: Token expired, re-authenticating...")
+            if status_code in AUTH_RETRY_STATUS_CODES and not _auth_retry_attempted:
+                logging.warning("Istentore API: Token rejected (%s), re-authenticating...", status_code)
                 self._token = None
                 self.login()
-                return self._get_market_products(market_id, delivery_period_gte, delivery_period_lte)
+                return self._get_market_products(
+                    market_id,
+                    delivery_period_gte,
+                    delivery_period_lte,
+                    _auth_retry_attempted=True,
+                )
             raise IstentoreAPIError(f"HTTP error: {exc}") from exc
         except Exception as exc:
             raise IstentoreAPIError(f"Unexpected error: {exc}") from exc
@@ -210,8 +222,11 @@ class IstentoreAPI:
                 return response.json()
             except requests.exceptions.HTTPError as exc:
                 status_code = exc.response.status_code if exc.response is not None else None
-                if status_code == 401 and attempt == 0:
-                    logging.warning("Istentore API: Token expired while posting, re-authenticating...")
+                if status_code in AUTH_RETRY_STATUS_CODES and attempt == 0:
+                    logging.warning(
+                        "Istentore API: Token rejected while posting (%s), re-authenticating...",
+                        status_code,
+                    )
                     self._token = None
                     self.login()
                     continue

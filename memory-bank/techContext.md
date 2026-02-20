@@ -16,7 +16,7 @@
 - `scheduler_agent.py`: per-plant setpoint dispatch.
 - `plant_agent.py`: local dual-server plant emulation.
 - `measurement_agent.py`: sampling, recording, cache, API posting queue.
-- `istentore_api.py`: API auth, schedule fetch, measurement post.
+- `istentore_api.py`: API auth, schedule fetch, measurement post, and bounded token re-auth retry on `401`/`403`.
 - `time_utils.py`: timezone normalization and serialization helpers.
 - `logger_config.py`: console/file/session logging setup.
 
@@ -78,3 +78,4 @@ Per-plant config includes:
 - Threaded model requires short lock sections and external I/O outside locks.
 - Measurement posting queue is in-memory only; it does not persist across restarts.
 - The dashboard assumes both logical plants are always present in runtime state.
+- API auth renewal is reactive (on `401`/`403`) with one retry per request path; no proactive token TTL refresh exists.

@@ -133,6 +133,15 @@ shared_data = {
   - oldest-drop on overflow.
 - Per-plant telemetry is continuously updated in `measurement_post_status`.
 
+### API Authentication and Token Renewal
+- `istentore_api.py` owns API token lifecycle for schedule fetch and measurement post calls.
+- Setting/changing password invalidates current token immediately (`set_password()` clears token).
+- Authentication is lazy: if no token exists, login occurs before request.
+- Auth-retry policy is reactive and bounded:
+  - HTTP `401` or `403` clears token and triggers one re-authentication retry.
+  - If retry also fails with auth error, request fails with `IstentoreAPIError`.
+- No time-based proactive token refresh is configured.
+
 ## Time and Timestamp Conventions
 - Runtime timestamps are timezone-aware in configured timezone.
 - API schedule delivery periods are parsed as UTC then converted to configured timezone.

@@ -13,6 +13,11 @@
 
 ## Rolling Change Log (Compressed, 30-Day Window)
 
+### 2026-02-20
+- Updated Istentore API auth-retry policy to treat `403` like `401` for token renewal.
+- Bounded schedule fetch auth recovery to a single re-auth retry to avoid unbounded recursion.
+- Kept measurement post auth recovery as one retry, now triggered by either `401` or `403`.
+
 ### 2026-02-19
 - Completed dual-plant runtime consolidation across config, scheduler, measurement, dashboard, and fetcher.
 - Restored dashboard safety/observability features after migration:

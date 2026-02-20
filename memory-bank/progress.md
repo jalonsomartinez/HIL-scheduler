@@ -8,7 +8,7 @@
 - anchored sampling timing,
 - per-plant daily recording,
 - in-memory plot cache,
-- API measurement posting with retry/backoff and per-plant telemetry.
+- API measurement posting with retry/backoff, per-plant telemetry, and token re-auth retry on `401`/`403`.
 5. Dashboard provides:
 - per-plant Start/Stop + Record/Stop controls,
 - global source/transport switching with confirmation and safe-stop,
@@ -24,7 +24,8 @@
 - per-plant dispatch gating,
 - safe-stop result handling,
 - recording boundary insertion and midnight rollover,
-- API posting queue retry/overflow behavior.
+- API posting queue retry/overflow behavior,
+- API auth-retry handling for `401`/`403` in fetch and post paths.
 2. Add repeatable smoke checks for local and remote transport workflows.
 3. Define and implement logging retention/cleanup policy.
 4. Expand README with architecture and operator runbook details.

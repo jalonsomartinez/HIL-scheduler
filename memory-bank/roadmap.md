@@ -9,7 +9,8 @@ Increase reliability and operator confidence without changing the core dual-plan
 1. Add tests for scheduler dispatch gating and API stale cutoff behavior.
 2. Add tests for recording boundaries, per-day routing, and stop flush semantics.
 3. Add tests for API posting queue retry/backoff/overflow and telemetry state updates.
-4. Add a scripted smoke test covering local mode start/stop/record/switch flows.
+4. Add tests for API auth retry semantics (`401`/`403` re-auth once, then fail fast on repeated auth errors).
+5. Add a scripted smoke test covering local mode start/stop/record/switch flows.
 
 ### P1 - Operational Hardening
 1. Define log retention policy and implement cleanup automation.
