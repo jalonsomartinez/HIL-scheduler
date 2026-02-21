@@ -162,6 +162,64 @@ class MeasurementPostingTelemetryTests(unittest.TestCase):
                 shared_data["shutdown_event"].set()
                 thread.join(timeout=3)
 
+    def test_post_queue_respects_configured_maxlen(self):
+        _FakePoster.force_fail = True
+        _FakePoster.calls = 0
+
+        config = _build_config()
+        config["PLANT_IDS"] = ("lib",)
+        config["PLANTS"] = {
+            "lib": {
+                "name": "LIB",
+                "model": {"capacity_kwh": 500.0, "poi_voltage_v": 20000.0},
+                "measurement_series": {"soc": 4, "p": 6, "q": 7, "v": 8},
+            }
+        }
+        config["ISTENTORE_MEASUREMENT_POST_QUEUE_MAXLEN"] = 2
+
+        shared_data = {
+            "lock": threading.Lock(),
+            "shutdown_event": threading.Event(),
+            "transport_mode": "local",
+            "active_schedule_source": "api",
+            "api_password": "pw",
+            "measurements_filename_by_plant": {"lib": None},
+            "current_file_path_by_plant": {"lib": None},
+            "current_file_df_by_plant": {"lib": pd.DataFrame()},
+            "pending_rows_by_file": {},
+            "measurements_df": pd.DataFrame(),
+            "measurement_post_status": {},
+        }
+
+        with patch("measurement_agent.IstentoreAPI", _FakePoster), patch(
+            "measurement_agent.sampling_get_transport_endpoint",
+            side_effect=_fake_endpoint,
+        ), patch(
+            "measurement_agent.sampling_ensure_client",
+            return_value=object(),
+        ), patch(
+            "measurement_agent.sampling_take_measurement",
+            side_effect=_fake_row,
+        ):
+            thread = threading.Thread(target=measurement_agent, args=(config, shared_data), daemon=True)
+            thread.start()
+            try:
+                def queue_capped():
+                    with shared_data["lock"]:
+                        status = shared_data.get("measurement_post_status", {}).get("lib", {})
+                        queue_count = int(status.get("pending_queue_count") or 0)
+                        attempt = status.get("last_attempt") or {}
+                        return queue_count <= 2 and attempt.get("result") == "failed"
+
+                self.assertTrue(_wait_for(queue_capped), "did not observe capped failed-queue state")
+
+                with shared_data["lock"]:
+                    status = shared_data.get("measurement_post_status", {}).get("lib", {})
+                    self.assertLessEqual(int(status.get("pending_queue_count") or 0), 2)
+            finally:
+                shared_data["shutdown_event"].set()
+                thread.join(timeout=3)
+
 
 if __name__ == "__main__":
     unittest.main()
