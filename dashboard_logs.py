@@ -9,7 +9,7 @@ from dash import html
 
 
 def parse_and_format_historical_logs(file_content):
-    pattern = r"(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}) - (\\w+) - (.+)"
+    pattern = r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) - (\w+) - (.+)"
     formatted_entries = []
     for line in (file_content or "").splitlines():
         match = re.match(pattern, line.strip())
