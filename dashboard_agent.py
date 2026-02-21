@@ -45,6 +45,72 @@ def dashboard_agent(config, shared_data):
         initial_source = shared_data.get("active_schedule_source", "manual")
         initial_transport = shared_data.get("transport_mode", "local")
 
+    brand_logo_src = app.get_asset_url("brand/Logotype i-STENTORE.png")
+
+    plot_theme = {
+        "font_family": "DM Sans, Segoe UI, Helvetica Neue, Arial, sans-serif",
+        "paper_bg": "#ffffff",
+        "plot_bg": "#ffffff",
+        "grid": "#d7e3dd",
+        "axis": "#234038",
+        "text": "#1b2b26",
+        "muted": "#546b63",
+    }
+    trace_colors = {
+        "p_setpoint": "#00945a",
+        "q_setpoint": "#8d7b00",
+        "p_poi": "#1f7ea5",
+        "p_battery": "#00c072",
+        "soc": "#6756d6",
+        "q_poi": "#1f7ea5",
+        "q_battery": "#3d8f65",
+        "api_lib": "#00945a",
+        "api_vrfb": "#3f65c8",
+    }
+
+    def apply_figure_theme(fig, *, height, margin, uirevision, showlegend=True, legend_y=1.08):
+        fig.update_layout(
+            height=height,
+            margin=margin,
+            showlegend=showlegend,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=legend_y,
+                xanchor="center",
+                x=0.5,
+                bgcolor="rgba(255, 255, 255, 0.7)",
+                bordercolor="#d7e3dd",
+                borderwidth=1,
+                font=dict(color=plot_theme["axis"], family=plot_theme["font_family"], size=11),
+            ),
+            plot_bgcolor=plot_theme["plot_bg"],
+            paper_bgcolor=plot_theme["paper_bg"],
+            font=dict(color=plot_theme["text"], family=plot_theme["font_family"], size=12),
+            uirevision=uirevision,
+        )
+        fig.update_xaxes(
+            gridcolor=plot_theme["grid"],
+            linecolor=plot_theme["grid"],
+            zerolinecolor=plot_theme["grid"],
+            tickfont=dict(color=plot_theme["muted"], family=plot_theme["font_family"]),
+            title_font=dict(color=plot_theme["axis"], family=plot_theme["font_family"]),
+        )
+        fig.update_yaxes(
+            gridcolor=plot_theme["grid"],
+            linecolor=plot_theme["grid"],
+            zerolinecolor=plot_theme["grid"],
+            tickfont=dict(color=plot_theme["muted"], family=plot_theme["font_family"]),
+            title_font=dict(color=plot_theme["axis"], family=plot_theme["font_family"]),
+        )
+        if fig.layout.annotations:
+            for annotation in fig.layout.annotations:
+                annotation.font = dict(
+                    color=plot_theme["axis"],
+                    family=plot_theme["font_family"],
+                    size=12,
+                )
+
     def plant_name(plant_id):
         return str((plants_cfg.get(plant_id, {}) or {}).get("name", plant_id.upper()))
 
@@ -377,7 +443,7 @@ def dashboard_agent(config, shared_data):
                     mode="lines",
                     line_shape="hv",
                     name=f"{plant_name(plant_id)} P Setpoint",
-                    line=dict(color="#2563eb", width=2),
+                    line=dict(color=trace_colors["p_setpoint"], width=2),
                 ),
                 row=1,
                 col=1,
@@ -391,7 +457,7 @@ def dashboard_agent(config, shared_data):
                         mode="lines",
                         line_shape="hv",
                         name=f"{plant_name(plant_id)} Q Setpoint",
-                        line=dict(color="#ea580c", width=2),
+                        line=dict(color=trace_colors["q_setpoint"], width=2),
                     ),
                     row=3,
                     col=1,
@@ -413,7 +479,7 @@ def dashboard_agent(config, shared_data):
                         mode="lines",
                         line_shape="hv",
                         name=f"{plant_name(plant_id)} P POI",
-                        line=dict(color="#0891b2", width=2, dash="dot"),
+                        line=dict(color=trace_colors["p_poi"], width=2, dash="dot"),
                     ),
                     row=1,
                     col=1,
@@ -425,7 +491,7 @@ def dashboard_agent(config, shared_data):
                         mode="lines",
                         line_shape="hv",
                         name=f"{plant_name(plant_id)} P Battery",
-                        line=dict(color="#16a34a", width=2),
+                        line=dict(color=trace_colors["p_battery"], width=2),
                     ),
                     row=1,
                     col=1,
@@ -436,7 +502,7 @@ def dashboard_agent(config, shared_data):
                         y=df["soc_pu"],
                         mode="lines",
                         name=f"{plant_name(plant_id)} SoC",
-                        line=dict(color="#9333ea", width=2),
+                        line=dict(color=trace_colors["soc"], width=2),
                     ),
                     row=2,
                     col=1,
@@ -448,7 +514,7 @@ def dashboard_agent(config, shared_data):
                         mode="lines",
                         line_shape="hv",
                         name=f"{plant_name(plant_id)} Q POI",
-                        line=dict(color="#0891b2", width=2, dash="dot"),
+                        line=dict(color=trace_colors["q_poi"], width=2, dash="dot"),
                     ),
                     row=3,
                     col=1,
@@ -460,38 +526,56 @@ def dashboard_agent(config, shared_data):
                         mode="lines",
                         line_shape="hv",
                         name=f"{plant_name(plant_id)} Q Battery",
-                        line=dict(color="#16a34a", width=2),
+                        line=dict(color=trace_colors["q_battery"], width=2),
                     ),
                     row=3,
                     col=1,
                 )
 
-        fig.update_layout(
+        apply_figure_theme(
+            fig,
             height=480,
             margin=dict(l=50, r=20, t=90, b=30),
-            showlegend=True,
-            legend=dict(orientation="h", yanchor="bottom", y=1.08, xanchor="center", x=0.5),
-            plot_bgcolor="#ffffff",
-            paper_bgcolor="#ffffff",
             uirevision=uirevision_key,
         )
-        fig.update_yaxes(title_text="kW", row=1, col=1, gridcolor="#e2e8f0")
-        fig.update_yaxes(title_text="pu", row=2, col=1, gridcolor="#e2e8f0")
-        fig.update_yaxes(title_text="kvar", row=3, col=1, gridcolor="#e2e8f0")
-        fig.update_xaxes(title_text="Time", row=3, col=1, gridcolor="#e2e8f0")
+        fig.update_yaxes(title_text="kW", row=1, col=1)
+        fig.update_yaxes(title_text="pu", row=2, col=1)
+        fig.update_yaxes(title_text="kvar", row=3, col=1)
+        fig.update_xaxes(title_text="Time", row=3, col=1)
         return fig
 
     app.layout = html.Div(
         className="app-container",
         children=[
-            html.H1("HIL Scheduler Dashboard"),
+            html.Header(
+                className="app-header",
+                children=[
+                    html.Div(
+                        className="app-header-brand",
+                        children=[
+                            html.Img(src=brand_logo_src, alt="i-STENTORE", className="brand-logo"),
+                            html.Div(
+                                className="app-header-copy",
+                                children=[
+                                    html.H1("Spanish Demo Dashboard", className="app-title"),
+                                    html.P("Dispatch, recording, and API observability for LIB and VRFB plants.", className="app-subtitle"),
+                                ],
+                            ),
+                        ],
+                    )
+                ],
+            ),
             dcc.Tabs(
                 id="main-tabs",
                 value="status",
+                className="main-tabs",
+                parent_className="main-tabs-parent",
                 children=[
                     dcc.Tab(
                         label="Status & Plots",
                         value="status",
+                        className="main-tab",
+                        selected_className="main-tab--selected",
                         children=[
                             html.Div(
                                 className="control-panel",
@@ -533,33 +617,15 @@ def dashboard_agent(config, shared_data):
                             ),
                             html.Div(
                                 id="schedule-switch-modal",
-                                className="hidden",
-                                style={
-                                    "position": "fixed",
-                                    "top": "0",
-                                    "left": "0",
-                                    "width": "100%",
-                                    "height": "100%",
-                                    "backgroundColor": "rgba(0,0,0,0.5)",
-                                    "zIndex": "1001",
-                                    "display": "flex",
-                                    "justifyContent": "center",
-                                    "alignItems": "center",
-                                },
+                                className="modal-overlay hidden",
                                 children=[
                                     html.Div(
-                                        style={
-                                            "backgroundColor": "white",
-                                            "padding": "24px",
-                                            "borderRadius": "8px",
-                                            "maxWidth": "460px",
-                                            "boxShadow": "0 4px 12px rgba(0,0,0,0.15)",
-                                        },
+                                        className="modal-card",
                                         children=[
-                                            html.H3("Confirm Schedule Source Switch", style={"marginTop": "0"}),
+                                            html.H3("Confirm Schedule Source Switch", className="modal-title"),
                                             html.P("Switching schedule source will safe-stop both plants. Recording will remain active. Continue?"),
                                             html.Div(
-                                                style={"display": "flex", "gap": "12px", "marginTop": "20px", "justifyContent": "flex-end"},
+                                                className="modal-actions",
                                                 children=[
                                                     html.Button("Cancel", id="schedule-switch-cancel", className="btn btn-secondary"),
                                                     html.Button("Confirm", id="schedule-switch-confirm", className="btn btn-primary"),
@@ -571,33 +637,15 @@ def dashboard_agent(config, shared_data):
                             ),
                             html.Div(
                                 id="transport-switch-modal",
-                                className="hidden",
-                                style={
-                                    "position": "fixed",
-                                    "top": "0",
-                                    "left": "0",
-                                    "width": "100%",
-                                    "height": "100%",
-                                    "backgroundColor": "rgba(0,0,0,0.5)",
-                                    "zIndex": "1000",
-                                    "display": "flex",
-                                    "justifyContent": "center",
-                                    "alignItems": "center",
-                                },
+                                className="modal-overlay hidden",
                                 children=[
                                     html.Div(
-                                        style={
-                                            "backgroundColor": "white",
-                                            "padding": "24px",
-                                            "borderRadius": "8px",
-                                            "maxWidth": "460px",
-                                            "boxShadow": "0 4px 12px rgba(0,0,0,0.15)",
-                                        },
+                                        className="modal-card",
                                         children=[
-                                            html.H3("Confirm Transport Switch", style={"marginTop": "0"}),
+                                            html.H3("Confirm Transport Switch", className="modal-title"),
                                             html.P("Switching transport mode will safe-stop both plants, stop recording, and clear plot caches. Continue?"),
                                             html.Div(
-                                                style={"display": "flex", "gap": "12px", "marginTop": "20px", "justifyContent": "flex-end"},
+                                                className="modal-actions",
                                                 children=[
                                                     html.Button("Cancel", id="transport-switch-cancel", className="btn btn-secondary"),
                                                     html.Button("Confirm", id="transport-switch-confirm", className="btn btn-primary"),
@@ -632,7 +680,7 @@ def dashboard_agent(config, shared_data):
                                         ],
                                     ),
                                     html.Div(id="status-lib", className="status-text"),
-                                    dcc.Graph(id="graph-lib"),
+                                    dcc.Graph(id="graph-lib", className="plot-graph"),
                                 ],
                             ),
                             html.Div(
@@ -660,7 +708,7 @@ def dashboard_agent(config, shared_data):
                                         ],
                                     ),
                                     html.Div(id="status-vrfb", className="status-text"),
-                                    dcc.Graph(id="graph-vrfb"),
+                                    dcc.Graph(id="graph-vrfb", className="plot-graph"),
                                 ],
                             ),
                         ],
@@ -668,6 +716,8 @@ def dashboard_agent(config, shared_data):
                     dcc.Tab(
                         label="Manual Schedule",
                         value="manual",
+                        className="main-tab",
+                        selected_className="main-tab--selected",
                         children=[
                             html.Div(
                                 className="card",
@@ -723,8 +773,8 @@ def dashboard_agent(config, shared_data):
                                                     ),
                                                 ],
                                             ),
-                                            html.Div(className="form-group", children=[html.Label("Min kW"), dcc.Input(id="manual-min-power", type="number", value=-1000)]),
-                                            html.Div(className="form-group", children=[html.Label("Max kW"), dcc.Input(id="manual-max-power", type="number", value=1000)]),
+                                            html.Div(className="form-group", children=[html.Label("Min kW"), dcc.Input(id="manual-min-power", className="form-control", type="number", value=-1000)]),
+                                            html.Div(className="form-group", children=[html.Label("Max kW"), dcc.Input(id="manual-max-power", className="form-control", type="number", value=1000)]),
                                         ],
                                     ),
                                     html.Div(
@@ -741,16 +791,46 @@ def dashboard_agent(config, shared_data):
                                                 className="form-group",
                                                 children=[
                                                     html.Label("CSV Upload"),
-                                                    dcc.Upload(id="manual-csv-upload", children=html.Div(["Drag/drop or ", html.A("select CSV")]), multiple=False),
+                                                    dcc.Upload(
+                                                        id="manual-csv-upload",
+                                                        className="file-upload",
+                                                        children=html.Div(["Drag/drop or ", html.A("select CSV")]),
+                                                        multiple=False,
+                                                    ),
                                                 ],
                                             ),
-                                            html.Div(className="form-group", children=[html.Label("CSV Start Date"), dcc.DatePickerSingle(id="manual-csv-date", date=now_tz(config).date())]),
-                                            html.Div(className="form-group", children=[html.Label("CSV Start Hour"), dcc.Dropdown(id="manual-csv-hour", options=[{"label": f"{h:02d}", "value": h} for h in range(24)], value=now_tz(config).hour, clearable=False)]),
-                                            html.Div(className="form-group", children=[html.Label("CSV Start Min"), dcc.Dropdown(id="manual-csv-minute", options=[{"label": f"{m:02d}", "value": m} for m in range(0, 60, 5)], value=0, clearable=False)]),
+                                            html.Div(
+                                                className="form-group",
+                                                children=[html.Label("CSV Start Date"), dcc.DatePickerSingle(id="manual-csv-date", date=now_tz(config).date(), className="date-picker")],
+                                            ),
+                                            html.Div(
+                                                className="form-group",
+                                                children=[
+                                                    html.Label("CSV Start Hour"),
+                                                    dcc.Dropdown(
+                                                        id="manual-csv-hour",
+                                                        options=[{"label": f"{h:02d}", "value": h} for h in range(24)],
+                                                        value=now_tz(config).hour,
+                                                        clearable=False,
+                                                    ),
+                                                ],
+                                            ),
+                                            html.Div(
+                                                className="form-group",
+                                                children=[
+                                                    html.Label("CSV Start Min"),
+                                                    dcc.Dropdown(
+                                                        id="manual-csv-minute",
+                                                        options=[{"label": f"{m:02d}", "value": m} for m in range(0, 60, 5)],
+                                                        value=0,
+                                                        clearable=False,
+                                                    ),
+                                                ],
+                                            ),
                                         ],
                                     ),
                                     html.Div(id="manual-status-text", className="status-text"),
-                                    dcc.Graph(id="manual-preview-graph"),
+                                    dcc.Graph(id="manual-preview-graph", className="plot-graph"),
                                 ],
                             )
                         ],
@@ -758,6 +838,8 @@ def dashboard_agent(config, shared_data):
                     dcc.Tab(
                         label="API Schedule",
                         value="api",
+                        className="main-tab",
+                        selected_className="main-tab--selected",
                         children=[
                             html.Div(
                                 className="card",
@@ -772,7 +854,7 @@ def dashboard_agent(config, shared_data):
                                     ),
                                     html.Div(id="api-connection-status", className="status-text"),
                                     html.Div(id="api-measurement-posting-status"),
-                                    dcc.Graph(id="api-preview-graph"),
+                                    dcc.Graph(id="api-preview-graph", className="plot-graph"),
                                 ],
                             )
                         ],
@@ -780,46 +862,32 @@ def dashboard_agent(config, shared_data):
                     dcc.Tab(
                         label="Logs",
                         value="logs",
+                        className="main-tab",
+                        selected_className="main-tab--selected",
                         children=[
                             html.Div(
                                 className="card",
                                 children=[
                                     html.Div(
-                                        className="card-header",
-                                        style={"display": "flex", "justifyContent": "space-between", "alignItems": "center"},
+                                        className="card-header logs-header",
                                         children=[
                                             html.H3(className="card-title", children="Session Logs"),
                                             html.Div(
-                                                style={"display": "flex", "gap": "12px", "alignItems": "center"},
+                                                className="logs-header-actions",
                                                 children=[
-                                                    html.Div(id="log-file-path", style={"fontSize": "13px", "color": "#64748b"}),
+                                                    html.Div(id="log-file-path", className="log-file-path"),
                                                     dcc.Dropdown(
                                                         id="log-file-selector",
+                                                        className="log-selector-dropdown",
                                                         options=[],
                                                         value="current_session",
                                                         clearable=False,
-                                                        style={"width": "220px", "fontSize": "12px"},
                                                     ),
                                                 ],
                                             ),
                                         ],
                                     ),
-                                    html.Div(
-                                        id="logs-display",
-                                        style={
-                                            "height": "500px",
-                                            "overflowY": "auto",
-                                            "backgroundColor": "#1e293b",
-                                            "color": "#e2e8f0",
-                                            "padding": "16px",
-                                            "fontFamily": "monospace",
-                                            "fontSize": "13px",
-                                            "lineHeight": "1.5",
-                                            "borderRadius": "8px",
-                                            "whiteSpace": "pre-wrap",
-                                            "wordWrap": "break-word",
-                                        },
-                                    ),
+                                    html.Div(id="logs-display", className="logs-display"),
                                 ],
                             )
                         ],
@@ -853,18 +921,20 @@ def dashboard_agent(config, shared_data):
         ctx = callback_context
         with shared_data["lock"]:
             stored_mode = shared_data.get("transport_mode", "local")
+        hidden_class = "modal-overlay hidden"
+        open_class = "modal-overlay"
 
         if not ctx.triggered:
             if stored_mode == "remote":
-                return "remote", "toggle-option", "toggle-option active", "hidden"
-            return "local", "toggle-option active", "toggle-option", "hidden"
+                return "remote", "toggle-option", "toggle-option active", hidden_class
+            return "local", "toggle-option active", "toggle-option", hidden_class
 
         trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
 
         if trigger_id == "transport-switch-cancel":
             if stored_mode == "remote":
-                return "remote", "toggle-option", "toggle-option active", "hidden"
-            return "local", "toggle-option active", "toggle-option", "hidden"
+                return "remote", "toggle-option", "toggle-option active", hidden_class
+            return "local", "toggle-option active", "toggle-option", hidden_class
 
         if trigger_id == "transport-switch-confirm":
             requested_mode = "remote" if stored_mode == "local" else "local"
@@ -895,17 +965,17 @@ def dashboard_agent(config, shared_data):
             thread.start()
 
             if requested_mode == "remote":
-                return "remote", "toggle-option", "toggle-option active", "hidden"
-            return "local", "toggle-option active", "toggle-option", "hidden"
+                return "remote", "toggle-option", "toggle-option active", hidden_class
+            return "local", "toggle-option active", "toggle-option", hidden_class
 
         if trigger_id == "transport-remote-btn" and stored_mode != "remote":
-            return stored_mode, "toggle-option active", "toggle-option", ""
+            return stored_mode, "toggle-option active", "toggle-option", open_class
         if trigger_id == "transport-local-btn" and stored_mode != "local":
-            return stored_mode, "toggle-option", "toggle-option active", ""
+            return stored_mode, "toggle-option", "toggle-option active", open_class
 
         if stored_mode == "remote":
-            return "remote", "toggle-option", "toggle-option active", "hidden"
-        return "local", "toggle-option active", "toggle-option", "hidden"
+            return "remote", "toggle-option", "toggle-option active", hidden_class
+        return "local", "toggle-option active", "toggle-option", hidden_class
 
     @app.callback(
         [
@@ -927,6 +997,8 @@ def dashboard_agent(config, shared_data):
         ctx = callback_context
         with shared_data["lock"]:
             stored_source = shared_data.get("active_schedule_source", "manual")
+        hidden_class = "modal-overlay hidden"
+        open_class = "modal-overlay"
 
         if current_source not in {"manual", "api"}:
             current_source = stored_source
@@ -938,13 +1010,13 @@ def dashboard_agent(config, shared_data):
 
         if not ctx.triggered:
             manual_class, api_class = classes_for(stored_source)
-            return stored_source, manual_class, api_class, "hidden"
+            return stored_source, manual_class, api_class, hidden_class
 
         trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
 
         if trigger_id == "schedule-switch-cancel":
             manual_class, api_class = classes_for(stored_source)
-            return stored_source, manual_class, api_class, "hidden"
+            return stored_source, manual_class, api_class, hidden_class
 
         if trigger_id == "schedule-switch-confirm":
             requested_source = "api" if current_source == "manual" else "manual"
@@ -967,20 +1039,20 @@ def dashboard_agent(config, shared_data):
 
             threading.Thread(target=perform_source_switch, daemon=True).start()
             manual_class, api_class = classes_for(requested_source)
-            return requested_source, manual_class, api_class, "hidden"
+            return requested_source, manual_class, api_class, hidden_class
 
         if trigger_id == "source-api-btn" and current_source != "api":
             logging.info("Dashboard: source switch requested from %s to API (awaiting confirmation).", current_source.upper())
             manual_class, api_class = classes_for(current_source)
-            return current_source, manual_class, api_class, ""
+            return current_source, manual_class, api_class, open_class
 
         if trigger_id == "source-manual-btn" and current_source != "manual":
             logging.info("Dashboard: source switch requested from %s to MANUAL (awaiting confirmation).", current_source.upper())
             manual_class, api_class = classes_for(current_source)
-            return current_source, manual_class, api_class, ""
+            return current_source, manual_class, api_class, open_class
 
         manual_class, api_class = classes_for(stored_source)
-        return stored_source, manual_class, api_class, "hidden"
+        return stored_source, manual_class, api_class, hidden_class
 
     @app.callback(
         Output("control-action", "data"),
@@ -1220,18 +1292,16 @@ def dashboard_agent(config, shared_data):
                     mode="lines",
                     line_shape="hv",
                     name=f"{plant_name(plant_id)} P Setpoint",
-                    line=dict(color="#2563eb", width=2),
+                    line=dict(color=trace_colors["p_setpoint"], width=2),
                 )
             )
-        fig.update_layout(
+        apply_figure_theme(
+            fig,
             height=320,
             margin=dict(l=40, r=20, t=40, b=30),
-            plot_bgcolor="#ffffff",
-            paper_bgcolor="#ffffff",
             uirevision=f"manual-preview:{plant_id}",
         )
-        fig.update_xaxes(gridcolor="#e2e8f0")
-        fig.update_yaxes(title_text="kW", gridcolor="#e2e8f0")
+        fig.update_yaxes(title_text="kW")
         return fig
 
     @app.callback(
@@ -1342,14 +1412,9 @@ def dashboard_agent(config, shared_data):
             last_enqueue_text = format_ts(plant_status.get("last_enqueue")) or "n/a"
 
             return html.Div(
-                style={
-                    "border": "1px solid #e2e8f0",
-                    "borderRadius": "10px",
-                    "padding": "12px",
-                    "backgroundColor": "#f8fafc",
-                },
+                className="posting-card",
                 children=[
-                    html.H4(f"{plant_name(plant_id)}", style={"margin": "0 0 8px 0"}),
+                    html.H4(f"{plant_name(plant_id)}", className="posting-card-title"),
                     html.Div(f"Posting enabled: {posting_enabled}", className="status-text"),
                     html.Div(f"Pending queue: {pending_count} | Oldest pending age: {oldest_age_text}", className="status-text"),
                     html.Div(f"Last enqueue: {last_enqueue_text}", className="status-text"),
@@ -1360,22 +1425,18 @@ def dashboard_agent(config, shared_data):
             )
 
         posting_cards = html.Div(
-            style={"marginTop": "12px"},
+            className="posting-section",
             children=[
-                html.H4("Measurement Posting", style={"margin": "0 0 8px 0"}),
+                html.H4("Measurement Posting", className="posting-section-title"),
                 html.Div(
-                    style={
-                        "display": "grid",
-                        "gridTemplateColumns": "repeat(auto-fit, minmax(320px, 1fr))",
-                        "gap": "12px",
-                    },
+                    className="posting-grid",
                     children=[build_plant_posting_card(plant_id) for plant_id in plant_ids],
                 ),
             ],
         )
 
         fig = go.Figure()
-        colors = {"lib": "#2563eb", "vrfb": "#16a34a"}
+        colors = {"lib": trace_colors["api_lib"], "vrfb": trace_colors["api_vrfb"]}
         for plant_id in plant_ids:
             df = normalize_schedule_index(api_map.get(plant_id, pd.DataFrame()), tz)
             if df.empty:
@@ -1387,22 +1448,20 @@ def dashboard_agent(config, shared_data):
                     mode="lines",
                     line_shape="hv",
                     name=f"{plant_name(plant_id)} API P Setpoint",
-                    line=dict(color=colors.get(plant_id, "#64748b"), width=2),
+                    line=dict(color=colors.get(plant_id, plot_theme["muted"]), width=2),
                 )
             )
 
         if not fig.data:
             fig.add_annotation(text="No API schedule available.", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
 
-        fig.update_layout(
+        apply_figure_theme(
+            fig,
             height=340,
             margin=dict(l=40, r=20, t=40, b=30),
-            plot_bgcolor="#ffffff",
-            paper_bgcolor="#ffffff",
             uirevision="api-preview",
         )
-        fig.update_xaxes(gridcolor="#e2e8f0")
-        fig.update_yaxes(title_text="kW", gridcolor="#e2e8f0")
+        fig.update_yaxes(title_text="kW")
         return status_text, posting_cards, fig
 
     @app.callback(
@@ -1584,7 +1643,7 @@ def dashboard_agent(config, shared_data):
                 log_file_path = shared_data.get("log_file_path", "")
             formatted = format_log_entries(session_logs)
             if not formatted:
-                formatted = [html.Div("No logs yet.", style={"color": "#94a3b8"})]
+                formatted = [html.Div("No logs yet.", className="logs-empty")]
             path_text = f"Log file: {log_file_path}" if log_file_path else "Current Session"
             return formatted, path_text
 
@@ -1593,12 +1652,12 @@ def dashboard_agent(config, shared_data):
                 file_content = handle.read()
             formatted = parse_and_format_historical_logs(file_content)
             if not formatted:
-                formatted = [html.Div("No parseable log entries.", style={"color": "#94a3b8"})]
+                formatted = [html.Div("No parseable log entries.", className="logs-empty")]
             return formatted, f"File: {selected}"
         except Exception as exc:
             logging.error("Dashboard: failed reading log file %s: %s", selected, exc)
             message = f"Error reading log file: {exc}"
-            return [html.Div(message, style={"color": "#ef4444"})], f"Error: {selected}"
+            return [html.Div(message, className="logs-error")], f"Error: {selected}"
 
     def run_app():
         app.run(debug=False, threaded=True)

@@ -3,6 +3,7 @@
 ## Technology Stack
 - Language: Python 3.
 - UI: Dash + Plotly.
+- UI assets: tokenized CSS in `assets/custom.css` with local static brand assets under `assets/brand/`.
 - Data processing: pandas, numpy.
 - Modbus: pyModbusTCP client/server.
 - Config: YAML via PyYAML.
@@ -12,6 +13,8 @@
 - `hil_scheduler.py`: director, shared state initialization, thread startup/shutdown.
 - `config_loader.py`: validates/normalizes YAML into runtime dict.
 - `dashboard_agent.py`: UI layout, callbacks, safe-stop controls, switch modals.
+- `assets/custom.css`: dashboard design tokens, responsive rules, control/tab/modal/log styling.
+- `assets/brand/fonts/*`: locally served dashboard fonts (DM Sans files + OFL license).
 - `data_fetcher_agent.py`: day-ahead API polling and status updates.
 - `scheduler_agent.py`: per-plant setpoint dispatch.
 - `plant_agent.py`: local dual-server plant emulation.
@@ -67,6 +70,16 @@ Per-plant config includes:
   3. in-memory session list for dashboard logs tab.
 - Session logs are bounded to latest 1000 entries.
 - Historical log browsing in dashboard reads from `logs/*.log`.
+
+## Dashboard Styling Conventions
+- Brand assets are served from Dash `assets/` (logo PNGs + local font files).
+- Dashboard visual state is class-driven in `dashboard_agent.py` and styled in `assets/custom.css` to minimize inline style drift.
+- Plot styling in `dashboard_agent.py` uses shared figure-theme helpers for consistent axes/grid/legend presentation without altering control callbacks.
+- Current operator-requested theme constraints:
+  - flat corporate-green page background,
+  - non-signature i-STENTORE logotype in header,
+  - flat green/red control buttons,
+  - higher-contrast toggle selected-state pill.
 
 ## Timezone and Persistence Conventions
 - All runtime schedule/measurement timestamps are timezone-aware.

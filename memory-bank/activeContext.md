@@ -3,15 +3,34 @@
 ## Current Focus (Now)
 1. Keep memory bank aligned with the dual-plant runtime contract and avoid stale schema drift.
 2. Maintain robust plant control safety (start/stop transitions and guarded global switches).
-3. Improve confidence through targeted automated tests around scheduler gating, recording boundaries, and API posting retry behavior.
+3. Stabilize the refreshed dashboard visual system (i-STENTORE branding, readability, and control-state clarity) without changing callback/runtime behavior.
+4. Improve confidence through targeted automated tests around scheduler gating, recording boundaries, and API posting retry behavior.
 
 ## Open Decisions and Risks
 1. Test coverage gap: no focused regression suite yet for core control contracts.
 2. API posting durability: retry queue is in-memory and is lost on restart.
 3. Logging retention policy: current file output is per-day file naming without automatic historical pruning.
 4. Operational validation gap: limited scripted end-to-end verification for remote transport behavior.
+5. No automated visual regression checks yet for dashboard CSS/class-hook changes.
 
 ## Rolling Change Log (Compressed, 30-Day Window)
+
+### 2026-02-21
+- Reworked dashboard presentation layer to a tokenized CSS system aligned with i-STENTORE branding.
+- Refactored dashboard layout styling hooks:
+  - branded header block and logo integration,
+  - class-based tab styling,
+  - class-based modal/logs/posting-card styling (reduced inline styles).
+- Added local font assets for dashboard UI rendering:
+  - `assets/brand/fonts/DMSans-Regular.ttf`,
+  - `assets/brand/fonts/DMSans-Bold.ttf`,
+  - `assets/brand/fonts/OFL.txt`.
+- Updated Plotly figure presentation through shared theme helpers while preserving existing `uirevision` and callback behavior.
+- Applied operator-requested visual refinements:
+  - green-only background treatment and later flat corporate-green page background,
+  - non-signature logo variant,
+  - stronger toggle selected-state contrast,
+  - flat (non-gradient) green/red button styling.
 
 ### 2026-02-20
 - Updated Istentore API auth-retry policy to treat `403` like `401` for token renewal.

@@ -1,7 +1,7 @@
 # Roadmap: HIL Scheduler
 
 ## Goal
-Increase reliability and operator confidence without changing the core dual-plant runtime model.
+Increase reliability and operator confidence without changing the core dual-plant runtime model, while keeping dashboard usability stable.
 
 ## Priority Order
 
@@ -16,11 +16,13 @@ Increase reliability and operator confidence without changing the core dual-plan
 1. Define log retention policy and implement cleanup automation.
 2. Add structured health checks for API connectivity and posting backlog age.
 3. Add explicit operator alerts for sustained posting failures or stale schedule windows.
+4. Add an operator UI validation checklist for critical control/readability states after styling updates.
 
 ### P2 - Developer Experience
 1. Add CI checks for syntax, tests, and basic static quality gates.
 2. Expand README with architecture diagram, control semantics, and troubleshooting.
 3. Document recommended local test workflow for dual-plant scenarios.
+4. Define a low-overhead visual regression guardrail (for example, deterministic screenshots of key dashboard tabs).
 
 ### P3 - Product Enhancements
 1. Improve manual schedule validation and preview diagnostics.
