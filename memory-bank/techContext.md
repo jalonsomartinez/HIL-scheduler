@@ -12,7 +12,7 @@
 ## Repository Runtime Modules
 - `hil_scheduler.py`: director, shared state initialization, thread startup/shutdown.
 - `config_loader.py`: validates/normalizes YAML into runtime dict.
-- `dashboard_agent.py`: UI layout, callbacks, safe-stop controls, switch modals.
+- `dashboard_agent.py`: UI layout, callbacks, safe-stop controls, switch modals, fleet start/stop actions, and API posting toggle handling.
 - `dashboard_control.py`: safe-stop/source-switch/transport-switch control-flow helpers for dashboard callbacks.
 - `assets/custom.css`: dashboard design tokens, responsive rules, control/tab/modal/log styling.
 - `assets/brand/fonts/*`: locally served dashboard fonts (DM Sans files + OFL license).
@@ -86,7 +86,7 @@ Per-plant config includes:
 - Dashboard visual state is primarily class-driven in `dashboard_agent.py` and styled in `assets/custom.css`; a small number of inline style dictionaries remain in log/posting render helpers.
 - Plot styling in `dashboard_agent.py` uses shared figure-theme helpers for consistent axes/grid/legend presentation without altering control callbacks.
 - Current operator-requested theme constraints:
-  - flat corporate-green page background,
+  - white page background,
   - non-signature i-STENTORE logotype in header,
   - flat green/red control buttons,
   - higher-contrast toggle selected-state pill.

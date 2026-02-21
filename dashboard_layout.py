@@ -10,6 +10,7 @@ def build_dashboard_layout(
     brand_logo_src,
     initial_transport,
     initial_source,
+    initial_posting_enabled,
     now_value,
 ):
     return html.Div(
@@ -67,7 +68,7 @@ def build_dashboard_layout(
                                             html.Div(
                                                 className="control-section",
                                                 children=[
-                                                    html.Span("Transport Mode", className="toggle-label"),
+                                                    html.Span("Transport", className="toggle-label"),
                                                     html.Div(
                                                         className="compact-toggle",
                                                         children=[
@@ -77,7 +78,19 @@ def build_dashboard_layout(
                                                     ),
                                                 ],
                                             ),
-                                            html.Div(className="control-section", children=[html.Div(id="global-status", className="status-text")]),
+                                            html.Div(
+                                                className="control-section",
+                                                children=[
+                                                    html.Span("Fleet Actions", className="toggle-label"),
+                                                    html.Div(
+                                                        className="fleet-actions-group",
+                                                        children=[
+                                                            html.Button("Start All", id="start-all-btn", className="btn btn-primary", n_clicks=0),
+                                                            html.Button("Stop All", id="stop-all-btn", className="btn btn-danger", n_clicks=0),
+                                                        ],
+                                                    ),
+                                                ],
+                                            ),
                                         ],
                                     ),
                                     html.Div(id="api-status-inline", className="status-text"),
@@ -117,6 +130,26 @@ def build_dashboard_layout(
                                                 children=[
                                                     html.Button("Cancel", id="transport-switch-cancel", className="btn btn-secondary"),
                                                     html.Button("Confirm", id="transport-switch-confirm", className="btn btn-primary"),
+                                                ],
+                                            ),
+                                        ],
+                                    )
+                                ],
+                            ),
+                            html.Div(
+                                id="bulk-control-modal",
+                                className="modal-overlay hidden",
+                                children=[
+                                    html.Div(
+                                        className="modal-card",
+                                        children=[
+                                            html.H3("Confirm Fleet Action", id="bulk-control-modal-title", className="modal-title"),
+                                            html.P("", id="bulk-control-modal-text"),
+                                            html.Div(
+                                                className="modal-actions",
+                                                children=[
+                                                    html.Button("Cancel", id="bulk-control-cancel", className="btn btn-secondary"),
+                                                    html.Button("Confirm", id="bulk-control-confirm", className="btn btn-primary"),
                                                 ],
                                             ),
                                         ],
@@ -320,6 +353,34 @@ def build_dashboard_layout(
                                             html.Button("Disconnect", id="disconnect-api-btn", className="btn btn-danger", n_clicks=0),
                                         ],
                                     ),
+                                    html.Div(
+                                        className="form-row",
+                                        children=[
+                                            html.Div(
+                                                className="control-section api-posting-toggle-section",
+                                                children=[
+                                                    html.Span("Measurement Posting", className="toggle-label"),
+                                                    html.Div(
+                                                        className="compact-toggle",
+                                                        children=[
+                                                            html.Button(
+                                                                "Enabled",
+                                                                id="api-posting-enable-btn",
+                                                                className="toggle-option active" if initial_posting_enabled else "toggle-option",
+                                                                n_clicks=0,
+                                                            ),
+                                                            html.Button(
+                                                                "Disabled",
+                                                                id="api-posting-disable-btn",
+                                                                className="toggle-option" if initial_posting_enabled else "toggle-option active",
+                                                                n_clicks=0,
+                                                            ),
+                                                        ],
+                                                    ),
+                                                ],
+                                            )
+                                        ],
+                                    ),
                                     html.Div(id="api-connection-status", className="status-text"),
                                     html.Div(id="api-measurement-posting-status"),
                                     dcc.Graph(id="api-preview-graph", className="plot-graph"),
@@ -363,8 +424,10 @@ def build_dashboard_layout(
                 ],
             ),
             dcc.Store(id="control-action", data="idle"),
+            dcc.Store(id="bulk-control-request", data=None),
             dcc.Store(id="transport-mode-selector", data=initial_transport),
             dcc.Store(id="active-source-selector", data=initial_source),
+            dcc.Store(id="api-posting-toggle-store", data=bool(initial_posting_enabled)),
             dcc.Interval(id="interval-component", interval=int(float(config.get("MEASUREMENT_PERIOD_S", 1)) * 1000), n_intervals=0),
         ],
     )

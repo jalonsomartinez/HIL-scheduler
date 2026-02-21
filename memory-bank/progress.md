@@ -12,16 +12,19 @@
 - API measurement posting with retry/backoff, per-plant telemetry, and token re-auth retry on `401`/`403`.
 5. Dashboard provides:
 - per-plant Start/Stop + Record/Stop controls,
+- top-card `Start All` / `Stop All` controls with confirmation modal for high-impact actions,
 - global source/transport switching with confirmation and safe-stop,
+- API-tab runtime posting toggle (`Enabled`/`Disabled`) for read-only tests,
 - API status and posting health,
 - logs tab with live `Today` (current date file tail) and selectable historical files,
-- branded UI theme (tokenized CSS, local font assets, class-based styling hooks, and contrast-tuned controls).
+- branded UI theme (tokenized CSS, local font assets, class-based styling hooks, contrast-tuned controls, white page background).
 6. Automated validation now includes:
 - module compile checks (`python3 -m py_compile *.py`),
 - unit/smoke regression suite (`python -m unittest discover -s tests -v`),
 - CI execution via `.github/workflows/ci.yml`.
 7. Dashboard control flow is now separated into `dashboard_control.py` with dedicated tests for safe-stop and global switch semantics.
 8. Runtime shared-state initialization contract is centralized in `build_initial_shared_data(config)` with schema tests.
+9. Runtime posting gate now includes `measurement_posting_enabled` state seeded from config and adjustable from dashboard UI.
 
 ## In Progress
 1. Follow-up reliability design for dashboard callback de-blocking (replace synchronous Modbus reads with cached plant state).

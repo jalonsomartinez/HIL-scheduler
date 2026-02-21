@@ -54,6 +54,7 @@ shared_data = {
             "last_enqueue": None,
         },
     },
+    "measurement_posting_enabled": True,
 
     "api_password": None,
     "data_fetcher_status": {
@@ -107,6 +108,15 @@ shared_data = {
   3. Apply selector update.
   4. Clear switching flag.
 
+### Fleet Start/Stop Actions
+- Status tab top card provides confirmation-gated bulk controls.
+- `Start All` sequence:
+  1. Enable recording for both plants (`measurements_filename_by_plant[*]`).
+  2. Trigger each plant start flow (gate on, enable command, initial setpoint send).
+- `Stop All` sequence:
+  1. Safe-stop both plants.
+  2. Clear recording flags for both plants.
+
 ### Scheduler Dispatch Selection
 - Scheduler chooses map by `active_schedule_source`.
 - Manual source reads `manual_schedule_df_by_plant`.
@@ -130,9 +140,10 @@ shared_data = {
 ### API Measurement Posting
 - Posting is owned by `measurement_agent.py` and is independent from sample/flush cadence.
 - Gate conditions:
+  - runtime posting toggle `measurement_posting_enabled` is true,
   - global source is API,
   - API password exists,
-  - posting flag enabled in config.
+  - config default `ISTENTORE_POST_MEASUREMENTS_IN_API_MODE` seeds startup toggle state.
 - Queue behavior:
   - bounded in-memory queue,
   - exponential retry backoff,

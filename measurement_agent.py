@@ -81,7 +81,10 @@ def measurement_agent(config, shared_data):
         except (TypeError, ValueError):
             compression_tolerances[column] = default_value
 
-    post_measurements_enabled = bool(config.get("ISTENTORE_POST_MEASUREMENTS_IN_API_MODE", True))
+    config_post_measurements_enabled = parse_bool(
+        config.get("ISTENTORE_POST_MEASUREMENTS_IN_API_MODE", True),
+        True,
+    )
     measurement_post_period_s = float(config.get("ISTENTORE_MEASUREMENT_POST_PERIOD_S", 60))
     post_queue_maxlen = int(config.get("ISTENTORE_MEASUREMENT_POST_QUEUE_MAXLEN", 2000))
     post_retry_initial_s = float(config.get("ISTENTORE_MEASUREMENT_POST_RETRY_INITIAL_S", 2))
@@ -618,6 +621,7 @@ def measurement_agent(config, shared_data):
                 "requested_files": dict(data.get("measurements_filename_by_plant", {})),
                 "active_schedule_source": data.get("active_schedule_source", "manual"),
                 "api_password": data.get("api_password"),
+                "posting_toggle_enabled": bool(data.get("measurement_posting_enabled", config_post_measurements_enabled)),
                 "current_paths": dict(data.get("current_file_path_by_plant", {})),
             },
         )
@@ -625,6 +629,7 @@ def measurement_agent(config, shared_data):
         requested_files = snapshot["requested_files"]
         active_schedule_source = snapshot["active_schedule_source"]
         api_password = snapshot["api_password"]
+        posting_toggle_enabled = bool(snapshot["posting_toggle_enabled"])
         current_paths = snapshot["current_paths"]
 
         for plant_id in plant_ids:
@@ -689,7 +694,7 @@ def measurement_agent(config, shared_data):
                 state["session_tail_is_null"] = False
 
         posting_mode_now = (
-            post_measurements_enabled and active_schedule_source == "api" and bool(api_password)
+            posting_toggle_enabled and active_schedule_source == "api" and bool(api_password)
         )
         set_posting_enabled(posting_mode_now)
 

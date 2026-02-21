@@ -15,6 +15,7 @@ HIL Scheduler is a multi-agent Python application that executes active and react
 - Global selectors:
   - `active_schedule_source`: `manual` or `api`.
   - `transport_mode`: `local` or `remote`.
+  - `measurement_posting_enabled`: runtime API-posting gate (`True`/`False`, session-scoped, default from config).
 - Per-plant controls:
   - dispatch gate via `scheduler_running_by_plant[plant_id]`.
   - recording gate via `measurements_filename_by_plant[plant_id]`.
@@ -25,6 +26,7 @@ HIL Scheduler is a multi-agent Python application that executes active and react
 - Per-plant Modbus endpoint management for local and remote modes.
 - CSV measurement persistence and in-memory plot caches.
 - API measurement posting with retry queue and observability state.
+- Dashboard fleet controls (`Start All`/`Stop All`) and confirmation-gated high-impact actions.
 
 ## Hard Constraints
 - Power registers are 16-bit signed values encoded through two's complement (hW scale).

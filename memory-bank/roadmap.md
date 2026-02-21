@@ -8,7 +8,7 @@ Increase reliability and operator confidence without changing the core dual-plan
 ### P0 - Reliability and Regression Safety
 1. Add remote transport smoke coverage equivalent to local smoke checks.
 2. Keep compile + unittest checks green in CI on every PR/push.
-3. Add one integration test for dashboard callback->control wiring (ID stability + state mutation path).
+3. Add one integration test for dashboard callback->control wiring (ID stability + state mutation path), including new fleet-action and posting-toggle controls.
 4. Add safe-stop timeout-path regression test (`threshold_reached=False`, disable fallback).
 5. Keep measurement compression regression coverage green to prevent config/runtime drift.
 
@@ -17,7 +17,7 @@ Increase reliability and operator confidence without changing the core dual-plan
 2. Move dashboard synchronous Modbus polling to agent-cached plant-state publication.
 3. Add structured health checks for API connectivity and posting backlog age.
 4. Add explicit operator alerts for sustained posting failures or stale schedule windows.
-5. Add an operator UI validation checklist for critical control/readability states after styling updates, including logs-tab `Today` live refresh and historical-file selection behavior.
+5. Add an operator UI validation checklist for critical control/readability states after styling updates, including logs-tab `Today` live refresh, historical-file selection behavior, and bulk-action confirmation states.
 
 ### P2 - Developer Experience
 1. Expand README with architecture diagram, control semantics, and troubleshooting.

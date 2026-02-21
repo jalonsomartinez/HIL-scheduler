@@ -2,8 +2,8 @@
 
 ## Current Focus (Now)
 1. Keep memory bank and audit artifacts aligned with the current dual-plant runtime and refactor outcomes.
-2. Maintain robust plant control safety (start/stop transitions and guarded global switches).
-3. Keep reliability guardrails green via automated regression tests and CI enforcement, including measurement compression semantics.
+2. Maintain robust plant control safety (per-plant transitions, guarded global switches, and confirmation-gated fleet actions).
+3. Keep reliability guardrails green via automated regression tests and CI enforcement, including measurement compression and posting-gate semantics.
 4. Prepare follow-up hardening for remaining high-risk paths (dashboard synchronous Modbus polling, posting durability, remote smoke coverage).
 
 ## Open Decisions and Risks
@@ -18,6 +18,17 @@
 ## Rolling Change Log (Compressed, 30-Day Window)
 
 ### 2026-02-21
+- Added dashboard UI/operator-control updates:
+  - `Start All` / `Stop All` actions in Status top card with dedicated confirmation modal,
+  - removed redundant `Source | Transport` status line from top card,
+  - API-tab runtime posting toggle (`Enabled`/`Disabled`) for read-only API-mode testing,
+  - modal `Cancel` buttons now red,
+  - recording stop buttons now red.
+- Added runtime posting control contract:
+  - `shared_data["measurement_posting_enabled"]` initialized from `ISTENTORE_POST_MEASUREMENTS_IN_API_MODE`,
+  - measurement posting gate now evaluates runtime toggle + API source + password.
+- Added regression coverage for runtime posting toggle-off behavior in `tests/test_measurement_posting_telemetry.py`.
+- Adjusted page background to white per operator UX request.
 - Completed staged cleanup plan across Stage A/B/C:
   - Stage A shared helper extraction (`runtime_contracts.py`, `schedule_runtime.py`, `shared_state.py`).
   - Stage B concern split for dashboard and measurement helpers/modules.

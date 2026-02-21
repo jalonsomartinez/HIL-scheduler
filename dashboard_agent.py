@@ -66,10 +66,14 @@ def dashboard_agent(config, shared_data):
         lambda data: {
             "initial_source": data.get("active_schedule_source", "manual"),
             "initial_transport": data.get("transport_mode", "local"),
+            "initial_posting_enabled": bool(
+                data.get("measurement_posting_enabled", config.get("ISTENTORE_POST_MEASUREMENTS_IN_API_MODE", True))
+            ),
         },
     )
     initial_source = initial_snapshot["initial_source"]
     initial_transport = initial_snapshot["initial_transport"]
+    initial_posting_enabled = bool(initial_snapshot["initial_posting_enabled"])
 
     brand_logo_src = app.get_asset_url("brand/Logotype i-STENTORE.png")
 
@@ -166,6 +170,7 @@ def dashboard_agent(config, shared_data):
         brand_logo_src,
         initial_transport,
         initial_source,
+        initial_posting_enabled,
         now_tz(config),
     )
 
@@ -300,6 +305,93 @@ def dashboard_agent(config, shared_data):
         return stored_source, manual_class, api_class, hidden_class
 
     @app.callback(
+        [
+            Output("api-posting-toggle-store", "data"),
+            Output("api-posting-enable-btn", "className"),
+            Output("api-posting-disable-btn", "className"),
+        ],
+        [Input("api-posting-enable-btn", "n_clicks"), Input("api-posting-disable-btn", "n_clicks")],
+        [State("api-posting-toggle-store", "data")],
+        prevent_initial_call=False,
+    )
+    def toggle_api_posting(enable_clicks, disable_clicks, current_enabled):
+        ctx = callback_context
+
+        def classes_for(enabled):
+            if enabled:
+                return "toggle-option active", "toggle-option"
+            return "toggle-option", "toggle-option active"
+
+        config_default = bool(config.get("ISTENTORE_POST_MEASUREMENTS_IN_API_MODE", True))
+        with shared_data["lock"]:
+            stored_enabled = bool(shared_data.get("measurement_posting_enabled", config_default))
+
+        if not ctx.triggered:
+            enable_class, disable_class = classes_for(stored_enabled)
+            return stored_enabled, enable_class, disable_class
+
+        trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
+        selected_enabled = bool(current_enabled if current_enabled is not None else stored_enabled)
+        if trigger_id == "api-posting-enable-btn":
+            selected_enabled = True
+        elif trigger_id == "api-posting-disable-btn":
+            selected_enabled = False
+
+        with shared_data["lock"]:
+            shared_data["measurement_posting_enabled"] = bool(selected_enabled)
+
+        enable_class, disable_class = classes_for(bool(selected_enabled))
+        return bool(selected_enabled), enable_class, disable_class
+
+    @app.callback(
+        [
+            Output("bulk-control-modal", "className"),
+            Output("bulk-control-modal-title", "children"),
+            Output("bulk-control-modal-text", "children"),
+            Output("bulk-control-request", "data"),
+        ],
+        [
+            Input("start-all-btn", "n_clicks"),
+            Input("stop-all-btn", "n_clicks"),
+            Input("bulk-control-cancel", "n_clicks"),
+            Input("bulk-control-confirm", "n_clicks"),
+        ],
+        [State("bulk-control-request", "data")],
+        prevent_initial_call=False,
+    )
+    def handle_bulk_control_modal(start_all_clicks, stop_all_clicks, cancel_clicks, confirm_clicks, current_request):
+        ctx = callback_context
+        hidden_class = "modal-overlay hidden"
+        open_class = "modal-overlay"
+        default_title = "Confirm Fleet Action"
+        default_text = ""
+
+        if not ctx.triggered:
+            return hidden_class, default_title, default_text, current_request
+
+        trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
+        if trigger_id == "start-all-btn":
+            return (
+                open_class,
+                "Confirm Start All",
+                "Start All will enable recording and start operation for both plants. Continue?",
+                "start_all",
+            )
+        if trigger_id == "stop-all-btn":
+            return (
+                open_class,
+                "Confirm Stop All",
+                "Stop All will safe-stop both plants and stop recording for both plants. Continue?",
+                "stop_all",
+            )
+        if trigger_id == "bulk-control-cancel":
+            return hidden_class, default_title, default_text, None
+        if trigger_id == "bulk-control-confirm":
+            return hidden_class, default_title, default_text, current_request
+
+        return hidden_class, default_title, default_text, current_request
+
+    @app.callback(
         Output("control-action", "data"),
         [
             Input("start-lib", "n_clicks"),
@@ -310,14 +402,17 @@ def dashboard_agent(config, shared_data):
             Input("stop-vrfb", "n_clicks"),
             Input("record-vrfb", "n_clicks"),
             Input("record-stop-vrfb", "n_clicks"),
+            Input("bulk-control-confirm", "n_clicks"),
         ],
+        [State("bulk-control-request", "data")],
         prevent_initial_call=True,
     )
-    def handle_controls(*_):
+    def handle_controls(*args):
         ctx = callback_context
         if not ctx.triggered:
             raise PreventUpdate
 
+        bulk_request = args[-1]
         trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
 
         action_map = {
@@ -331,18 +426,12 @@ def dashboard_agent(config, shared_data):
             "record-stop-vrfb": ("vrfb", "record_stop"),
         }
 
-        if trigger_id not in action_map:
-            raise PreventUpdate
-
-        plant_id, action = action_map[trigger_id]
-
-        if action == "start":
-            logging.info("Dashboard: start requested for %s.", plant_id.upper())
+        def start_one_plant(plant_id):
             with shared_data["lock"]:
                 transition_state = shared_data["plant_transition_by_plant"].get(plant_id, "stopped")
                 if transition_state in {"starting", "running"}:
                     logging.info("Dashboard: %s start ignored (state=%s).", plant_id.upper(), transition_state)
-                    return f"{trigger_id}:{now_tz(config).strftime('%H%M%S')}"
+                    return False
                 shared_data["scheduler_running_by_plant"][plant_id] = True
                 shared_data["plant_transition_by_plant"][plant_id] = "starting"
 
@@ -377,6 +466,43 @@ def dashboard_agent(config, shared_data):
                 logging.info("Dashboard: %s transitioned to running.", plant_id.upper())
 
             threading.Thread(target=start_sequence, daemon=True).start()
+            return True
+
+        if trigger_id == "bulk-control-confirm":
+            if bulk_request == "start_all":
+                os.makedirs("data", exist_ok=True)
+                with shared_data["lock"]:
+                    for pid in plant_ids:
+                        shared_data["measurements_filename_by_plant"][pid] = get_daily_recording_file_path(pid)
+                for pid in plant_ids:
+                    logging.info("Dashboard: start all requested for %s.", pid.upper())
+                    start_one_plant(pid)
+                return f"start-all:{now_tz(config).strftime('%H%M%S')}"
+
+            if bulk_request == "stop_all":
+                logging.info("Dashboard: stop all requested.")
+
+                def stop_all_sequence():
+                    safe_stop_all_plants()
+                    with shared_data["lock"]:
+                        for pid in plant_ids:
+                            shared_data["measurements_filename_by_plant"][pid] = None
+
+                threading.Thread(target=stop_all_sequence, daemon=True).start()
+                return f"stop-all:{now_tz(config).strftime('%H%M%S')}"
+
+            raise PreventUpdate
+
+        if trigger_id not in action_map:
+            raise PreventUpdate
+
+        plant_id, action = action_map[trigger_id]
+
+        if action == "start":
+            logging.info("Dashboard: start requested for %s.", plant_id.upper())
+            started = start_one_plant(plant_id)
+            if not started:
+                return f"{trigger_id}:{now_tz(config).strftime('%H%M%S')}"
 
         elif action == "stop":
             logging.info("Dashboard: stop requested for %s.", plant_id.upper())
@@ -556,10 +682,15 @@ def dashboard_agent(config, shared_data):
             Output("api-measurement-posting-status", "children"),
             Output("api-preview-graph", "figure"),
         ],
-        [Input("interval-component", "n_intervals"), Input("set-password-btn", "n_clicks"), Input("disconnect-api-btn", "n_clicks")],
+        [
+            Input("interval-component", "n_intervals"),
+            Input("set-password-btn", "n_clicks"),
+            Input("disconnect-api-btn", "n_clicks"),
+            Input("api-posting-toggle-store", "data"),
+        ],
         [State("api-password", "value")],
     )
-    def update_api_tab(n_intervals, set_clicks, disconnect_clicks, password_value):
+    def update_api_tab(n_intervals, set_clicks, disconnect_clicks, _posting_toggle_state, password_value):
         ctx = callback_context
         if ctx.triggered:
             trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
@@ -573,6 +704,9 @@ def dashboard_agent(config, shared_data):
         with shared_data["lock"]:
             status = shared_data.get("data_fetcher_status", {}).copy()
             api_password = shared_data.get("api_password")
+            posting_toggle_enabled = bool(
+                shared_data.get("measurement_posting_enabled", config.get("ISTENTORE_POST_MEASUREMENTS_IN_API_MODE", True))
+            )
             api_map = {
                 plant_id: shared_data.get("api_schedule_df_by_plant", {}).get(plant_id, pd.DataFrame()).copy()
                 for plant_id in plant_ids
@@ -584,11 +718,12 @@ def dashboard_agent(config, shared_data):
 
         connected = "Connected" if status.get("connected") else "Not connected"
         auth_state = "Password set" if api_password else "Password not set"
+        posting_toggle_text = "Enabled" if posting_toggle_enabled else "Disabled"
 
         points_today = status.get("today_points_by_plant", {})
         points_tomorrow = status.get("tomorrow_points_by_plant", {})
         status_text = (
-            f"API: {connected} | {auth_state} | "
+            f"API: {connected} | {auth_state} | Posting toggle: {posting_toggle_text} | "
             f"Today {status.get('today_date')}: LIB={points_today.get('lib', 0)} VRFB={points_today.get('vrfb', 0)} | "
             f"Tomorrow {status.get('tomorrow_date')}: LIB={points_tomorrow.get('lib', 0)} VRFB={points_tomorrow.get('vrfb', 0)}"
         )
@@ -713,7 +848,6 @@ def dashboard_agent(config, shared_data):
 
     @app.callback(
         [
-            Output("global-status", "children"),
             Output("api-status-inline", "children"),
             Output("status-lib", "children"),
             Output("status-vrfb", "children"),
@@ -772,15 +906,13 @@ def dashboard_agent(config, shared_data):
             for plant_id in plant_ids
         }
 
-        global_text = f"Source: {source.upper()} | Transport: {transport_mode.upper()}"
-        if schedule_switching:
-            global_text += " | Source switching..."
-
         api_inline = (
             f"API Connected: {bool(status.get('connected'))} | "
             f"Today {status.get('today_date')}: LIB={status.get('today_points_by_plant', {}).get('lib', 0)} "
             f"VRFB={status.get('today_points_by_plant', {}).get('vrfb', 0)}"
         )
+        if schedule_switching:
+            api_inline += " | Source switching..."
         if status.get("error"):
             api_inline += f" | Error: {status.get('error')}"
 
@@ -829,7 +961,6 @@ def dashboard_agent(config, shared_data):
         )
 
         return (
-            global_text,
             api_inline,
             plant_status_text("lib"),
             plant_status_text("vrfb"),

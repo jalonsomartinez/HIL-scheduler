@@ -12,6 +12,8 @@ The system closes the operational gap between market/control schedules and plant
 2. Record clean per-plant measurement sessions without mixed datasets.
 3. Switch schedule source or transport mode with guarded transitions.
 4. See real-time status for schedule freshness and API posting health.
+5. Trigger high-impact fleet-wide start/stop actions with explicit confirmation.
+6. Run API-mode read-only tests by disabling measurement posting at runtime.
 
 ## Product Behavior
 ### Scheduling
@@ -31,6 +33,7 @@ The system closes the operational gap between market/control schedules and plant
 
 ### Observability
 - API tab shows fetch status (today/tomorrow) plus measurement posting telemetry.
+- API tab includes a runtime posting toggle (`Enabled`/`Disabled`) for session-scoped read-only testing.
 - Logs tab exposes a live `Today` view (tail of the current date log file) and selectable historical log files.
 
 ## UX Intent
@@ -60,3 +63,9 @@ The system closes the operational gap between market/control schedules and plant
 1. User sets recording on for one plant.
 2. Measurement agent writes null/session boundaries and measurement rows.
 3. User stops recording; trailing boundary and forced flush complete session.
+
+### Start All / Stop All
+1. User requests fleet action from the Status top card.
+2. Dashboard opens confirmation modal before execution.
+3. `Start All`: recording is enabled for both plants, then plant start sequences execute.
+4. `Stop All`: safe-stop runs for both plants, then recording is stopped for both plants.

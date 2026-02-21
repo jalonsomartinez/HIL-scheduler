@@ -45,7 +45,7 @@
 body {
     margin: 0;
     color: var(--text);
-    background: var(--brand-green);
+    background: var(--brand-white);
     font-family: var(--font-body);
 }
 
@@ -167,6 +167,19 @@ a {
     align-items: center;
     justify-content: center;
     gap: 10px;
+}
+
+.fleet-actions-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+}
+
+.api-posting-toggle-section {
+    justify-content: flex-start;
+    min-width: 0;
+    width: 100%;
 }
 
 .toggle-label {
@@ -306,8 +319,8 @@ a {
 
 .control-btn-record-stop {
     color: #ffffff;
-    background: #008e56;
-    border-color: #007447;
+    background: var(--danger);
+    border-color: #cb2d2d;
 }
 
 .btn {
@@ -326,8 +339,8 @@ a {
 
 .btn-secondary {
     color: #ffffff;
-    background: #00955a;
-    border-color: #007f4d;
+    background: var(--danger);
+    border-color: #cb2d2d;
 }
 
 .btn-danger {
@@ -613,6 +626,10 @@ input[type="number"]:focus,
         width: 100%;
         justify-content: space-between;
         flex-wrap: wrap;
+    }
+
+    .fleet-actions-group {
+        justify-content: flex-start;
     }
 
     .logs-header {

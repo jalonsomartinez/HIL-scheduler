@@ -28,6 +28,7 @@ class SharedStateContractTests(unittest.TestCase):
             "pending_rows_by_file",
             "measurements_df",
             "measurement_post_status",
+            "measurement_posting_enabled",
             "api_password",
             "data_fetcher_status",
             "schedule_switching",

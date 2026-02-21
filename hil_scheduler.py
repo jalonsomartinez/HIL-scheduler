@@ -61,6 +61,7 @@ def build_initial_shared_data(config):
         "pending_rows_by_file": {},
         "measurements_df": pd.DataFrame(),
         "measurement_post_status": _default_measurement_post_status_by_plant(plant_ids),
+        "measurement_posting_enabled": bool(config.get("ISTENTORE_POST_MEASUREMENTS_IN_API_MODE", True)),
         "api_password": None,
         "data_fetcher_status": {
             "connected": False,

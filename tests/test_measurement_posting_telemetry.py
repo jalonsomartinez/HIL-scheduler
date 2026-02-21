@@ -28,13 +28,14 @@ class _FakePoster:
         return {"ok": True}
 
 
-def _build_shared_data():
+def _build_shared_data(posting_enabled=True):
     return {
         "lock": threading.Lock(),
         "shutdown_event": threading.Event(),
         "transport_mode": "local",
         "active_schedule_source": "api",
         "api_password": "pw",
+        "measurement_posting_enabled": bool(posting_enabled),
         "measurements_filename_by_plant": {"lib": None, "vrfb": None},
         "current_file_path_by_plant": {"lib": None, "vrfb": None},
         "current_file_df_by_plant": {"lib": pd.DataFrame(), "vrfb": pd.DataFrame()},
@@ -162,6 +163,47 @@ class MeasurementPostingTelemetryTests(unittest.TestCase):
                 shared_data["shutdown_event"].set()
                 thread.join(timeout=3)
 
+    def test_runtime_posting_toggle_off_blocks_posting(self):
+        _FakePoster.force_fail = False
+        _FakePoster.calls = 0
+
+        config = _build_config()
+        shared_data = _build_shared_data(posting_enabled=False)
+
+        with patch("measurement_agent.IstentoreAPI", _FakePoster), patch(
+            "measurement_agent.sampling_get_transport_endpoint",
+            side_effect=_fake_endpoint,
+        ), patch(
+            "measurement_agent.sampling_ensure_client",
+            return_value=object(),
+        ), patch(
+            "measurement_agent.sampling_take_measurement",
+            side_effect=_fake_row,
+        ):
+            thread = threading.Thread(target=measurement_agent, args=(config, shared_data), daemon=True)
+            thread.start()
+            try:
+                def posting_disabled_state_seen():
+                    with shared_data["lock"]:
+                        status = shared_data.get("measurement_post_status", {}).get("lib", {})
+                        return (
+                            status.get("posting_enabled") is False
+                            and int(status.get("pending_queue_count") or 0) == 0
+                            and status.get("last_attempt") is None
+                        )
+
+                self.assertTrue(_wait_for(posting_disabled_state_seen), "posting did not remain disabled with runtime toggle off")
+
+                time.sleep(0.8)
+                self.assertEqual(_FakePoster.calls, 0)
+                with shared_data["lock"]:
+                    status = shared_data.get("measurement_post_status", {}).get("lib", {})
+                    self.assertFalse(bool(status.get("posting_enabled")))
+                    self.assertIsNone(status.get("last_attempt"))
+            finally:
+                shared_data["shutdown_event"].set()
+                thread.join(timeout=3)
+
     def test_post_queue_respects_configured_maxlen(self):
         _FakePoster.force_fail = True
         _FakePoster.calls = 0
@@ -183,6 +225,7 @@ class MeasurementPostingTelemetryTests(unittest.TestCase):
             "transport_mode": "local",
             "active_schedule_source": "api",
             "api_password": "pw",
+            "measurement_posting_enabled": True,
             "measurements_filename_by_plant": {"lib": None},
             "current_file_path_by_plant": {"lib": None},
             "current_file_df_by_plant": {"lib": pd.DataFrame()},
