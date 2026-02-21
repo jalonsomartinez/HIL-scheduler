@@ -17,16 +17,31 @@ from measurement_sampling import (
 )
 from measurement_storage import (
     MEASUREMENT_COLUMNS,
+    MEASUREMENT_VALUE_COLUMNS,
     append_rows_to_csv,
     build_daily_file_path as storage_build_daily_file_path,
     build_null_row,
+    is_real_row,
     is_null_row,
     load_file_for_cache,
     normalize_measurements_df,
+    rows_are_similar,
 )
 from runtime_contracts import sanitize_plant_name
 from shared_state import snapshot_locked
 from time_utils import get_config_tz, normalize_datetime_series, normalize_timestamp_value, now_tz, serialize_iso_with_tz
+
+
+DEFAULT_COMPRESSION_TOLERANCES = {
+    "p_setpoint_kw": 0.0,
+    "battery_active_power_kw": 0.1,
+    "q_setpoint_kvar": 0.0,
+    "battery_reactive_power_kvar": 0.1,
+    "soc_pu": 0.0001,
+    "p_poi_kw": 0.1,
+    "q_poi_kvar": 0.1,
+    "v_poi_pu": 0.001,
+}
 
 
 def measurement_agent(config, shared_data):
@@ -40,6 +55,31 @@ def measurement_agent(config, shared_data):
     measurement_period_s = float(config.get("MEASUREMENT_PERIOD_S", 1))
     write_period_s = float(config.get("MEASUREMENTS_WRITE_PERIOD_S", 60))
     measurement_period_delta = timedelta(seconds=measurement_period_s)
+    compression_enabled_raw = config.get("MEASUREMENT_COMPRESSION_ENABLED", True)
+    configured_tolerances = config.get("MEASUREMENT_COMPRESSION_TOLERANCES", {})
+
+    def parse_bool(value, default):
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in ["1", "true", "yes", "on"]
+        if value is None:
+            return default
+        return bool(value)
+
+    compression_enabled = parse_bool(compression_enabled_raw, True)
+    if not isinstance(configured_tolerances, dict):
+        configured_tolerances = {}
+
+    compression_tolerances = {}
+    for column in MEASUREMENT_VALUE_COLUMNS:
+        default_value = DEFAULT_COMPRESSION_TOLERANCES.get(column, 0.0)
+        raw_value = configured_tolerances.get(column, default_value)
+        try:
+            parsed = float(raw_value)
+            compression_tolerances[column] = parsed if parsed >= 0.0 else default_value
+        except (TypeError, ValueError):
+            compression_tolerances[column] = default_value
 
     post_measurements_enabled = bool(config.get("ISTENTORE_POST_MEASUREMENTS_IN_API_MODE", True))
     measurement_post_period_s = float(config.get("ISTENTORE_MEASUREMENT_POST_PERIOD_S", 60))
@@ -64,6 +104,8 @@ def measurement_agent(config, shared_data):
     api_post_queue = deque()
 
     last_write_time = time.time()
+    last_real_row_by_file = {}
+    run_active_by_file = {}
 
     plant_states = {}
     for plant_id in plant_ids:
@@ -188,7 +230,7 @@ def measurement_agent(config, shared_data):
         refresh_aggregate_measurements_df()
         return file_path
 
-    def upsert_row_to_current_cache(plant_id, file_path, row):
+    def upsert_row_to_current_cache(plant_id, file_path, row, replace_last=False):
         row_df = pd.DataFrame([row], columns=MEASUREMENT_COLUMNS)
         row_df["timestamp"] = normalize_datetime_series(row_df["timestamp"], tz)
 
@@ -199,6 +241,9 @@ def measurement_agent(config, shared_data):
             current_df = shared_data.get("current_file_df_by_plant", {}).get(plant_id, pd.DataFrame())
             if current_df is None or current_df.empty:
                 updated = row_df
+            elif replace_last:
+                updated = current_df.copy()
+                updated.iloc[-1] = row_df.iloc[0]
             else:
                 updated = pd.concat([current_df, row_df], ignore_index=True)
             shared_data["current_file_df_by_plant"][plant_id] = updated
@@ -207,28 +252,82 @@ def measurement_agent(config, shared_data):
 
     def enqueue_row_for_file(row, plant_id):
         file_path = build_daily_file_path(plant_id, row["timestamp"])
+        append_new = False
+        replace_previous = False
+
+        row_is_real = is_real_row(row)
+        prev_real_row = last_real_row_by_file.get(file_path)
+        run_active = bool(run_active_by_file.get(file_path, False))
+
         with shared_data["lock"]:
             pending = shared_data.setdefault("pending_rows_by_file", {})
-            pending.setdefault(file_path, []).append(row)
+            rows = pending.setdefault(file_path, [])
 
-        upsert_row_to_current_cache(plant_id, file_path, row)
+            if not compression_enabled:
+                rows.append(row)
+                append_new = True
+            elif not row_is_real:
+                rows.append(row)
+                append_new = True
+                last_real_row_by_file[file_path] = None
+                run_active_by_file[file_path] = False
+            elif prev_real_row is None or not rows_are_similar(prev_real_row, row, compression_tolerances):
+                rows.append(row)
+                append_new = True
+                last_real_row_by_file[file_path] = row
+                run_active_by_file[file_path] = False
+            elif not run_active:
+                rows.append(row)
+                append_new = True
+                last_real_row_by_file[file_path] = row
+                run_active_by_file[file_path] = True
+            else:
+                if rows:
+                    rows[-1] = row
+                    replace_previous = True
+                else:
+                    rows.append(row)
+                    append_new = True
+                last_real_row_by_file[file_path] = row
+                run_active_by_file[file_path] = True
+
+        if append_new or replace_previous:
+            upsert_row_to_current_cache(plant_id, file_path, row, replace_last=replace_previous)
         return file_path
 
     def flush_pending_rows(force=False):
         nonlocal last_write_time
 
+        active_recording_paths = set()
+        if compression_enabled and not force:
+            for plant_id in plant_ids:
+                state = plant_states[plant_id]
+                path = state.get("recording_file_path")
+                if state.get("recording_active") and path:
+                    active_recording_paths.add(path)
+
         with shared_data["lock"]:
-            pending_snapshot = {
-                path: rows[:]
-                for path, rows in shared_data.get("pending_rows_by_file", {}).items()
-                if rows
-            }
-            if force:
-                shared_data["pending_rows_by_file"] = {}
-            else:
-                shared_data["pending_rows_by_file"] = {}
+            pending = shared_data.get("pending_rows_by_file", {})
+            if not pending:
+                return
+
+            pending_snapshot = {}
+            retained_rows = {}
+            for path, rows in pending.items():
+                if not rows:
+                    continue
+                keep_tail = compression_enabled and (not force) and path in active_recording_paths
+                if keep_tail:
+                    retained_rows[path] = [rows[-1]]
+                    if len(rows) > 1:
+                        pending_snapshot[path] = rows[:-1]
+                else:
+                    pending_snapshot[path] = rows[:]
+
+            shared_data["pending_rows_by_file"] = retained_rows
 
         if not pending_snapshot:
+            last_write_time = time.time()
             return
 
         failed = {}
@@ -340,12 +439,17 @@ def measurement_agent(config, shared_data):
             with shared_data["lock"]:
                 shared_data["measurements_filename_by_plant"][plant_id] = None
 
+        stopped_file_path = state["recording_file_path"]
+
         state["recording_active"] = False
         state["recording_file_path"] = None
         state["awaiting_first_real_sample"] = False
         state["last_real_timestamp"] = None
         state["session_tail_ts"] = None
         state["session_tail_is_null"] = False
+        if stopped_file_path is not None:
+            last_real_row_by_file[stopped_file_path] = None
+            run_active_by_file[stopped_file_path] = False
 
         logging.info("Measurement: recording stopped for %s", plant_id.upper())
 

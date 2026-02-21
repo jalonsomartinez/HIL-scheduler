@@ -10,6 +10,7 @@ Increase reliability and operator confidence without changing the core dual-plan
 2. Keep compile + unittest checks green in CI on every PR/push.
 3. Add one integration test for dashboard callback->control wiring (ID stability + state mutation path).
 4. Add safe-stop timeout-path regression test (`threshold_reached=False`, disable fallback).
+5. Keep measurement compression regression coverage green to prevent config/runtime drift.
 
 ### P1 - Operational Hardening
 1. Define log retention policy and implement cleanup automation.
@@ -23,6 +24,7 @@ Increase reliability and operator confidence without changing the core dual-plan
 2. Document recommended local/remote smoke workflow for dual-plant scenarios.
 3. Define a low-overhead visual regression guardrail (for example, deterministic screenshots of key dashboard tabs).
 4. Plan final removal of deprecated legacy compatibility paths (`schedule_manager.py`, alias fallback flag) after external dependency check.
+5. Decide whether to ship an optional offline utility for historical CSV recompression.
 
 ### P3 - Product Enhancements
 1. Improve manual schedule validation and preview diagnostics.

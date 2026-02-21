@@ -7,7 +7,7 @@ HIL Scheduler is a multi-agent Python application that executes active and react
 1. Execute schedule setpoints at the configured scheduler cadence.
 2. Maintain safe SoC-constrained battery behavior in local emulation.
 3. Support manual and API schedule sources with controlled switching.
-4. Record measurement sessions per plant/day for traceability.
+4. Record measurement sessions per plant/day with boundary-preserving compression for traceability.
 5. Surface operational and API posting health in the dashboard.
 
 ## Runtime Model

@@ -26,7 +26,7 @@ The system closes the operational gap between market/control schedules and plant
 
 ### Recording
 - Recording enable is per plant through `measurements_filename_by_plant`.
-- Measurement agent owns boundary insertion, buffering, and flushes.
+- Measurement agent owns boundary insertion, buffering, tolerance-based compression, and flushes.
 - Rows are routed by row timestamp to daily per-plant files.
 
 ### Observability

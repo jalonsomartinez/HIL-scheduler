@@ -3,7 +3,7 @@
 ## Current Focus (Now)
 1. Keep memory bank and audit artifacts aligned with the current dual-plant runtime and refactor outcomes.
 2. Maintain robust plant control safety (start/stop transitions and guarded global switches).
-3. Expand reliability guardrails via automated regression tests and CI enforcement.
+3. Keep reliability guardrails green via automated regression tests and CI enforcement, including measurement compression semantics.
 4. Prepare follow-up hardening for remaining high-risk paths (dashboard synchronous Modbus polling, posting durability, remote smoke coverage).
 
 ## Open Decisions and Risks
@@ -13,6 +13,7 @@
 4. Operational validation gap remains for remote transport end-to-end flows.
 5. Legacy compatibility aliases in `config_loader.py` are now opt-in; removal timeline for the fallback flag remains open.
 6. Lock-discipline target is not fully met in measurement cache paths where dataframe operations still occur under lock.
+7. Historical dense measurement CSV files created while compression was inactive are intentionally not backfilled.
 
 ## Rolling Change Log (Compressed, 30-Day Window)
 
@@ -33,6 +34,14 @@
   - measurement posting queue maxlen overflow behavior,
   - dashboard safe-stop/source-switch/transport-switch control flows.
 - Added CI workflow (`.github/workflows/ci.yml`) running compile + unittest checks.
+- Restored measurement compression behavior in active runtime:
+  - `recording.compression.enabled` and `recording.compression.tolerances.*` are now applied in `measurement_agent.py`,
+  - stable runs keep first/latest points while null boundaries remain explicit,
+  - non-force flush retains one tail row per active recording file to preserve continuity.
+- Added regression tests in `tests/test_measurement_compression.py` for:
+  - compression-enabled stable run compaction,
+  - compression-disabled full-row persistence,
+  - periodic flush continuity with retained mutable tail.
 - Extracted dashboard control flow helpers to `dashboard_control.py` and wired `dashboard_agent.py` to shared safe-stop/switch helpers.
 - Added explicit `build_initial_shared_data(config)` contract constructor in `hil_scheduler.py` plus schema regression tests.
 - Implemented timezone-aware date-routed logging in `logger_config.py`:

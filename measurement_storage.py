@@ -71,6 +71,27 @@ def is_null_row(row):
     return all(pd.isna(row.get(column)) for column in MEASUREMENT_VALUE_COLUMNS)
 
 
+def is_real_row(row):
+    return not is_null_row(row)
+
+
+def rows_are_similar(prev_row, new_row, tolerances):
+    for column in MEASUREMENT_VALUE_COLUMNS:
+        prev_value = prev_row.get(column)
+        new_value = new_row.get(column)
+        if pd.isna(prev_value) or pd.isna(new_value):
+            return False
+        try:
+            tolerance = float(tolerances.get(column, 0.0))
+            if tolerance < 0:
+                tolerance = 0.0
+            if abs(float(new_value) - float(prev_value)) > tolerance:
+                return False
+        except (TypeError, ValueError):
+            return False
+    return True
+
+
 def build_null_row(timestamp, tz):
     row = {"timestamp": normalize_timestamp_value(timestamp, tz)}
     for column in MEASUREMENT_VALUE_COLUMNS:

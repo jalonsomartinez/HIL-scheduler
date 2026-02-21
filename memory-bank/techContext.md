@@ -20,6 +20,7 @@
 - `scheduler_agent.py`: per-plant setpoint dispatch.
 - `plant_agent.py`: local dual-server plant emulation.
 - `measurement_agent.py`: sampling, recording, cache, API posting queue.
+- `measurement_storage.py`: measurement normalization, CSV read/write helpers, and row-similarity primitives for compression.
 - `istentore_api.py`: API auth, schedule fetch, measurement post, and bounded token re-auth retry on `401`/`403`.
 - `time_utils.py`: timezone normalization and serialization helpers.
 - `logger_config.py`: console/file/session logging setup.
@@ -37,7 +38,7 @@
 
 Notes:
 - `schedule.*` is parsed by `config_loader.py`; active scheduler dispatch uses in-memory per-plant schedule maps and does not consume these keys directly.
-- `recording.compression.*` is parsed but currently not applied by the active measurement write path.
+- `recording.compression.*` is parsed and applied by `measurement_agent.py` for tolerance-based in-memory row compaction and periodic flush tail retention.
 - Legacy flat alias keys from `config_loader.py` are disabled by default and are only emitted when `HIL_ENABLE_LEGACY_CONFIG_ALIASES=1`.
 
 Per-plant config includes:
@@ -99,5 +100,6 @@ Per-plant config includes:
 ## Operational Constraints
 - Threaded model requires short lock sections and external I/O outside locks.
 - Measurement posting queue is in-memory only; it does not persist across restarts.
+- Measurement compression applies only to new runtime writes; no automatic backfill is performed for historical dense CSV files.
 - The dashboard assumes both logical plants are always present in runtime state.
 - API auth renewal is reactive (on `401`/`403`) with one retry per request path; no proactive token TTL refresh exists.

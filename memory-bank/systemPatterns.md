@@ -120,6 +120,11 @@ shared_data = {
 - Row timestamps are scheduled step times, not completion times.
 - Recording is file-routed by row timestamp:
   - destination `data/YYYYMMDD_<plantname>.csv`.
+- Compression behavior for recording rows is tolerance-based and boundary-preserving:
+  - null boundary rows are always retained,
+  - stable real-value runs retain first + latest points,
+  - latest point of active runs may replace the mutable in-memory tail row.
+- During periodic non-force flushes, one tail row per active recording file is retained in memory to preserve first/latest segment semantics across flush boundaries.
 - Current-day plot cache is maintained per plant in memory.
 
 ### API Measurement Posting
