@@ -50,6 +50,13 @@ Open the dashboard at:
 - Measurements: `data/`
 - Logs: `logs/YYYY-MM-DD_hil_scheduler.log`
 
+## Quality Checks
+Run these checks before pushing changes:
+```bash
+python3 -m py_compile *.py
+./venv/bin/python -m unittest discover -s tests -v
+```
+
 ## Legacy Compatibility Notes
 - `schedule_manager.py` is deprecated and not part of the active runtime path.
 - `config_loader.py` no longer emits legacy flat alias keys by default.
