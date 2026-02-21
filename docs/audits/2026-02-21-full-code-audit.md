@@ -212,6 +212,8 @@ No critical correctness defects were found in static review.
 - Stage C completed (`c980593`): `schedule_manager.py` deprecated; legacy config alias surface gated behind env flag.
 - Stage D (tests + validation) expanded:
   - `3c03aa5`, `5bfbca3`, `bc4fa5a`: regression and smoke tests for logs, recording, scheduler stale-switch behavior, and posting telemetry.
+  - `238a7f4`: extracted dashboard safe-stop/switch helpers and added control-flow tests.
+  - `6711e37`: shared-data schema contract constructor and contract tests.
   - `9acbf74`: CI compile + unittest workflow added.
 
 ### Remaining High-Priority Follow-Ups

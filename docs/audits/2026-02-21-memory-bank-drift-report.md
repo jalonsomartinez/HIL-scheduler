@@ -99,6 +99,7 @@ Implemented:
 - `memory-bank/roadmap.md` reprioritized around remaining safety/operational gaps.
 - `memory-bank/systemPatterns.md` locking discipline wording corrected to target + current exception.
 - `memory-bank/techContext.md` updated to clarify parsed-vs-active config keys and legacy alias gating behavior.
+- Follow-up refresh captured new runtime-control extraction (`dashboard_control.py`) and shared-state contract constructor (`build_initial_shared_data`).
 
 Result:
 - Active memory now reflects current runtime and cleanup status without requiring archive moves.

@@ -19,6 +19,8 @@
 - module compile checks (`python3 -m py_compile *.py`),
 - unit/smoke regression suite (`python -m unittest discover -s tests -v`),
 - CI execution via `.github/workflows/ci.yml`.
+7. Dashboard control flow is now separated into `dashboard_control.py` with dedicated tests for safe-stop and global switch semantics.
+8. Runtime shared-state initialization contract is centralized in `build_initial_shared_data(config)` with schema tests.
 
 ## In Progress
 1. Memory-bank reconciliation to reflect completed Stage A/B/C/D implementation status.

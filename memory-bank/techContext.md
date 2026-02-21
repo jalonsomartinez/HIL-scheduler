@@ -13,6 +13,7 @@
 - `hil_scheduler.py`: director, shared state initialization, thread startup/shutdown.
 - `config_loader.py`: validates/normalizes YAML into runtime dict.
 - `dashboard_agent.py`: UI layout, callbacks, safe-stop controls, switch modals.
+- `dashboard_control.py`: safe-stop/source-switch/transport-switch control-flow helpers for dashboard callbacks.
 - `assets/custom.css`: dashboard design tokens, responsive rules, control/tab/modal/log styling.
 - `assets/brand/fonts/*`: locally served dashboard fonts (DM Sans files + OFL license).
 - `data_fetcher_agent.py`: day-ahead API polling and status updates.

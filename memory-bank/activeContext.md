@@ -29,8 +29,11 @@
   - measurement record-start boundary behavior,
   - local runtime start/record/stop smoke flow,
   - scheduler manual->API stale zero-dispatch behavior,
-  - measurement posting telemetry failure->recovery behavior.
+  - measurement posting telemetry failure->recovery behavior,
+  - dashboard safe-stop/source-switch/transport-switch control flows.
 - Added CI workflow (`.github/workflows/ci.yml`) running compile + unittest checks.
+- Extracted dashboard control flow helpers to `dashboard_control.py` and wired `dashboard_agent.py` to shared safe-stop/switch helpers.
+- Added explicit `build_initial_shared_data(config)` contract constructor in `hil_scheduler.py` plus schema regression tests.
 - Implemented timezone-aware date-routed logging in `logger_config.py`:
   - each log record writes to `logs/YYYY-MM-DD_hil_scheduler.log` based on record timestamp date,
   - active file switch updates `shared_data["log_file_path"]`.

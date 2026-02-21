@@ -6,10 +6,10 @@ Increase reliability and operator confidence without changing the core dual-plan
 ## Priority Order
 
 ### P0 - Reliability and Regression Safety
-1. Add tests for safe-stop result handling and source/transport switch control flows.
-2. Add tests for API posting queue overflow edge cases (oldest-drop telemetry parity).
-3. Add remote transport smoke coverage equivalent to local smoke checks.
-4. Keep compile + unittest checks green in CI on every PR/push.
+1. Add tests for API posting queue overflow edge cases (oldest-drop telemetry parity).
+2. Add remote transport smoke coverage equivalent to local smoke checks.
+3. Keep compile + unittest checks green in CI on every PR/push.
+4. Add one integration test for dashboard callback->control wiring (ID stability + state mutation path).
 
 ### P1 - Operational Hardening
 1. Define log retention policy and implement cleanup automation.

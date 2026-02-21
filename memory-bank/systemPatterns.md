@@ -12,7 +12,7 @@
   - `measurements_filename_by_plant[plant_id]` (`None` means recording off).
 
 ### Authoritative Shared State
-`hil_scheduler.py` initializes this runtime contract:
+`hil_scheduler.py` initializes this runtime contract via `build_initial_shared_data(config)`:
 
 ```python
 shared_data = {
@@ -85,6 +85,7 @@ shared_data = {
 - `plant_agent.py`: local emulation server for each logical plant with SoC and power limit behavior.
 - `measurement_agent.py`: measurement sampling, recording, cache updates, API posting queue/telemetry.
 - `dashboard_agent.py`: user controls, safe-stop flows, source/transport switch modals, plots, logs.
+- `dashboard_control.py`: shared safe-stop + global switch control-flow helpers used by dashboard callbacks.
 
 ## Operational Patterns
 
