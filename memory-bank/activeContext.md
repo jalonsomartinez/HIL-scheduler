@@ -30,6 +30,7 @@
   - local runtime start/record/stop smoke flow,
   - scheduler manual->API stale zero-dispatch behavior,
   - measurement posting telemetry failure->recovery behavior,
+  - measurement posting queue maxlen overflow behavior,
   - dashboard safe-stop/source-switch/transport-switch control flows.
 - Added CI workflow (`.github/workflows/ci.yml`) running compile + unittest checks.
 - Extracted dashboard control flow helpers to `dashboard_control.py` and wired `dashboard_agent.py` to shared safe-stop/switch helpers.

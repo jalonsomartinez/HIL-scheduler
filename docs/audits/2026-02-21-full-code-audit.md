@@ -214,6 +214,7 @@ No critical correctness defects were found in static review.
   - `3c03aa5`, `5bfbca3`, `bc4fa5a`: regression and smoke tests for logs, recording, scheduler stale-switch behavior, and posting telemetry.
   - `238a7f4`: extracted dashboard safe-stop/switch helpers and added control-flow tests.
   - `6711e37`: shared-data schema contract constructor and contract tests.
+  - `a04cccd`: added posting queue overflow/maxlen regression coverage.
   - `9acbf74`: CI compile + unittest workflow added.
 
 ### Remaining High-Priority Follow-Ups
