@@ -5,6 +5,8 @@ from datetime import timedelta
 import pandas as pd
 
 from istentore_api import AuthenticationError, IstentoreAPI
+from schedule_runtime import merge_schedule_frames
+from shared_state import mutate_locked, snapshot_locked
 from time_utils import now_tz
 
 
@@ -13,15 +15,16 @@ def _empty_points_by_plant(plant_ids):
 
 
 def _update_status(shared_data, **kwargs):
-    with shared_data["lock"]:
-        if "data_fetcher_status" not in shared_data:
-            shared_data["data_fetcher_status"] = {}
-        shared_data["data_fetcher_status"].update(kwargs)
+    def _mutate(data):
+        if "data_fetcher_status" not in data:
+            data["data_fetcher_status"] = {}
+        data["data_fetcher_status"].update(kwargs)
+
+    mutate_locked(shared_data, _mutate)
 
 
 def _reconcile_day_status(shared_data, today_date, tomorrow_date, plant_ids):
-    with shared_data["lock"]:
-        status = shared_data.get("data_fetcher_status", {}).copy()
+    status = snapshot_locked(shared_data, lambda data: data.get("data_fetcher_status", {}).copy())
 
     previous_today_date = status.get("today_date")
     previous_tomorrow_date = status.get("tomorrow_date")
@@ -56,16 +59,6 @@ def _reconcile_day_status(shared_data, today_date, tomorrow_date, plant_ids):
         _update_status(shared_data, **updates)
 
 
-def _merge_schedule(existing_df, new_df):
-    if existing_df is None or existing_df.empty:
-        return new_df
-    if new_df is None or new_df.empty:
-        return existing_df
-
-    non_overlapping = existing_df.index.difference(new_df.index)
-    return pd.concat([existing_df.loc[non_overlapping], new_df]).sort_index()
-
-
 def _extract_points_by_plant(schedule_df_by_plant, plant_ids):
     points = {}
     for plant_id in plant_ids:
@@ -95,8 +88,7 @@ def data_fetcher_agent(config, shared_data):
 
     while not shared_data["shutdown_event"].is_set():
         try:
-            with shared_data["lock"]:
-                password = shared_data.get("api_password")
+            password = snapshot_locked(shared_data, lambda data: data.get("api_password"))
 
             if not password:
                 if password_checked:
@@ -130,8 +122,7 @@ def data_fetcher_agent(config, shared_data):
 
             _reconcile_day_status(shared_data, today_date, tomorrow_date, plant_ids)
 
-            with shared_data["lock"]:
-                status = shared_data.get("data_fetcher_status", {}).copy()
+            status = snapshot_locked(shared_data, lambda data: data.get("data_fetcher_status", {}).copy())
             today_fetched = bool(status.get("today_fetched", False))
             tomorrow_fetched = bool(status.get("tomorrow_fetched", False))
 
@@ -147,9 +138,12 @@ def data_fetcher_agent(config, shared_data):
                     total_points = sum(points_by_plant.values())
                     fetched_ok = all(points_by_plant[plant_id] > 0 for plant_id in plant_ids)
 
-                    with shared_data["lock"]:
+                    def _write_today(data):
+                        schedule_map = data.get("api_schedule_df_by_plant", {})
                         for plant_id in plant_ids:
-                            shared_data["api_schedule_df_by_plant"][plant_id] = dfs[plant_id]
+                            schedule_map[plant_id] = dfs[plant_id]
+
+                    mutate_locked(shared_data, _write_today)
 
                     _update_status(
                         shared_data,
@@ -184,20 +178,25 @@ def data_fetcher_agent(config, shared_data):
                         for plant_id in plant_ids
                     }
 
-                    with shared_data["lock"]:
-                        existing_map = {
-                            plant_id: shared_data.get("api_schedule_df_by_plant", {}).get(plant_id, pd.DataFrame())
+                    existing_map = snapshot_locked(
+                        shared_data,
+                        lambda data: {
+                            plant_id: data.get("api_schedule_df_by_plant", {}).get(plant_id, pd.DataFrame())
                             for plant_id in plant_ids
-                        }
+                        },
+                    )
 
                     merged = {
-                        plant_id: _merge_schedule(existing_map[plant_id], new_dfs[plant_id])
+                        plant_id: merge_schedule_frames(existing_map[plant_id], new_dfs[plant_id])
                         for plant_id in plant_ids
                     }
 
-                    with shared_data["lock"]:
+                    def _write_tomorrow(data):
+                        schedule_map = data.get("api_schedule_df_by_plant", {})
                         for plant_id in plant_ids:
-                            shared_data["api_schedule_df_by_plant"][plant_id] = merged[plant_id]
+                            schedule_map[plant_id] = merged[plant_id]
+
+                    mutate_locked(shared_data, _write_tomorrow)
 
                     points_by_plant = _extract_points_by_plant(new_dfs, plant_ids)
                     total_points = sum(points_by_plant.values())

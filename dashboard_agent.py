@@ -17,6 +17,9 @@ from plotly.subplots import make_subplots
 from pyModbusTCP.client import ModbusClient
 
 import manual_schedule_manager as msm
+from runtime_contracts import resolve_modbus_endpoint, sanitize_plant_name
+from schedule_runtime import resolve_schedule_setpoint
+from shared_state import snapshot_locked
 from time_utils import get_config_tz, normalize_datetime_series, normalize_schedule_index, normalize_timestamp_value, now_tz
 from utils import hw_to_kw, int_to_uint16, kw_to_hw, uint16_to_int
 
@@ -42,9 +45,15 @@ def dashboard_agent(config, shared_data):
     except (TypeError, ValueError):
         schedule_period_minutes = 15.0
     api_validity_window = pd.Timedelta(minutes=schedule_period_minutes)
-    with shared_data["lock"]:
-        initial_source = shared_data.get("active_schedule_source", "manual")
-        initial_transport = shared_data.get("transport_mode", "local")
+    initial_snapshot = snapshot_locked(
+        shared_data,
+        lambda data: {
+            "initial_source": data.get("active_schedule_source", "manual"),
+            "initial_transport": data.get("transport_mode", "local"),
+        },
+    )
+    initial_source = initial_snapshot["initial_source"]
+    initial_transport = initial_snapshot["initial_transport"]
 
     brand_logo_src = app.get_asset_url("brand/Logotype i-STENTORE.png")
 
@@ -116,20 +125,18 @@ def dashboard_agent(config, shared_data):
         return str((plants_cfg.get(plant_id, {}) or {}).get("name", plant_id.upper()))
 
     def get_plant_modbus_config(plant_id, transport_mode=None):
-        with shared_data["lock"]:
-            mode = transport_mode or shared_data.get("transport_mode", "local")
-
-        endpoint = ((plants_cfg.get(plant_id, {}) or {}).get("modbus", {}) or {}).get(mode, {})
-        registers = endpoint.get("registers", {})
+        mode = transport_mode or snapshot_locked(shared_data, lambda data: data.get("transport_mode", "local"))
+        endpoint = resolve_modbus_endpoint(config, plant_id, mode)
+        registers = endpoint["registers"]
         return {
             "mode": mode,
             "host": endpoint.get("host", "localhost"),
             "port": int(endpoint.get("port", 5020 if plant_id == "lib" else 5021)),
-            "enable_reg": int(registers.get("enable", 1)),
-            "p_setpoint_reg": int(registers.get("p_setpoint_in", 86)),
-            "q_setpoint_reg": int(registers.get("q_setpoint_in", 88)),
-            "p_battery_reg": int(registers.get("p_battery", 270)),
-            "q_battery_reg": int(registers.get("q_battery", 272)),
+            "enable_reg": registers["enable"],
+            "p_setpoint_reg": registers["p_setpoint_in"],
+            "q_setpoint_reg": registers["q_setpoint_in"],
+            "p_battery_reg": registers["p_battery"],
+            "q_battery_reg": registers["q_battery"],
         }
 
     def set_enable(plant_id, value):
@@ -257,45 +264,28 @@ def dashboard_agent(config, shared_data):
         return results
 
     def get_latest_schedule_setpoint(plant_id):
-        with shared_data["lock"]:
-            source = shared_data.get("active_schedule_source", "manual")
-            if source == "api":
-                schedule_df = shared_data.get("api_schedule_df_by_plant", {}).get(plant_id)
-            else:
-                schedule_df = shared_data.get("manual_schedule_df_by_plant", {}).get(plant_id)
-
-        if schedule_df is None or schedule_df.empty:
-            return 0.0, 0.0
-
-        try:
-            now_value = now_tz(config)
-            schedule_df = normalize_schedule_index(schedule_df, tz)
-            row = schedule_df.asof(now_value)
-            if row is None or row.empty:
-                return 0.0, 0.0
-
-            if source == "api":
-                row_ts = schedule_df.index.asof(now_value)
-                is_stale = pd.isna(row_ts) or (pd.Timestamp(now_value) - pd.Timestamp(row_ts) > api_validity_window)
-                if is_stale:
-                    return 0.0, 0.0
-
-            p_kw = row.get("power_setpoint_kw", 0.0)
-            q_kvar = row.get("reactive_power_setpoint_kvar", 0.0)
-            if pd.isna(p_kw) or pd.isna(q_kvar):
-                return 0.0, 0.0
-            return float(p_kw), float(q_kvar)
-        except Exception:
-            return 0.0, 0.0
-
-    def sanitize_name_for_filename(name, fallback):
-        raw = str(name).strip().lower()
-        safe = "".join(ch if (ch.isalnum() or ch in "_-") else "_" for ch in raw)
-        safe = safe.strip("_")
-        return safe or fallback
+        source_snapshot = snapshot_locked(
+            shared_data,
+            lambda data: {
+                "source": data.get("active_schedule_source", "manual"),
+                "schedule_df": (
+                    data.get("api_schedule_df_by_plant", {}).get(plant_id)
+                    if data.get("active_schedule_source", "manual") == "api"
+                    else data.get("manual_schedule_df_by_plant", {}).get(plant_id)
+                ),
+            },
+        )
+        p_kw, q_kvar, _ = resolve_schedule_setpoint(
+            source_snapshot["schedule_df"],
+            now_tz(config),
+            tz,
+            source=source_snapshot["source"],
+            api_validity_window=api_validity_window,
+        )
+        return p_kw, q_kvar
 
     def get_daily_recording_file_path(plant_id):
-        safe_name = sanitize_name_for_filename(plant_name(plant_id), plant_id)
+        safe_name = sanitize_plant_name(plant_name(plant_id), plant_id)
         date_str = now_tz(config).strftime("%Y%m%d")
         return os.path.join("data", f"{date_str}_{safe_name}.csv")
 

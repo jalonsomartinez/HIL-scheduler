@@ -2,7 +2,6 @@ import glob
 import logging
 import math
 import os
-import re
 import time
 from collections import deque
 from datetime import timedelta
@@ -12,6 +11,8 @@ import pandas as pd
 from pyModbusTCP.client import ModbusClient
 
 from istentore_api import AuthenticationError, IstentoreAPI, IstentoreAPIError
+from runtime_contracts import resolve_modbus_endpoint, sanitize_plant_name
+from shared_state import snapshot_locked
 from time_utils import get_config_tz, normalize_datetime_series, normalize_timestamp_value, now_tz, serialize_iso_with_tz
 from utils import hw_to_kw, uint16_to_int
 
@@ -26,13 +27,6 @@ MEASUREMENT_VALUE_COLUMNS = [
     "v_poi_pu",
 ]
 MEASUREMENT_COLUMNS = ["timestamp"] + MEASUREMENT_VALUE_COLUMNS
-
-
-def sanitize_plant_name(name, fallback):
-    text = str(name).strip().lower()
-    text = re.sub(r"[^a-z0-9_-]+", "_", text)
-    text = text.strip("_")
-    return text or fallback
 
 
 def normalize_measurements_df(df, tz):
@@ -172,20 +166,19 @@ def measurement_agent(config, shared_data):
         return plant_cfg.get("name", plant_id.upper()), plant_id
 
     def get_transport_endpoint(plant_id, transport_mode):
-        plant_cfg = plants_cfg.get(plant_id, {})
-        endpoint = (plant_cfg.get("modbus", {}) or {}).get(transport_mode, {})
-        registers = endpoint.get("registers", {})
+        endpoint = resolve_modbus_endpoint(config, plant_id, transport_mode)
+        registers = endpoint["registers"]
         return {
             "host": endpoint.get("host", "localhost"),
             "port": int(endpoint.get("port", 5020 if plant_id == "lib" else 5021)),
-            "p_setpoint_reg": int(registers.get("p_setpoint_in", 86)),
-            "p_battery_reg": int(registers.get("p_battery", 270)),
-            "q_setpoint_reg": int(registers.get("q_setpoint_in", 88)),
-            "q_battery_reg": int(registers.get("q_battery", 272)),
-            "soc_reg": int(registers.get("soc", 281)),
-            "p_poi_reg": int(registers.get("p_poi", 290)),
-            "q_poi_reg": int(registers.get("q_poi", 292)),
-            "v_poi_reg": int(registers.get("v_poi", 296)),
+            "p_setpoint_reg": registers["p_setpoint_in"],
+            "p_battery_reg": registers["p_battery"],
+            "q_setpoint_reg": registers["q_setpoint_in"],
+            "q_battery_reg": registers["q_battery"],
+            "soc_reg": registers["soc"],
+            "p_poi_reg": registers["p_poi"],
+            "q_poi_reg": registers["q_poi"],
+            "v_poi_reg": registers["v_poi"],
         }
 
     def build_daily_file_path(plant_id, timestamp):
@@ -669,12 +662,21 @@ def measurement_agent(config, shared_data):
         current_time = time.time()
         now_dt = now_tz(config)
 
-        with shared_data["lock"]:
-            transport_mode = shared_data.get("transport_mode", "local")
-            requested_files = dict(shared_data.get("measurements_filename_by_plant", {}))
-            active_schedule_source = shared_data.get("active_schedule_source", "manual")
-            api_password = shared_data.get("api_password")
-            current_paths = dict(shared_data.get("current_file_path_by_plant", {}))
+        snapshot = snapshot_locked(
+            shared_data,
+            lambda data: {
+                "transport_mode": data.get("transport_mode", "local"),
+                "requested_files": dict(data.get("measurements_filename_by_plant", {})),
+                "active_schedule_source": data.get("active_schedule_source", "manual"),
+                "api_password": data.get("api_password"),
+                "current_paths": dict(data.get("current_file_path_by_plant", {})),
+            },
+        )
+        transport_mode = snapshot["transport_mode"]
+        requested_files = snapshot["requested_files"]
+        active_schedule_source = snapshot["active_schedule_source"]
+        api_password = snapshot["api_password"]
+        current_paths = snapshot["current_paths"]
 
         for plant_id in plant_ids:
             state = plant_states[plant_id]

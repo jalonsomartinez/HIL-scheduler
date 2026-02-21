@@ -4,7 +4,10 @@ import time
 import pandas as pd
 from pyModbusTCP.client import ModbusClient
 
-from time_utils import get_config_tz, normalize_schedule_index, now_tz
+from runtime_contracts import resolve_modbus_endpoint
+from schedule_runtime import resolve_schedule_setpoint
+from shared_state import snapshot_locked
+from time_utils import get_config_tz, now_tz
 from utils import int_to_uint16, kw_to_hw
 
 
@@ -13,7 +16,6 @@ def scheduler_agent(config, shared_data):
     logging.info("Scheduler agent started.")
 
     plant_ids = tuple(config.get("PLANT_IDS", ("lib", "vrfb")))
-    plants_cfg = config.get("PLANTS", {})
     tz = get_config_tz(config)
 
     raw_schedule_period_minutes = config.get("ISTENTORE_SCHEDULE_PERIOD_MINUTES", 15)
@@ -35,19 +37,8 @@ def scheduler_agent(config, shared_data):
     previous_q = {plant_id: None for plant_id in plant_ids}
     previous_api_stale = {plant_id: None for plant_id in plant_ids}
 
-    def get_endpoint(plant_id, transport_mode):
-        plant_cfg = plants_cfg.get(plant_id, {})
-        endpoint = (plant_cfg.get("modbus", {}) or {}).get(transport_mode, {})
-        registers = endpoint.get("registers", {})
-        return {
-            "host": endpoint.get("host", "localhost"),
-            "port": int(endpoint.get("port", 5020)),
-            "p_setpoint_reg": int(registers.get("p_setpoint_in", 86)),
-            "q_setpoint_reg": int(registers.get("q_setpoint_in", 88)),
-        }
-
     def ensure_client(plant_id, transport_mode):
-        endpoint = get_endpoint(plant_id, transport_mode)
+        endpoint = resolve_modbus_endpoint(config, plant_id, transport_mode)
         endpoint_key = (endpoint["host"], endpoint["port"])
 
         if endpoints.get(plant_id) != endpoint_key:
@@ -73,12 +64,21 @@ def scheduler_agent(config, shared_data):
     while not shared_data["shutdown_event"].is_set():
         loop_start = time.time()
 
-        with shared_data["lock"]:
-            transport_mode = shared_data.get("transport_mode", "local")
-            active_source = shared_data.get("active_schedule_source", "manual")
-            scheduler_running = dict(shared_data.get("scheduler_running_by_plant", {}))
-            manual_map = dict(shared_data.get("manual_schedule_df_by_plant", {}))
-            api_map = dict(shared_data.get("api_schedule_df_by_plant", {}))
+        snapshot = snapshot_locked(
+            shared_data,
+            lambda data: {
+                "transport_mode": data.get("transport_mode", "local"),
+                "active_source": data.get("active_schedule_source", "manual"),
+                "scheduler_running": dict(data.get("scheduler_running_by_plant", {})),
+                "manual_map": dict(data.get("manual_schedule_df_by_plant", {})),
+                "api_map": dict(data.get("api_schedule_df_by_plant", {})),
+            },
+        )
+        transport_mode = snapshot["transport_mode"]
+        active_source = snapshot["active_source"]
+        scheduler_running = snapshot["scheduler_running"]
+        manual_map = snapshot["manual_map"]
+        api_map = snapshot["api_map"]
 
         for plant_id in plant_ids:
             try:
@@ -100,49 +100,39 @@ def scheduler_agent(config, shared_data):
 
                 schedule_df = api_map.get(plant_id) if active_source == "api" else manual_map.get(plant_id)
 
-                p_setpoint = 0.0
-                q_setpoint = 0.0
+                p_setpoint, q_setpoint, is_stale = resolve_schedule_setpoint(
+                    schedule_df,
+                    now_tz(config),
+                    tz,
+                    source=active_source,
+                    api_validity_window=api_validity_window,
+                )
 
-                if schedule_df is not None and not schedule_df.empty:
-                    now_value = now_tz(config)
-                    schedule_df = normalize_schedule_index(schedule_df, tz)
-                    current_row = schedule_df.asof(now_value)
-
-                    if current_row is not None and not current_row.empty:
-                        p_setpoint = float(current_row.get("power_setpoint_kw", 0.0) or 0.0)
-                        q_setpoint = float(current_row.get("reactive_power_setpoint_kvar", 0.0) or 0.0)
-
-                        if active_source == "api":
-                            row_ts = schedule_df.index.asof(now_value)
-                            is_stale = pd.isna(row_ts) or (
-                                pd.Timestamp(now_value) - pd.Timestamp(row_ts) > api_validity_window
-                            )
-                            if is_stale:
-                                p_setpoint = 0.0
-                                q_setpoint = 0.0
-                            if previous_api_stale[plant_id] != is_stale:
-                                if is_stale:
-                                    logging.warning("Scheduler: %s API setpoint stale -> zero dispatch.", plant_id.upper())
-                                else:
-                                    logging.info("Scheduler: %s API setpoint fresh again.", plant_id.upper())
-                            previous_api_stale[plant_id] = is_stale
+                if active_source == "api":
+                    if previous_api_stale[plant_id] != bool(is_stale):
+                        if is_stale:
+                            if schedule_df is None or schedule_df.empty:
+                                logging.warning("Scheduler: %s API schedule unavailable -> zero dispatch.", plant_id.upper())
+                            else:
+                                logging.warning("Scheduler: %s API setpoint stale -> zero dispatch.", plant_id.upper())
                         else:
-                            previous_api_stale[plant_id] = None
-
-                        if pd.isna(p_setpoint) or pd.isna(q_setpoint):
-                            p_setpoint = 0.0
-                            q_setpoint = 0.0
-                elif active_source == "api":
-                    if previous_api_stale[plant_id] is not True:
-                        logging.warning("Scheduler: %s API schedule unavailable -> zero dispatch.", plant_id.upper())
-                    previous_api_stale[plant_id] = True
+                            logging.info("Scheduler: %s API setpoint fresh again.", plant_id.upper())
+                    previous_api_stale[plant_id] = bool(is_stale)
+                else:
+                    previous_api_stale[plant_id] = None
 
                 if previous_p[plant_id] != p_setpoint:
-                    client.write_single_register(endpoint["p_setpoint_reg"], int_to_uint16(kw_to_hw(p_setpoint)))
+                    client.write_single_register(
+                        endpoint["registers"]["p_setpoint_in"],
+                        int_to_uint16(kw_to_hw(p_setpoint)),
+                    )
                     previous_p[plant_id] = p_setpoint
 
                 if previous_q[plant_id] != q_setpoint:
-                    client.write_single_register(endpoint["q_setpoint_reg"], int_to_uint16(kw_to_hw(q_setpoint)))
+                    client.write_single_register(
+                        endpoint["registers"]["q_setpoint_in"],
+                        int_to_uint16(kw_to_hw(q_setpoint)),
+                    )
                     previous_q[plant_id] = q_setpoint
 
             except Exception as exc:

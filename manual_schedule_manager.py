@@ -16,6 +16,7 @@ from typing import Optional, Tuple
 
 import numpy as np
 import pandas as pd
+from schedule_runtime import merge_schedule_frames
 from time_utils import (
     DEFAULT_TIMEZONE_NAME,
     get_timezone,
@@ -162,14 +163,11 @@ def append_schedules(
 
     existing_df = normalize_schedule_index(existing_df, tz)
     new_df = normalize_schedule_index(new_df, tz)
-    
+
     if replace_overlapping:
-        # Remove overlapping rows from existing schedule
-        non_overlapping = existing_df.index.difference(new_df.index)
-        existing_df = existing_df.loc[non_overlapping]
-    
-    # Concatenate and sort
-    combined = pd.concat([existing_df, new_df]).sort_index()
+        combined = merge_schedule_frames(existing_df, new_df)
+    else:
+        combined = pd.concat([existing_df, new_df]).sort_index()
     
     logging.info(f"Appended schedules: existing={len(existing_df)}, new={len(new_df)}, combined={len(combined)}")
     return combined

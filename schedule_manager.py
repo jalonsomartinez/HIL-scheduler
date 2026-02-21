@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 
 from istentore_api import IstentoreAPI
+from schedule_runtime import merge_schedule_frames
 
 
 class ScheduleMode(Enum):
@@ -368,12 +369,9 @@ class ScheduleManager:
                 self._schedule_df = new_data.copy()
             else:
                 if replace_overlapping:
-                    # Remove overlapping rows from existing schedule
-                    non_overlapping = self._schedule_df.index.difference(new_data.index)
-                    self._schedule_df = self._schedule_df.loc[non_overlapping]
-                
-                # Concatenate existing + new
-                self._schedule_df = pd.concat([self._schedule_df, new_data]).sort_index()
+                    self._schedule_df = merge_schedule_frames(self._schedule_df, new_data)
+                else:
+                    self._schedule_df = pd.concat([self._schedule_df, new_data]).sort_index()
         
         # Notify callback
         if self._on_schedule_update:
