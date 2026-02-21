@@ -845,9 +845,9 @@ def dashboard_agent(config, shared_data):
                                 className="card",
                                 children=[
                                     html.Div(
-                                        className="form-row",
+                                        className="form-row api-credentials-row",
                                         children=[
-                                            dcc.Input(id="api-password", type="password", placeholder="API password", className="form-control"),
+                                            dcc.Input(id="api-password", type="password", placeholder="API password", className="form-control api-password-input"),
                                             html.Button("Set Password", id="set-password-btn", className="btn btn-primary", n_clicks=0),
                                             html.Button("Disconnect", id="disconnect-api-btn", className="btn btn-danger", n_clicks=0),
                                         ],

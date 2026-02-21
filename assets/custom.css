@@ -372,6 +372,22 @@ a {
     margin-bottom: 12px;
 }
 
+.api-credentials-row {
+    flex-wrap: nowrap;
+    align-items: stretch;
+}
+
+.api-password-input {
+    flex: 1 1 auto;
+    min-width: 260px;
+    width: auto;
+}
+
+.api-credentials-row .btn {
+    flex: 0 0 auto;
+    width: auto;
+}
+
 .form-group {
     flex: 1;
     min-width: 152px;
@@ -585,13 +601,8 @@ input[type="number"]:focus,
 }
 
 @media (max-width: 900px) {
-    .app-header-brand {
-        flex-direction: column;
-        align-items: flex-start;
-    }
-
     .brand-logo {
-        width: min(72vw, 330px);
+        width: min(42vw, 300px);
     }
 
     .controls-row {
@@ -621,6 +632,17 @@ input[type="number"]:focus,
     }
 }
 
+@media (max-width: 640px) {
+    .app-header-brand {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .brand-logo {
+        width: min(72vw, 330px);
+    }
+}
+
 @media (max-width: 760px) {
     .app-container {
         padding: 12px 12px 22px;
@@ -636,6 +658,15 @@ input[type="number"]:focus,
     .form-row {
         flex-direction: column;
         align-items: stretch;
+    }
+
+    .api-credentials-row {
+        flex-wrap: wrap;
+    }
+
+    .api-password-input {
+        min-width: 100%;
+        width: 100%;
     }
 
     .form-group {
