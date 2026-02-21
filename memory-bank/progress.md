@@ -13,13 +13,14 @@
 - per-plant Start/Stop + Record/Stop controls,
 - global source/transport switching with confirmation and safe-stop,
 - API status and posting health,
-- logs tab with live and historical sources,
+- logs tab with live `Today` (current date file tail) and selectable historical files,
 - branded UI theme (tokenized CSS, local font assets, class-based styling hooks, and contrast-tuned controls).
 
 ## In Progress
 1. Documentation right-sizing and contract cleanup (active memory + archive split).
 2. Converting operational knowledge into concise, low-drift memory-bank artifacts.
 3. UI validation pass for branded dashboard readability across desktop/mobile control workflows.
+4. Runtime smoke validation for logs callbacks and date-based file routing around day-boundary behavior.
 
 ## Next
 1. Add automated tests for:

@@ -10,6 +10,7 @@ Configures logging to:
 import logging
 import os
 from datetime import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 class SessionLogHandler(logging.Handler):
@@ -38,6 +39,71 @@ class SessionLogHandler(logging.Handler):
                     self.shared_data['session_logs'] = self.shared_data['session_logs'][-1000:]
         except Exception:
             self.handleError(record)
+
+
+class DateRoutedFileHandler(logging.Handler):
+    """File handler that routes records to YYYY-MM-DD files by record timestamp."""
+
+    def __init__(self, logs_dir, timezone_name, shared_data, *, encoding="utf-8"):
+        super().__init__()
+        self.logs_dir = logs_dir
+        self.shared_data = shared_data
+        self.encoding = encoding
+        self.terminator = "\n"
+        try:
+            self.timezone = ZoneInfo(timezone_name)
+        except (TypeError, ValueError, ZoneInfoNotFoundError):
+            self.timezone = datetime.now().astimezone().tzinfo
+
+        self._current_date = None
+        self._current_path = None
+        self._stream = None
+
+    def _build_log_path(self, date_str):
+        return os.path.join(self.logs_dir, f"{date_str}_hil_scheduler.log")
+
+    def _update_shared_log_path(self, path):
+        lock = self.shared_data.get("log_lock")
+        if lock is None:
+            self.shared_data["log_file_path"] = path
+            return
+        with lock:
+            self.shared_data["log_file_path"] = path
+
+    def _open_for_date(self, date_str):
+        if date_str == self._current_date and self._stream is not None:
+            return
+
+        self._close_stream()
+        path = self._build_log_path(date_str)
+        self._stream = open(path, "a", encoding=self.encoding)
+        self._current_date = date_str
+        self._current_path = path
+        self._update_shared_log_path(path)
+
+    def _close_stream(self):
+        if self._stream is None:
+            return
+        try:
+            self._stream.close()
+        finally:
+            self._stream = None
+
+    def emit(self, record):
+        try:
+            record_dt = datetime.fromtimestamp(record.created, tz=self.timezone)
+            date_str = record_dt.strftime("%Y-%m-%d")
+            self._open_for_date(date_str)
+            self._stream.write(self.format(record) + self.terminator)
+            self._stream.flush()
+        except Exception:
+            self.handleError(record)
+
+    def close(self):
+        try:
+            self._close_stream()
+        finally:
+            super().close()
 
 
 def setup_logging(config, shared_data):
@@ -76,13 +142,12 @@ def setup_logging(config, shared_data):
     console_handler.setFormatter(formatter)
     root_logger.addHandler(console_handler)
     
-    # 2. File Handler - Daily file with date in name
-    today = datetime.now().strftime('%Y-%m-%d')
-    log_file_path = os.path.join(logs_dir, f'{today}_hil_scheduler.log')
-    file_handler = logging.FileHandler(
-        log_file_path,
-        mode='a',  # Append mode (creates if doesn't exist)
-        encoding='utf-8'
+    # 2. File Handler - Routes each record by its configured-timezone date
+    file_handler = DateRoutedFileHandler(
+        logs_dir,
+        config.get("TIMEZONE_NAME"),
+        shared_data,
+        encoding="utf-8",
     )
     file_handler.setLevel(log_level)
     file_handler.setFormatter(formatter)

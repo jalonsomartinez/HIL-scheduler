@@ -16,7 +16,7 @@ Increase reliability and operator confidence without changing the core dual-plan
 1. Define log retention policy and implement cleanup automation.
 2. Add structured health checks for API connectivity and posting backlog age.
 3. Add explicit operator alerts for sustained posting failures or stale schedule windows.
-4. Add an operator UI validation checklist for critical control/readability states after styling updates.
+4. Add an operator UI validation checklist for critical control/readability states after styling updates, including logs-tab `Today` live refresh and historical-file selection behavior.
 
 ### P2 - Developer Experience
 1. Add CI checks for syntax, tests, and basic static quality gates.

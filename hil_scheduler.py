@@ -1,8 +1,6 @@
 import logging
-import os
 import threading
 import time
-from datetime import datetime
 
 import pandas as pd
 
@@ -92,13 +90,6 @@ def main():
             "shutdown_event": threading.Event(),
             "log_file_path": None,
         }
-    )
-
-    today = datetime.now().strftime("%Y-%m-%d")
-    shared_data["log_file_path"] = os.path.join(
-        os.path.dirname(__file__),
-        "logs",
-        f"{today}_hil_scheduler.log",
     )
 
     threads = []

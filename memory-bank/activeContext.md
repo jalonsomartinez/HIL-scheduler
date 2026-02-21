@@ -3,19 +3,28 @@
 ## Current Focus (Now)
 1. Keep memory bank aligned with the dual-plant runtime contract and avoid stale schema drift.
 2. Maintain robust plant control safety (start/stop transitions and guarded global switches).
-3. Stabilize the refreshed dashboard visual system (i-STENTORE branding, readability, and control-state clarity) without changing callback/runtime behavior.
+3. Stabilize logging and dashboard observability behavior (date-routed log files and live "Today" log view) while preserving control callback safety.
 4. Improve confidence through targeted automated tests around scheduler gating, recording boundaries, and API posting retry behavior.
 
 ## Open Decisions and Risks
 1. Test coverage gap: no focused regression suite yet for core control contracts.
 2. API posting durability: retry queue is in-memory and is lost on restart.
-3. Logging retention policy: current file output is per-day file naming without automatic historical pruning.
+3. Logging retention policy: file output is date-routed per configured timezone without automatic historical pruning.
 4. Operational validation gap: limited scripted end-to-end verification for remote transport behavior.
 5. No automated visual regression checks yet for dashboard CSS/class-hook changes.
 
 ## Rolling Change Log (Compressed, 30-Day Window)
 
 ### 2026-02-21
+- Implemented timezone-aware date-routed logging in `logger_config.py`:
+  - each log record writes to `logs/YYYY-MM-DD_hil_scheduler.log` based on record timestamp date,
+  - active file switch updates `shared_data["log_file_path"]`.
+- Updated dashboard logs UX:
+  - dropdown default/value changed from `current_session` to `today`,
+  - top option relabeled to `Today`,
+  - logs view reads the tail of today's file for live updates and keeps historical file browsing.
+- Fixed dashboard logs callback regression introduced during logs refactor:
+  - replaced incorrect `now_tz(tz)` call with timezone-aware `datetime.now(tz)` in today-file path helper.
 - Reworked dashboard presentation layer to a tokenized CSS system aligned with i-STENTORE branding.
 - Refactored dashboard layout styling hooks:
   - branded header block and logo integration,

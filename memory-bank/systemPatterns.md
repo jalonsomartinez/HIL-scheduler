@@ -142,11 +142,21 @@ shared_data = {
   - If retry also fails with auth error, request fails with `IstentoreAPIError`.
 - No time-based proactive token refresh is configured.
 
+### Log Routing and Dashboard Log Views
+- `logger_config.py` routes file output by each record timestamp date in configured timezone (`TIMEZONE_NAME`), not process start date.
+- Active destination path is surfaced in `shared_data["log_file_path"]` and updates when date rolls.
+- Dashboard logs callback contract:
+  - default selector value is `today`,
+  - `today` reads tail of current date file for live refresh on interval ticks,
+  - historical file selections pause interval-driven refresh until selection changes.
+- Legacy selector value `current_session` is normalized to `today` for compatibility.
+
 ## Time and Timestamp Conventions
 - Runtime timestamps are timezone-aware in configured timezone.
 - API schedule delivery periods are parsed as UTC then converted to configured timezone.
 - Persisted CSV measurement timestamps are ISO 8601 with timezone offset.
 - Posted measurement timestamps are strict UTC ISO (`+00:00`).
+- Log file day boundaries follow configured timezone date and record timestamps.
 
 ## Locking Discipline
 - Hold `shared_data["lock"]` only for short reference reads/writes.

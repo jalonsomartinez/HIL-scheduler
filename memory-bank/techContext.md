@@ -66,10 +66,13 @@ Per-plant config includes:
 ## Logging Behavior
 - Root logger has three outputs:
   1. console,
-  2. file `logs/YYYY-MM-DD_hil_scheduler.log`,
-  3. in-memory session list for dashboard logs tab.
+  2. date-routed file `logs/YYYY-MM-DD_hil_scheduler.log` (record timestamp date in configured timezone),
+  3. in-memory session list (retained for compatibility and lightweight in-process diagnostics).
 - Session logs are bounded to latest 1000 entries.
-- Historical log browsing in dashboard reads from `logs/*.log`.
+- Dashboard logs tab behavior:
+  - default selector is `today`,
+  - `today` reads tail of current date file for live refresh,
+  - historical log browsing reads selectable files from `logs/*.log`.
 
 ## Dashboard Styling Conventions
 - Brand assets are served from Dash `assets/` (logo PNGs + local font files).

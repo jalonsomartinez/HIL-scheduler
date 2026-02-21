@@ -31,7 +31,7 @@ The system closes the operational gap between market/control schedules and plant
 
 ### Observability
 - API tab shows fetch status (today/tomorrow) plus measurement posting telemetry.
-- Logs tab exposes live session logs and selectable historical log files.
+- Logs tab exposes a live `Today` view (tail of the current date log file) and selectable historical log files.
 
 ## UX Intent
 1. Clear separation between dispatch control and recording control.

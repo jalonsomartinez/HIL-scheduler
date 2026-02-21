@@ -5,6 +5,7 @@ import os
 import re
 import threading
 import time
+from collections import deque
 from datetime import datetime, timedelta
 
 import dash
@@ -421,6 +422,20 @@ def dashboard_agent(config, shared_data):
                 )
             )
         return formatted_entries
+
+    def get_logs_dir():
+        return os.path.join(os.path.dirname(__file__), "logs")
+
+    def get_today_log_file_path():
+        today_str = datetime.now(tz).strftime("%Y-%m-%d")
+        return os.path.join(get_logs_dir(), f"{today_str}_hil_scheduler.log")
+
+    def read_log_tail(file_path, max_lines=1000):
+        if not os.path.exists(file_path):
+            return ""
+        with open(file_path, "r", encoding="utf-8", errors="replace") as handle:
+            tail_lines = deque(handle, maxlen=max_lines)
+        return "".join(tail_lines)
 
     def create_plant_figure(plant_id, schedule_df, measurements_df, uirevision_key):
         fig = make_subplots(
@@ -871,7 +886,7 @@ def dashboard_agent(config, shared_data):
                                     html.Div(
                                         className="card-header logs-header",
                                         children=[
-                                            html.H3(className="card-title", children="Session Logs"),
+                                            html.H3(className="card-title", children="Logs"),
                                             html.Div(
                                                 className="logs-header-actions",
                                                 children=[
@@ -880,7 +895,7 @@ def dashboard_agent(config, shared_data):
                                                         id="log-file-selector",
                                                         className="log-selector-dropdown",
                                                         options=[],
-                                                        value="current_session",
+                                                        value="today",
                                                         clearable=False,
                                                     ),
                                                 ],
@@ -1603,23 +1618,32 @@ def dashboard_agent(config, shared_data):
         Input("interval-component", "n_intervals"),
     )
     def update_log_file_options(n_intervals):
-        options = [{"label": "Current Session", "value": "current_session"}]
+        options = [{"label": "Today", "value": "today"}]
+        logs_dir = get_logs_dir()
+        today_path = os.path.abspath(get_today_log_file_path())
         try:
-            if os.path.exists("logs"):
+            if os.path.exists(logs_dir):
                 log_files = []
-                for filename in os.listdir("logs"):
+                for filename in os.listdir(logs_dir):
                     if not filename.endswith(".log"):
+                        continue
+                    full_path = os.path.join(logs_dir, filename)
+                    if os.path.abspath(full_path) == today_path:
                         continue
                     try:
                         date_str = filename.split("_", 1)[0]
                         date_obj = datetime.strptime(date_str, "%Y-%m-%d")
-                        log_files.append((date_obj.strftime("%Y-%m-%d"), filename))
+                        log_files.append((date_obj, date_obj.strftime("%Y-%m-%d"), full_path))
                     except (ValueError, IndexError):
-                        log_files.append((filename, filename))
+                        log_files.append((None, filename, full_path))
 
-                log_files.sort(key=lambda item: item[0], reverse=True)
-                for display_name, filename in log_files:
-                    options.append({"label": display_name, "value": os.path.join("logs", filename)})
+                dated = [item for item in log_files if item[0] is not None]
+                undated = [item for item in log_files if item[0] is None]
+                dated.sort(key=lambda item: item[0], reverse=True)
+                undated.sort(key=lambda item: item[1], reverse=True)
+
+                for _, display_name, full_path in dated + undated:
+                    options.append({"label": display_name, "value": full_path})
         except Exception as exc:
             logging.error("Dashboard: failed to scan log files: %s", exc)
         return options
@@ -1632,20 +1656,22 @@ def dashboard_agent(config, shared_data):
     def update_logs_display(n_intervals, selected_file):
         ctx = callback_context
         trigger_id = ctx.triggered[0]["prop_id"].split(".")[0] if ctx.triggered else None
-        selected = selected_file or "current_session"
+        selected = selected_file or "today"
+        if selected == "current_session":
+            selected = "today"
 
-        if trigger_id == "interval-component" and selected != "current_session":
+        if trigger_id == "interval-component" and selected != "today":
             raise PreventUpdate
 
-        if selected == "current_session":
-            with shared_data["log_lock"]:
-                session_logs = list(shared_data.get("session_logs", []))
-                log_file_path = shared_data.get("log_file_path", "")
-            formatted = format_log_entries(session_logs)
+        if selected == "today":
+            log_file_path = get_today_log_file_path()
+            today_file_exists = os.path.exists(log_file_path)
+            file_content = read_log_tail(log_file_path, max_lines=1000)
+            formatted = parse_and_format_historical_logs(file_content)
             if not formatted:
-                formatted = [html.Div("No logs yet.", className="logs-empty")]
-            path_text = f"Log file: {log_file_path}" if log_file_path else "Current Session"
-            return formatted, path_text
+                empty_text = "No parseable log entries." if today_file_exists else "No logs yet."
+                formatted = [html.Div(empty_text, className="logs-empty")]
+            return formatted, f"File: {log_file_path}"
 
         try:
             with open(selected, "r", encoding="utf-8", errors="replace") as handle:
