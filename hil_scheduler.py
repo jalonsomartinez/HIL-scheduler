@@ -32,19 +32,9 @@ def _default_measurement_post_status_by_plant(plant_ids):
     }
 
 
-def main():
-    """Director agent: load config, initialize shared runtime, and start agents."""
-    config = load_config("config.yaml")
+def build_initial_shared_data(config):
+    """Create the authoritative runtime shared_data contract."""
     plant_ids = tuple(config.get("PLANT_IDS", ("lib", "vrfb")))
-
-    shared_data = {
-        "session_logs": [],
-        "log_lock": threading.Lock(),
-    }
-
-    setup_logging(config, shared_data)
-    logging.info("Director agent starting the application.")
-
     startup_schedule_source = config.get("STARTUP_SCHEDULE_SOURCE", "manual")
     startup_transport_mode = config.get("STARTUP_TRANSPORT_MODE", "local")
 
@@ -56,41 +46,50 @@ def main():
         logging.warning("Invalid STARTUP_TRANSPORT_MODE '%s', using 'local'", startup_transport_mode)
         startup_transport_mode = "local"
 
-    shared_data.update(
-        {
-            "manual_schedule_df_by_plant": _empty_df_by_plant(plant_ids),
-            "api_schedule_df_by_plant": _empty_df_by_plant(plant_ids),
-            "active_schedule_source": startup_schedule_source,
-            "transport_mode": startup_transport_mode,
-            "scheduler_running_by_plant": {plant_id: False for plant_id in plant_ids},
-            "plant_transition_by_plant": {plant_id: "stopped" for plant_id in plant_ids},
-            "measurements_filename_by_plant": {plant_id: None for plant_id in plant_ids},
-            "current_file_path_by_plant": {plant_id: None for plant_id in plant_ids},
-            "current_file_df_by_plant": _empty_df_by_plant(plant_ids),
-            "pending_rows_by_file": {},
-            "measurements_df": pd.DataFrame(),
-            "measurement_post_status": _default_measurement_post_status_by_plant(plant_ids),
-            "api_password": None,
-            "data_fetcher_status": {
-                "connected": False,
-                "today_fetched": False,
-                "tomorrow_fetched": False,
-                "today_date": None,
-                "tomorrow_date": None,
-                "today_points": 0,
-                "tomorrow_points": 0,
-                "today_points_by_plant": {plant_id: 0 for plant_id in plant_ids},
-                "tomorrow_points_by_plant": {plant_id: 0 for plant_id in plant_ids},
-                "last_attempt": None,
-                "error": None,
-            },
-            "schedule_switching": False,
-            "transport_switching": False,
-            "lock": threading.Lock(),
-            "shutdown_event": threading.Event(),
-            "log_file_path": None,
-        }
-    )
+    return {
+        "session_logs": [],
+        "log_lock": threading.Lock(),
+        "manual_schedule_df_by_plant": _empty_df_by_plant(plant_ids),
+        "api_schedule_df_by_plant": _empty_df_by_plant(plant_ids),
+        "active_schedule_source": startup_schedule_source,
+        "transport_mode": startup_transport_mode,
+        "scheduler_running_by_plant": {plant_id: False for plant_id in plant_ids},
+        "plant_transition_by_plant": {plant_id: "stopped" for plant_id in plant_ids},
+        "measurements_filename_by_plant": {plant_id: None for plant_id in plant_ids},
+        "current_file_path_by_plant": {plant_id: None for plant_id in plant_ids},
+        "current_file_df_by_plant": _empty_df_by_plant(plant_ids),
+        "pending_rows_by_file": {},
+        "measurements_df": pd.DataFrame(),
+        "measurement_post_status": _default_measurement_post_status_by_plant(plant_ids),
+        "api_password": None,
+        "data_fetcher_status": {
+            "connected": False,
+            "today_fetched": False,
+            "tomorrow_fetched": False,
+            "today_date": None,
+            "tomorrow_date": None,
+            "today_points": 0,
+            "tomorrow_points": 0,
+            "today_points_by_plant": {plant_id: 0 for plant_id in plant_ids},
+            "tomorrow_points_by_plant": {plant_id: 0 for plant_id in plant_ids},
+            "last_attempt": None,
+            "error": None,
+        },
+        "schedule_switching": False,
+        "transport_switching": False,
+        "lock": threading.Lock(),
+        "shutdown_event": threading.Event(),
+        "log_file_path": None,
+    }
+
+
+def main():
+    """Director agent: load config, initialize shared runtime, and start agents."""
+    config = load_config("config.yaml")
+    shared_data = build_initial_shared_data(config)
+
+    setup_logging(config, shared_data)
+    logging.info("Director agent starting the application.")
 
     threads = []
     try:
