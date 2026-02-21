@@ -12,6 +12,12 @@ import plotly.graph_objects as go
 from dash import Dash, Input, Output, State, callback_context, html
 from dash.exceptions import PreventUpdate
 
+from dashboard_control import (
+    perform_source_switch as perform_source_switch_flow,
+    perform_transport_switch as perform_transport_switch_flow,
+    safe_stop_all_plants as safe_stop_all_plants_flow,
+    safe_stop_plant as safe_stop_plant_flow,
+)
 from dashboard_layout import build_dashboard_layout
 from dashboard_logs import get_logs_dir, get_today_log_file_path, parse_and_format_historical_logs, read_log_tail
 from dashboard_modbus_io import (
@@ -106,50 +112,18 @@ def dashboard_agent(config, shared_data):
         return wait_until_battery_power_below_threshold_io(cfg, threshold_kw=threshold_kw, timeout_s=timeout_s)
 
     def safe_stop_plant(plant_id, threshold_kw=1.0, timeout_s=30):
-        logging.info("Dashboard: safe-stop requested for %s.", plant_id.upper())
-        with shared_data["lock"]:
-            shared_data["scheduler_running_by_plant"][plant_id] = False
-            shared_data["plant_transition_by_plant"][plant_id] = "stopping"
-        logging.info("Dashboard: %s scheduler gate set to False.", plant_id.upper())
-
-        zero_ok = send_setpoints(plant_id, 0.0, 0.0)
-        if zero_ok:
-            logging.info("Dashboard: %s zero setpoints written.", plant_id.upper())
-        else:
-            logging.warning("Dashboard: %s zero setpoints write failed.", plant_id.upper())
-
-        reached = wait_until_battery_power_below_threshold(plant_id, threshold_kw=threshold_kw, timeout_s=timeout_s)
-        if not reached:
-            logging.warning("Dashboard: safe stop timeout for %s. Forcing disable.", plant_id.upper())
-        else:
-            logging.info("Dashboard: %s battery power decayed below threshold.", plant_id.upper())
-
-        disable_ok = set_enable(plant_id, 0)
-        if disable_ok:
-            logging.info("Dashboard: %s disable command successful.", plant_id.upper())
-        else:
-            logging.error("Dashboard: %s disable command failed.", plant_id.upper())
-
-        with shared_data["lock"]:
-            shared_data["plant_transition_by_plant"][plant_id] = "stopped" if disable_ok else "unknown"
-
-        result = {
-            "threshold_reached": bool(reached),
-            "disable_ok": bool(disable_ok),
-        }
-        logging.info(
-            "Dashboard: safe-stop completed for %s (threshold_reached=%s disable_ok=%s).",
-            plant_id.upper(),
-            result["threshold_reached"],
-            result["disable_ok"],
+        return safe_stop_plant_flow(
+            shared_data,
+            plant_id,
+            send_setpoints=send_setpoints,
+            wait_until_battery_power_below_threshold=wait_until_battery_power_below_threshold,
+            set_enable=set_enable,
+            threshold_kw=threshold_kw,
+            timeout_s=timeout_s,
         )
-        return result
 
     def safe_stop_all_plants():
-        results = {}
-        for plant_id in plant_ids:
-            results[plant_id] = safe_stop_plant(plant_id)
-        return results
+        return safe_stop_all_plants_flow(plant_ids, safe_stop_plant)
 
     def get_latest_schedule_setpoint(plant_id):
         source_snapshot = snapshot_locked(
@@ -234,26 +208,12 @@ def dashboard_agent(config, shared_data):
             requested_mode = "remote" if stored_mode == "local" else "local"
 
             def perform_transport_switch():
-                try:
-                    logging.info("Dashboard: transport switch requested -> %s", requested_mode)
-                    with shared_data["lock"]:
-                        shared_data["transport_switching"] = True
-
-                    safe_stop_all_plants()
-                    with shared_data["lock"]:
-                        for plant_id in plant_ids:
-                            shared_data["scheduler_running_by_plant"][plant_id] = False
-                            shared_data["plant_transition_by_plant"][plant_id] = "stopped"
-                            shared_data["measurements_filename_by_plant"][plant_id] = None
-                            shared_data["current_file_df_by_plant"][plant_id] = pd.DataFrame()
-                            shared_data["current_file_path_by_plant"][plant_id] = None
-                        shared_data["transport_mode"] = requested_mode
-                        shared_data["transport_switching"] = False
-                    logging.info("Dashboard: transport mode switched to %s", requested_mode)
-                except Exception as exc:
-                    logging.error("Dashboard: transport switch failed: %s", exc)
-                    with shared_data["lock"]:
-                        shared_data["transport_switching"] = False
+                perform_transport_switch_flow(
+                    shared_data,
+                    plant_ids,
+                    requested_mode,
+                    safe_stop_all_plants,
+                )
 
             thread = threading.Thread(target=perform_transport_switch, daemon=True)
             thread.start()
@@ -316,20 +276,11 @@ def dashboard_agent(config, shared_data):
             requested_source = "api" if current_source == "manual" else "manual"
 
             def perform_source_switch():
-                try:
-                    logging.info("Dashboard: schedule source switch requested -> %s", requested_source)
-                    with shared_data["lock"]:
-                        shared_data["schedule_switching"] = True
-
-                    safe_stop_all_plants()
-                    with shared_data["lock"]:
-                        shared_data["active_schedule_source"] = requested_source
-                        shared_data["schedule_switching"] = False
-                    logging.info("Dashboard: active schedule source switched to %s", requested_source)
-                except Exception as exc:
-                    logging.error("Dashboard: schedule source switch failed: %s", exc)
-                    with shared_data["lock"]:
-                        shared_data["schedule_switching"] = False
+                perform_source_switch_flow(
+                    shared_data,
+                    requested_source,
+                    safe_stop_all_plants,
+                )
 
             threading.Thread(target=perform_source_switch, daemon=True).start()
             manual_class, api_class = classes_for(requested_source)
