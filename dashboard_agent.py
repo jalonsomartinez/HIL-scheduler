@@ -2,26 +2,36 @@ import base64
 import io
 import logging
 import os
-import re
 import threading
 import time
-from collections import deque
 from datetime import datetime, timedelta
 
 import dash
 import pandas as pd
 import plotly.graph_objects as go
-from dash import Dash, Input, Output, State, callback_context, dcc, html
+from dash import Dash, Input, Output, State, callback_context, html
 from dash.exceptions import PreventUpdate
-from plotly.subplots import make_subplots
-from pyModbusTCP.client import ModbusClient
 
+from dashboard_layout import build_dashboard_layout
+from dashboard_logs import get_logs_dir, get_today_log_file_path, parse_and_format_historical_logs, read_log_tail
+from dashboard_modbus_io import (
+    read_enable_state as read_enable_state_io,
+    send_setpoints as send_setpoints_io,
+    set_enable as set_enable_io,
+    wait_until_battery_power_below_threshold as wait_until_battery_power_below_threshold_io,
+)
+from dashboard_plotting import (
+    DEFAULT_PLOT_THEME,
+    DEFAULT_TRACE_COLORS,
+    apply_figure_theme,
+    create_plant_figure,
+)
+from dashboard_ui_state import get_plant_control_labels_and_disabled, resolve_runtime_transition_state
 import manual_schedule_manager as msm
 from runtime_contracts import resolve_modbus_endpoint, sanitize_plant_name
 from schedule_runtime import resolve_schedule_setpoint
 from shared_state import snapshot_locked
 from time_utils import get_config_tz, normalize_datetime_series, normalize_schedule_index, normalize_timestamp_value, now_tz
-from utils import hw_to_kw, int_to_uint16, kw_to_hw, uint16_to_int
 
 
 def dashboard_agent(config, shared_data):
@@ -57,69 +67,9 @@ def dashboard_agent(config, shared_data):
 
     brand_logo_src = app.get_asset_url("brand/Logotype i-STENTORE.png")
 
-    plot_theme = {
-        "font_family": "DM Sans, Segoe UI, Helvetica Neue, Arial, sans-serif",
-        "paper_bg": "#ffffff",
-        "plot_bg": "#ffffff",
-        "grid": "#d7e3dd",
-        "axis": "#234038",
-        "text": "#1b2b26",
-        "muted": "#546b63",
-    }
-    trace_colors = {
-        "p_setpoint": "#00945a",
-        "q_setpoint": "#8d7b00",
-        "p_poi": "#1f7ea5",
-        "p_battery": "#00c072",
-        "soc": "#6756d6",
-        "q_poi": "#1f7ea5",
-        "q_battery": "#3d8f65",
-        "api_lib": "#00945a",
-        "api_vrfb": "#3f65c8",
-    }
-
-    def apply_figure_theme(fig, *, height, margin, uirevision, showlegend=True, legend_y=1.08):
-        fig.update_layout(
-            height=height,
-            margin=margin,
-            showlegend=showlegend,
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=legend_y,
-                xanchor="center",
-                x=0.5,
-                bgcolor="rgba(255, 255, 255, 0.7)",
-                bordercolor="#d7e3dd",
-                borderwidth=1,
-                font=dict(color=plot_theme["axis"], family=plot_theme["font_family"], size=11),
-            ),
-            plot_bgcolor=plot_theme["plot_bg"],
-            paper_bgcolor=plot_theme["paper_bg"],
-            font=dict(color=plot_theme["text"], family=plot_theme["font_family"], size=12),
-            uirevision=uirevision,
-        )
-        fig.update_xaxes(
-            gridcolor=plot_theme["grid"],
-            linecolor=plot_theme["grid"],
-            zerolinecolor=plot_theme["grid"],
-            tickfont=dict(color=plot_theme["muted"], family=plot_theme["font_family"]),
-            title_font=dict(color=plot_theme["axis"], family=plot_theme["font_family"]),
-        )
-        fig.update_yaxes(
-            gridcolor=plot_theme["grid"],
-            linecolor=plot_theme["grid"],
-            zerolinecolor=plot_theme["grid"],
-            tickfont=dict(color=plot_theme["muted"], family=plot_theme["font_family"]),
-            title_font=dict(color=plot_theme["axis"], family=plot_theme["font_family"]),
-        )
-        if fig.layout.annotations:
-            for annotation in fig.layout.annotations:
-                annotation.font = dict(
-                    color=plot_theme["axis"],
-                    family=plot_theme["font_family"],
-                    size=12,
-                )
+    plot_theme = dict(DEFAULT_PLOT_THEME)
+    trace_colors = dict(DEFAULT_TRACE_COLORS)
+    base_dir = os.path.dirname(__file__)
 
     def plant_name(plant_id):
         return str((plants_cfg.get(plant_id, {}) or {}).get("name", plant_id.upper()))
@@ -141,81 +91,19 @@ def dashboard_agent(config, shared_data):
 
     def set_enable(plant_id, value):
         cfg = get_plant_modbus_config(plant_id)
-        client = ModbusClient(host=cfg["host"], port=cfg["port"])
-        try:
-            if not client.open():
-                logging.warning("Dashboard: could not connect to %s (%s mode) for enable.", plant_id.upper(), cfg["mode"])
-                return False
-            return bool(client.write_single_register(cfg["enable_reg"], int(value)))
-        except Exception as exc:
-            logging.error("Dashboard: enable write error (%s): %s", plant_id.upper(), exc)
-            return False
-        finally:
-            try:
-                client.close()
-            except Exception:
-                pass
+        return set_enable_io(cfg, plant_id.upper(), value)
 
     def send_setpoints(plant_id, p_kw, q_kvar):
         cfg = get_plant_modbus_config(plant_id)
-        client = ModbusClient(host=cfg["host"], port=cfg["port"])
-        try:
-            if not client.open():
-                logging.warning("Dashboard: could not connect to %s (%s mode) for setpoints.", plant_id.upper(), cfg["mode"])
-                return False
-            p_ok = client.write_single_register(cfg["p_setpoint_reg"], int_to_uint16(kw_to_hw(p_kw)))
-            q_ok = client.write_single_register(cfg["q_setpoint_reg"], int_to_uint16(kw_to_hw(q_kvar)))
-            return bool(p_ok and q_ok)
-        except Exception as exc:
-            logging.error("Dashboard: setpoint write error (%s): %s", plant_id.upper(), exc)
-            return False
-        finally:
-            try:
-                client.close()
-            except Exception:
-                pass
+        return send_setpoints_io(cfg, plant_id.upper(), p_kw, q_kvar)
 
     def read_enable_state(plant_id):
         cfg = get_plant_modbus_config(plant_id)
-        client = ModbusClient(host=cfg["host"], port=cfg["port"])
-        try:
-            if not client.open():
-                return None
-            regs = client.read_holding_registers(cfg["enable_reg"], 1)
-            if not regs:
-                return None
-            return int(regs[0])
-        except Exception:
-            return None
-        finally:
-            try:
-                client.close()
-            except Exception:
-                pass
+        return read_enable_state_io(cfg)
 
     def wait_until_battery_power_below_threshold(plant_id, threshold_kw=1.0, timeout_s=30):
-        deadline = time.time() + timeout_s
-        while time.time() < deadline:
-            cfg = get_plant_modbus_config(plant_id)
-            client = ModbusClient(host=cfg["host"], port=cfg["port"])
-            try:
-                if client.open():
-                    p_regs = client.read_holding_registers(cfg["p_battery_reg"], 1)
-                    q_regs = client.read_holding_registers(cfg["q_battery_reg"], 1)
-                    if p_regs and q_regs:
-                        p_kw = hw_to_kw(uint16_to_int(p_regs[0]))
-                        q_kvar = hw_to_kw(uint16_to_int(q_regs[0]))
-                        if abs(p_kw) < threshold_kw and abs(q_kvar) < threshold_kw:
-                            return True
-            except Exception:
-                pass
-            finally:
-                try:
-                    client.close()
-                except Exception:
-                    pass
-            time.sleep(1.0)
-        return False
+        cfg = get_plant_modbus_config(plant_id)
+        return wait_until_battery_power_below_threshold_io(cfg, threshold_kw=threshold_kw, timeout_s=timeout_s)
 
     def safe_stop_plant(plant_id, threshold_kw=1.0, timeout_s=30):
         logging.info("Dashboard: safe-stop requested for %s.", plant_id.upper())
@@ -290,620 +178,21 @@ def dashboard_agent(config, shared_data):
         return os.path.join("data", f"{date_str}_{safe_name}.csv")
 
     def resolve_runtime_transition(plant_id, transition_state, enable_state):
-        if transition_state == "starting" and enable_state == 1:
-            resolved = "running"
-        elif transition_state == "stopping" and enable_state == 0:
-            resolved = "stopped"
-        elif transition_state in {"starting", "stopping", "running", "stopped"}:
-            resolved = transition_state
-        elif enable_state == 1:
-            resolved = "running"
-        elif enable_state == 0:
-            resolved = "stopped"
-        else:
-            resolved = "unknown"
+        resolved = resolve_runtime_transition_state(transition_state, enable_state)
 
         if resolved != transition_state:
             with shared_data["lock"]:
                 shared_data["plant_transition_by_plant"][plant_id] = resolved
         return resolved
 
-    def get_plant_control_labels_and_disabled(runtime_state, recording_active):
-        if runtime_state == "starting":
-            start_label = "Starting..."
-            start_disabled = True
-            stop_label = "Stop"
-            stop_disabled = True
-        elif runtime_state == "running":
-            start_label = "Started"
-            start_disabled = True
-            stop_label = "Stop"
-            stop_disabled = False
-        elif runtime_state == "stopping":
-            start_label = "Start"
-            start_disabled = True
-            stop_label = "Stopping..."
-            stop_disabled = True
-        elif runtime_state == "stopped":
-            start_label = "Start"
-            start_disabled = False
-            stop_label = "Stopped"
-            stop_disabled = True
-        else:
-            start_label = "Start"
-            start_disabled = False
-            stop_label = "Stop"
-            stop_disabled = True
-
-        if recording_active:
-            record_label = "Recording"
-            record_disabled = True
-            record_stop_label = "Stop Recording"
-            record_stop_disabled = False
-        else:
-            record_label = "Record"
-            record_disabled = False
-            record_stop_label = "Record Stopped"
-            record_stop_disabled = True
-
-        return (
-            start_label,
-            start_disabled,
-            stop_label,
-            stop_disabled,
-            record_label,
-            record_disabled,
-            record_stop_label,
-            record_stop_disabled,
-        )
-
-    def format_log_entries(log_entries):
-        formatted_entries = []
-        for entry in log_entries:
-            level = str(entry.get("level", "INFO")).upper()
-            timestamp = str(entry.get("timestamp", ""))
-            message = str(entry.get("message", ""))
-            if level == "ERROR":
-                color = "#ef4444"
-            elif level == "WARNING":
-                color = "#f97316"
-            elif level == "INFO":
-                color = "#22c55e"
-            else:
-                color = "#94a3b8"
-
-            formatted_entries.append(
-                html.Div(
-                    [
-                        html.Span(f"[{timestamp}] ", style={"color": "#94a3b8"}),
-                        html.Span(f"{level}: ", style={"color": color, "fontWeight": "600"}),
-                        html.Span(message, style={"color": "#e2e8f0"}),
-                    ]
-                )
-            )
-        return formatted_entries
-
-    def parse_and_format_historical_logs(file_content):
-        pattern = r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) - (\w+) - (.+)"
-        formatted_entries = []
-        for line in (file_content or "").splitlines():
-            match = re.match(pattern, line.strip())
-            if not match:
-                continue
-
-            timestamp, level, message = match.groups()
-            level = level.upper()
-            if level == "ERROR":
-                color = "#ef4444"
-            elif level == "WARNING":
-                color = "#f97316"
-            elif level == "INFO":
-                color = "#22c55e"
-            else:
-                color = "#94a3b8"
-
-            formatted_entries.append(
-                html.Div(
-                    [
-                        html.Span(f"[{timestamp}] ", style={"color": "#94a3b8"}),
-                        html.Span(f"{level}: ", style={"color": color, "fontWeight": "600"}),
-                        html.Span(message, style={"color": "#e2e8f0"}),
-                    ]
-                )
-            )
-        return formatted_entries
-
-    def get_logs_dir():
-        return os.path.join(os.path.dirname(__file__), "logs")
-
-    def get_today_log_file_path():
-        today_str = datetime.now(tz).strftime("%Y-%m-%d")
-        return os.path.join(get_logs_dir(), f"{today_str}_hil_scheduler.log")
-
-    def read_log_tail(file_path, max_lines=1000):
-        if not os.path.exists(file_path):
-            return ""
-        with open(file_path, "r", encoding="utf-8", errors="replace") as handle:
-            tail_lines = deque(handle, maxlen=max_lines)
-        return "".join(tail_lines)
-
-    def create_plant_figure(plant_id, schedule_df, measurements_df, uirevision_key):
-        fig = make_subplots(
-            rows=3,
-            cols=1,
-            shared_xaxes=True,
-            vertical_spacing=0.08,
-            subplot_titles=(
-                f"{plant_name(plant_id)} Active Power (kW)",
-                f"{plant_name(plant_id)} State of Charge (pu)",
-                f"{plant_name(plant_id)} Reactive Power (kvar)",
-            ),
-        )
-
-        if schedule_df is not None and not schedule_df.empty:
-            fig.add_trace(
-                go.Scatter(
-                    x=schedule_df.index,
-                    y=schedule_df.get("power_setpoint_kw", []),
-                    mode="lines",
-                    line_shape="hv",
-                    name=f"{plant_name(plant_id)} P Setpoint",
-                    line=dict(color=trace_colors["p_setpoint"], width=2),
-                ),
-                row=1,
-                col=1,
-            )
-
-            if "reactive_power_setpoint_kvar" in schedule_df.columns:
-                fig.add_trace(
-                    go.Scatter(
-                        x=schedule_df.index,
-                        y=schedule_df["reactive_power_setpoint_kvar"],
-                        mode="lines",
-                        line_shape="hv",
-                        name=f"{plant_name(plant_id)} Q Setpoint",
-                        line=dict(color=trace_colors["q_setpoint"], width=2),
-                    ),
-                    row=3,
-                    col=1,
-                )
-
-        if measurements_df is not None and not measurements_df.empty:
-            df = measurements_df.copy()
-            if "timestamp" in df.columns:
-                df["datetime"] = normalize_datetime_series(df["timestamp"], tz)
-                df = df.dropna(subset=["datetime"])
-            else:
-                df["datetime"] = []
-
-            if not df.empty:
-                fig.add_trace(
-                    go.Scatter(
-                        x=df["datetime"],
-                        y=df["p_poi_kw"],
-                        mode="lines",
-                        line_shape="hv",
-                        name=f"{plant_name(plant_id)} P POI",
-                        line=dict(color=trace_colors["p_poi"], width=2, dash="dot"),
-                    ),
-                    row=1,
-                    col=1,
-                )
-                fig.add_trace(
-                    go.Scatter(
-                        x=df["datetime"],
-                        y=df["battery_active_power_kw"],
-                        mode="lines",
-                        line_shape="hv",
-                        name=f"{plant_name(plant_id)} P Battery",
-                        line=dict(color=trace_colors["p_battery"], width=2),
-                    ),
-                    row=1,
-                    col=1,
-                )
-                fig.add_trace(
-                    go.Scatter(
-                        x=df["datetime"],
-                        y=df["soc_pu"],
-                        mode="lines",
-                        name=f"{plant_name(plant_id)} SoC",
-                        line=dict(color=trace_colors["soc"], width=2),
-                    ),
-                    row=2,
-                    col=1,
-                )
-                fig.add_trace(
-                    go.Scatter(
-                        x=df["datetime"],
-                        y=df["q_poi_kvar"],
-                        mode="lines",
-                        line_shape="hv",
-                        name=f"{plant_name(plant_id)} Q POI",
-                        line=dict(color=trace_colors["q_poi"], width=2, dash="dot"),
-                    ),
-                    row=3,
-                    col=1,
-                )
-                fig.add_trace(
-                    go.Scatter(
-                        x=df["datetime"],
-                        y=df["battery_reactive_power_kvar"],
-                        mode="lines",
-                        line_shape="hv",
-                        name=f"{plant_name(plant_id)} Q Battery",
-                        line=dict(color=trace_colors["q_battery"], width=2),
-                    ),
-                    row=3,
-                    col=1,
-                )
-
-        apply_figure_theme(
-            fig,
-            height=480,
-            margin=dict(l=50, r=20, t=90, b=30),
-            uirevision=uirevision_key,
-        )
-        fig.update_yaxes(title_text="kW", row=1, col=1)
-        fig.update_yaxes(title_text="pu", row=2, col=1)
-        fig.update_yaxes(title_text="kvar", row=3, col=1)
-        fig.update_xaxes(title_text="Time", row=3, col=1)
-        return fig
-
-    app.layout = html.Div(
-        className="app-container",
-        children=[
-            html.Header(
-                className="app-header",
-                children=[
-                    html.Div(
-                        className="app-header-brand",
-                        children=[
-                            html.Img(src=brand_logo_src, alt="i-STENTORE", className="brand-logo"),
-                            html.Div(
-                                className="app-header-copy",
-                                children=[
-                                    html.H1("Spanish Demo Dashboard", className="app-title"),
-                                    html.P("Dispatch, recording, and API observability for LIB and VRFB plants.", className="app-subtitle"),
-                                ],
-                            ),
-                        ],
-                    )
-                ],
-            ),
-            dcc.Tabs(
-                id="main-tabs",
-                value="status",
-                className="main-tabs",
-                parent_className="main-tabs-parent",
-                children=[
-                    dcc.Tab(
-                        label="Status & Plots",
-                        value="status",
-                        className="main-tab",
-                        selected_className="main-tab--selected",
-                        children=[
-                            html.Div(
-                                className="control-panel",
-                                children=[
-                                    html.Div(
-                                        className="controls-row",
-                                        children=[
-                                            html.Div(
-                                                className="control-section",
-                                                children=[
-                                                    html.Span("Schedule Source", className="toggle-label"),
-                                                    html.Div(
-                                                        className="compact-toggle",
-                                                        children=[
-                                                            html.Button("Manual", id="source-manual-btn", className="toggle-option active", n_clicks=0),
-                                                            html.Button("API", id="source-api-btn", className="toggle-option", n_clicks=0),
-                                                        ],
-                                                    ),
-                                                ],
-                                            ),
-                                            html.Div(
-                                                className="control-section",
-                                                children=[
-                                                    html.Span("Transport Mode", className="toggle-label"),
-                                                    html.Div(
-                                                        className="compact-toggle",
-                                                        children=[
-                                                            html.Button("Local", id="transport-local-btn", className="toggle-option active", n_clicks=0),
-                                                            html.Button("Remote", id="transport-remote-btn", className="toggle-option", n_clicks=0),
-                                                        ],
-                                                    ),
-                                                ],
-                                            ),
-                                            html.Div(className="control-section", children=[html.Div(id="global-status", className="status-text")]),
-                                        ],
-                                    ),
-                                    html.Div(id="api-status-inline", className="status-text"),
-                                ],
-                            ),
-                            html.Div(
-                                id="schedule-switch-modal",
-                                className="modal-overlay hidden",
-                                children=[
-                                    html.Div(
-                                        className="modal-card",
-                                        children=[
-                                            html.H3("Confirm Schedule Source Switch", className="modal-title"),
-                                            html.P("Switching schedule source will safe-stop both plants. Recording will remain active. Continue?"),
-                                            html.Div(
-                                                className="modal-actions",
-                                                children=[
-                                                    html.Button("Cancel", id="schedule-switch-cancel", className="btn btn-secondary"),
-                                                    html.Button("Confirm", id="schedule-switch-confirm", className="btn btn-primary"),
-                                                ],
-                                            ),
-                                        ],
-                                    )
-                                ],
-                            ),
-                            html.Div(
-                                id="transport-switch-modal",
-                                className="modal-overlay hidden",
-                                children=[
-                                    html.Div(
-                                        className="modal-card",
-                                        children=[
-                                            html.H3("Confirm Transport Switch", className="modal-title"),
-                                            html.P("Switching transport mode will safe-stop both plants, stop recording, and clear plot caches. Continue?"),
-                                            html.Div(
-                                                className="modal-actions",
-                                                children=[
-                                                    html.Button("Cancel", id="transport-switch-cancel", className="btn btn-secondary"),
-                                                    html.Button("Confirm", id="transport-switch-confirm", className="btn btn-primary"),
-                                                ],
-                                            ),
-                                        ],
-                                    )
-                                ],
-                            ),
-                            html.Div(
-                                className="plant-card",
-                                children=[
-                                    html.H3(f"{plant_name('lib')}"),
-                                    html.Div(
-                                        className="plant-controls-row",
-                                        children=[
-                                            html.Div(
-                                                className="control-group plant-control-group",
-                                                children=[
-                                                    html.Button("Start", id="start-lib", className="control-btn control-btn-start", n_clicks=0, disabled=False),
-                                                    html.Button("Stopped", id="stop-lib", className="control-btn control-btn-stop", n_clicks=0, disabled=True),
-                                                ],
-                                            ),
-                                            html.Div(className="control-separator"),
-                                            html.Div(
-                                                className="control-group record-control-group",
-                                                children=[
-                                                    html.Button("Record", id="record-lib", className="control-btn control-btn-record", n_clicks=0, disabled=False),
-                                                    html.Button("Record Stopped", id="record-stop-lib", className="control-btn control-btn-record-stop", n_clicks=0, disabled=True),
-                                                ],
-                                            ),
-                                        ],
-                                    ),
-                                    html.Div(id="status-lib", className="status-text"),
-                                    dcc.Graph(id="graph-lib", className="plot-graph"),
-                                ],
-                            ),
-                            html.Div(
-                                className="plant-card",
-                                children=[
-                                    html.H3(f"{plant_name('vrfb')}"),
-                                    html.Div(
-                                        className="plant-controls-row",
-                                        children=[
-                                            html.Div(
-                                                className="control-group plant-control-group",
-                                                children=[
-                                                    html.Button("Start", id="start-vrfb", className="control-btn control-btn-start", n_clicks=0, disabled=False),
-                                                    html.Button("Stopped", id="stop-vrfb", className="control-btn control-btn-stop", n_clicks=0, disabled=True),
-                                                ],
-                                            ),
-                                            html.Div(className="control-separator"),
-                                            html.Div(
-                                                className="control-group record-control-group",
-                                                children=[
-                                                    html.Button("Record", id="record-vrfb", className="control-btn control-btn-record", n_clicks=0, disabled=False),
-                                                    html.Button("Record Stopped", id="record-stop-vrfb", className="control-btn control-btn-record-stop", n_clicks=0, disabled=True),
-                                                ],
-                                            ),
-                                        ],
-                                    ),
-                                    html.Div(id="status-vrfb", className="status-text"),
-                                    dcc.Graph(id="graph-vrfb", className="plot-graph"),
-                                ],
-                            ),
-                        ],
-                    ),
-                    dcc.Tab(
-                        label="Manual Schedule",
-                        value="manual",
-                        className="main-tab",
-                        selected_className="main-tab--selected",
-                        children=[
-                            html.Div(
-                                className="card",
-                                children=[
-                                    html.Div(
-                                        className="form-row",
-                                        children=[
-                                            html.Div(
-                                                className="form-group",
-                                                children=[
-                                                    html.Label("Plant"),
-                                                    dcc.Dropdown(
-                                                        id="manual-plant-selector",
-                                                        options=[{"label": plant_name(pid), "value": pid} for pid in plant_ids],
-                                                        value="lib",
-                                                        clearable=False,
-                                                    ),
-                                                ],
-                                            ),
-                                            html.Div(
-                                                className="form-group",
-                                                children=[
-                                                    html.Label("Start Hour"),
-                                                    dcc.Dropdown(
-                                                        id="manual-start-hour",
-                                                        options=[{"label": f"{h:02d}", "value": h} for h in range(24)],
-                                                        value=now_tz(config).hour,
-                                                        clearable=False,
-                                                    ),
-                                                ],
-                                            ),
-                                            html.Div(
-                                                className="form-group",
-                                                children=[
-                                                    html.Label("End Hour"),
-                                                    dcc.Dropdown(
-                                                        id="manual-end-hour",
-                                                        options=[{"label": f"{h:02d}", "value": h} for h in range(24)],
-                                                        value=(now_tz(config).hour + 1) % 24,
-                                                        clearable=False,
-                                                    ),
-                                                ],
-                                            ),
-                                            html.Div(
-                                                className="form-group",
-                                                children=[
-                                                    html.Label("Step (min)"),
-                                                    dcc.Dropdown(
-                                                        id="manual-step",
-                                                        options=[{"label": str(v), "value": v} for v in [5, 10, 15, 30, 60]],
-                                                        value=5,
-                                                        clearable=False,
-                                                    ),
-                                                ],
-                                            ),
-                                            html.Div(className="form-group", children=[html.Label("Min kW"), dcc.Input(id="manual-min-power", className="form-control", type="number", value=-1000)]),
-                                            html.Div(className="form-group", children=[html.Label("Max kW"), dcc.Input(id="manual-max-power", className="form-control", type="number", value=1000)]),
-                                        ],
-                                    ),
-                                    html.Div(
-                                        className="form-row",
-                                        children=[
-                                            html.Button("Generate Random", id="manual-generate", className="btn btn-primary", n_clicks=0),
-                                            html.Button("Clear Plant Schedule", id="manual-clear", className="btn btn-danger", n_clicks=0),
-                                        ],
-                                    ),
-                                    html.Div(
-                                        className="form-row",
-                                        children=[
-                                            html.Div(
-                                                className="form-group",
-                                                children=[
-                                                    html.Label("CSV Upload"),
-                                                    dcc.Upload(
-                                                        id="manual-csv-upload",
-                                                        className="file-upload",
-                                                        children=html.Div(["Drag/drop or ", html.A("select CSV")]),
-                                                        multiple=False,
-                                                    ),
-                                                ],
-                                            ),
-                                            html.Div(
-                                                className="form-group",
-                                                children=[html.Label("CSV Start Date"), dcc.DatePickerSingle(id="manual-csv-date", date=now_tz(config).date(), className="date-picker")],
-                                            ),
-                                            html.Div(
-                                                className="form-group",
-                                                children=[
-                                                    html.Label("CSV Start Hour"),
-                                                    dcc.Dropdown(
-                                                        id="manual-csv-hour",
-                                                        options=[{"label": f"{h:02d}", "value": h} for h in range(24)],
-                                                        value=now_tz(config).hour,
-                                                        clearable=False,
-                                                    ),
-                                                ],
-                                            ),
-                                            html.Div(
-                                                className="form-group",
-                                                children=[
-                                                    html.Label("CSV Start Min"),
-                                                    dcc.Dropdown(
-                                                        id="manual-csv-minute",
-                                                        options=[{"label": f"{m:02d}", "value": m} for m in range(0, 60, 5)],
-                                                        value=0,
-                                                        clearable=False,
-                                                    ),
-                                                ],
-                                            ),
-                                        ],
-                                    ),
-                                    html.Div(id="manual-status-text", className="status-text"),
-                                    dcc.Graph(id="manual-preview-graph", className="plot-graph"),
-                                ],
-                            )
-                        ],
-                    ),
-                    dcc.Tab(
-                        label="API Schedule",
-                        value="api",
-                        className="main-tab",
-                        selected_className="main-tab--selected",
-                        children=[
-                            html.Div(
-                                className="card",
-                                children=[
-                                    html.Div(
-                                        className="form-row api-credentials-row",
-                                        children=[
-                                            dcc.Input(id="api-password", type="password", placeholder="API password", className="form-control api-password-input"),
-                                            html.Button("Set Password", id="set-password-btn", className="btn btn-primary", n_clicks=0),
-                                            html.Button("Disconnect", id="disconnect-api-btn", className="btn btn-danger", n_clicks=0),
-                                        ],
-                                    ),
-                                    html.Div(id="api-connection-status", className="status-text"),
-                                    html.Div(id="api-measurement-posting-status"),
-                                    dcc.Graph(id="api-preview-graph", className="plot-graph"),
-                                ],
-                            )
-                        ],
-                    ),
-                    dcc.Tab(
-                        label="Logs",
-                        value="logs",
-                        className="main-tab",
-                        selected_className="main-tab--selected",
-                        children=[
-                            html.Div(
-                                className="card",
-                                children=[
-                                    html.Div(
-                                        className="card-header logs-header",
-                                        children=[
-                                            html.H3(className="card-title", children="Logs"),
-                                            html.Div(
-                                                className="logs-header-actions",
-                                                children=[
-                                                    html.Div(id="log-file-path", className="log-file-path"),
-                                                    dcc.Dropdown(
-                                                        id="log-file-selector",
-                                                        className="log-selector-dropdown",
-                                                        options=[],
-                                                        value="today",
-                                                        clearable=False,
-                                                    ),
-                                                ],
-                                            ),
-                                        ],
-                                    ),
-                                    html.Div(id="logs-display", className="logs-display"),
-                                ],
-                            )
-                        ],
-                    ),
-                ],
-            ),
-            dcc.Store(id="control-action", data="idle"),
-            dcc.Store(id="transport-mode-selector", data=initial_transport),
-            dcc.Store(id="active-source-selector", data=initial_source),
-            dcc.Interval(id="interval-component", interval=int(float(config.get("MEASUREMENT_PERIOD_S", 1)) * 1000), n_intervals=0),
-        ],
+    app.layout = build_dashboard_layout(
+        config,
+        plant_ids,
+        plant_name,
+        brand_logo_src,
+        initial_transport,
+        initial_source,
+        now_tz(config),
     )
 
     @app.callback(
@@ -1302,6 +591,7 @@ def dashboard_agent(config, shared_data):
             )
         apply_figure_theme(
             fig,
+            plot_theme,
             height=320,
             margin=dict(l=40, r=20, t=40, b=30),
             uirevision=f"manual-preview:{plant_id}",
@@ -1462,6 +752,7 @@ def dashboard_agent(config, shared_data):
 
         apply_figure_theme(
             fig,
+            plot_theme,
             height=340,
             margin=dict(l=40, r=20, t=40, b=30),
             uirevision="api-preview",
@@ -1558,15 +849,23 @@ def dashboard_agent(config, shared_data):
         vrfb_schedule = normalize_schedule_index(schedule_map.get("vrfb", pd.DataFrame()), tz)
         lib_fig = create_plant_figure(
             "lib",
+            plant_name,
             lib_schedule,
             measurements_map.get("lib", pd.DataFrame()),
             uirevision_key=f"lib:{source}:{transport_mode}",
+            tz=tz,
+            plot_theme=plot_theme,
+            trace_colors=trace_colors,
         )
         vrfb_fig = create_plant_figure(
             "vrfb",
+            plant_name,
             vrfb_schedule,
             measurements_map.get("vrfb", pd.DataFrame()),
             uirevision_key=f"vrfb:{source}:{transport_mode}",
+            tz=tz,
+            plot_theme=plot_theme,
+            trace_colors=trace_colors,
         )
 
         lib_controls = get_plant_control_labels_and_disabled(
@@ -1609,8 +908,8 @@ def dashboard_agent(config, shared_data):
     )
     def update_log_file_options(n_intervals):
         options = [{"label": "Today", "value": "today"}]
-        logs_dir = get_logs_dir()
-        today_path = os.path.abspath(get_today_log_file_path())
+        logs_dir = get_logs_dir(base_dir)
+        today_path = os.path.abspath(get_today_log_file_path(base_dir, tz))
         try:
             if os.path.exists(logs_dir):
                 log_files = []
@@ -1654,7 +953,7 @@ def dashboard_agent(config, shared_data):
             raise PreventUpdate
 
         if selected == "today":
-            log_file_path = get_today_log_file_path()
+            log_file_path = get_today_log_file_path(base_dir, tz)
             today_file_exists = os.path.exists(log_file_path)
             file_content = read_log_tail(log_file_path, max_lines=1000)
             formatted = parse_and_format_historical_logs(file_content)

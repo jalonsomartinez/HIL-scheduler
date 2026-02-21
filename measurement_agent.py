@@ -6,40 +6,26 @@ import time
 from collections import deque
 from datetime import timedelta
 
-import numpy as np
 import pandas as pd
-from pyModbusTCP.client import ModbusClient
 
 from istentore_api import AuthenticationError, IstentoreAPI, IstentoreAPIError
-from runtime_contracts import resolve_modbus_endpoint, sanitize_plant_name
+from measurement_posting import build_post_items
+from measurement_sampling import (
+    ensure_client as sampling_ensure_client,
+    get_transport_endpoint as sampling_get_transport_endpoint,
+    take_measurement as sampling_take_measurement,
+)
+from measurement_storage import (
+    MEASUREMENT_COLUMNS,
+    append_rows_to_csv,
+    build_daily_file_path as storage_build_daily_file_path,
+    build_null_row,
+    is_null_row,
+    load_file_for_cache,
+    normalize_measurements_df,
+)
 from shared_state import snapshot_locked
 from time_utils import get_config_tz, normalize_datetime_series, normalize_timestamp_value, now_tz, serialize_iso_with_tz
-from utils import hw_to_kw, uint16_to_int
-
-MEASUREMENT_VALUE_COLUMNS = [
-    "p_setpoint_kw",
-    "battery_active_power_kw",
-    "q_setpoint_kvar",
-    "battery_reactive_power_kvar",
-    "soc_pu",
-    "p_poi_kw",
-    "q_poi_kvar",
-    "v_poi_pu",
-]
-MEASUREMENT_COLUMNS = ["timestamp"] + MEASUREMENT_VALUE_COLUMNS
-
-
-def normalize_measurements_df(df, tz):
-    if df is None or df.empty:
-        return pd.DataFrame(columns=MEASUREMENT_COLUMNS)
-
-    result = df.copy()
-    for column in MEASUREMENT_COLUMNS:
-        if column not in result.columns:
-            result[column] = np.nan
-    result["timestamp"] = normalize_datetime_series(result["timestamp"], tz)
-    result = result.dropna(subset=["timestamp"])
-    return result[MEASUREMENT_COLUMNS].sort_values("timestamp").reset_index(drop=True)
 
 
 def measurement_agent(config, shared_data):
@@ -165,51 +151,9 @@ def measurement_agent(config, shared_data):
         plant_cfg = plants_cfg.get(plant_id, {})
         return plant_cfg.get("name", plant_id.upper()), plant_id
 
-    def get_transport_endpoint(plant_id, transport_mode):
-        endpoint = resolve_modbus_endpoint(config, plant_id, transport_mode)
-        registers = endpoint["registers"]
-        return {
-            "host": endpoint.get("host", "localhost"),
-            "port": int(endpoint.get("port", 5020 if plant_id == "lib" else 5021)),
-            "p_setpoint_reg": registers["p_setpoint_in"],
-            "p_battery_reg": registers["p_battery"],
-            "q_setpoint_reg": registers["q_setpoint_in"],
-            "q_battery_reg": registers["q_battery"],
-            "soc_reg": registers["soc"],
-            "p_poi_reg": registers["p_poi"],
-            "q_poi_reg": registers["q_poi"],
-            "v_poi_reg": registers["v_poi"],
-        }
-
     def build_daily_file_path(plant_id, timestamp):
         plant_name, fallback = get_plant_name(plant_id)
-        safe_name = sanitize_plant_name(plant_name, fallback)
-        ts = normalize_timestamp_value(timestamp, tz)
-        if pd.isna(ts):
-            ts = pd.Timestamp(now_tz(config))
-        return os.path.join("data", f"{ts.strftime('%Y%m%d')}_{safe_name}.csv")
-
-    def append_rows_to_csv(file_path, rows):
-        if not rows:
-            return
-
-        os.makedirs(os.path.dirname(file_path) or ".", exist_ok=True)
-        df = normalize_measurements_df(pd.DataFrame(rows), tz)
-        if df.empty:
-            return
-
-        write_header = (not os.path.exists(file_path)) or os.path.getsize(file_path) == 0
-        df["timestamp"] = df["timestamp"].apply(lambda value: serialize_iso_with_tz(value, tz=tz))
-        df.to_csv(file_path, mode="a", header=write_header, index=False)
-
-    def load_file_for_cache(file_path):
-        if not os.path.exists(file_path):
-            return pd.DataFrame(columns=MEASUREMENT_COLUMNS)
-        try:
-            return normalize_measurements_df(pd.read_csv(file_path), tz)
-        except Exception as exc:
-            logging.error("Measurement: error reading %s: %s", file_path, exc)
-            return pd.DataFrame(columns=MEASUREMENT_COLUMNS)
+        return storage_build_daily_file_path(plant_name, fallback, timestamp, tz, now_tz(config))
 
     def refresh_aggregate_measurements_df():
         with shared_data["lock"]:
@@ -227,7 +171,7 @@ def measurement_agent(config, shared_data):
 
     def refresh_current_file_cache(plant_id, now_ts):
         file_path = build_daily_file_path(plant_id, now_ts)
-        file_df = load_file_for_cache(file_path)
+        file_df = load_file_for_cache(file_path, tz)
 
         with shared_data["lock"]:
             pending_rows = shared_data.get("pending_rows_by_file", {}).get(file_path, [])[:]
@@ -242,15 +186,6 @@ def measurement_agent(config, shared_data):
 
         refresh_aggregate_measurements_df()
         return file_path
-
-    def is_null_row(row):
-        return all(pd.isna(row.get(column)) for column in MEASUREMENT_VALUE_COLUMNS)
-
-    def build_null_row(timestamp):
-        row = {"timestamp": normalize_timestamp_value(timestamp, tz)}
-        for column in MEASUREMENT_VALUE_COLUMNS:
-            row[column] = np.nan
-        return row
 
     def upsert_row_to_current_cache(plant_id, file_path, row):
         row_df = pd.DataFrame([row], columns=MEASUREMENT_COLUMNS)
@@ -298,7 +233,7 @@ def measurement_agent(config, shared_data):
         failed = {}
         for path, rows in pending_snapshot.items():
             try:
-                append_rows_to_csv(path, rows)
+                append_rows_to_csv(path, rows, tz)
             except Exception as exc:
                 logging.error("Measurement: failed writing %s: %s", path, exc)
                 failed[path] = rows
@@ -322,7 +257,7 @@ def measurement_agent(config, shared_data):
         latest_row = None
 
         for path in paths:
-            df = load_file_for_cache(path)
+            df = load_file_for_cache(path, tz)
             if df.empty:
                 continue
             row = df.iloc[-1].to_dict()
@@ -366,8 +301,8 @@ def measurement_agent(config, shared_data):
             return latest_ts, True
 
         null_ts = latest_ts + measurement_period_delta
-        null_row = build_null_row(null_ts)
-        append_rows_to_csv(latest_path, [null_row])
+        null_row = build_null_row(null_ts, tz)
+        append_rows_to_csv(latest_path, [null_row], tz)
         upsert_row_to_current_cache(plant_id, latest_path, null_row)
         return null_ts, True
 
@@ -397,7 +332,7 @@ def measurement_agent(config, shared_data):
         else:
             null_ts = pd.Timestamp(now_tz(config))
 
-        enqueue_row_for_file(build_null_row(null_ts), plant_id)
+        enqueue_row_for_file(build_null_row(null_ts, tz), plant_id)
         flush_pending_rows(force=True)
 
         if clear_shared_flag:
@@ -415,27 +350,9 @@ def measurement_agent(config, shared_data):
 
     def ensure_client(plant_id, transport_mode):
         state = plant_states[plant_id]
-        endpoint = get_transport_endpoint(plant_id, transport_mode)
-        endpoint_key = (endpoint["host"], endpoint["port"])
-
-        if state["endpoint_key"] != endpoint_key:
-            if state["client"] is not None:
-                try:
-                    state["client"].close()
-                except Exception:
-                    pass
-
-            state["client"] = ModbusClient(host=endpoint["host"], port=endpoint["port"])
-            state["endpoint_key"] = endpoint_key
-            logging.info(
-                "Measurement: %s endpoint -> %s:%s (%s mode)",
-                plant_id.upper(),
-                endpoint["host"],
-                endpoint["port"],
-                transport_mode,
-            )
-
-        return state["client"], endpoint
+        endpoint = sampling_get_transport_endpoint(config, plant_id, transport_mode)
+        client = sampling_ensure_client(state, endpoint, plant_id, transport_mode)
+        return client, endpoint
 
     def ensure_api_poster(password):
         nonlocal api_poster
@@ -462,15 +379,6 @@ def measurement_agent(config, shared_data):
 
         return api_poster
 
-    def finite_float(value):
-        try:
-            number = float(value)
-        except (TypeError, ValueError):
-            return None
-        if not math.isfinite(number):
-            return None
-        return number
-
     def enqueue_post_item(plant_id, metric, series_id, value, timestamp_iso_utc):
         if series_id is None or value is None:
             return
@@ -491,42 +399,16 @@ def measurement_agent(config, shared_data):
         )
         update_post_status(plant_id, last_enqueue=now_iso_local())
 
-    def to_utc_iso(value):
-        ts = normalize_timestamp_value(value, tz)
-        if pd.isna(ts):
-            return None
-        return ts.tz_convert("UTC").strftime("%Y-%m-%dT%H:%M:%S+00:00")
-
     def enqueue_latest_measurement_posts():
         for plant_id in plant_ids:
             row = plant_states[plant_id]["latest_measurement"]
             if row is None:
                 continue
 
-            timestamp_iso = to_utc_iso(row.get("timestamp"))
-            if timestamp_iso is None:
-                continue
-
             model = (plants_cfg.get(plant_id, {}) or {}).get("model", {})
             series = (plants_cfg.get(plant_id, {}) or {}).get("measurement_series", {})
-
-            capacity_kwh = finite_float(model.get("capacity_kwh"))
-            poi_voltage_v = finite_float(model.get("poi_voltage_v"))
-
-            soc_pu = finite_float(row.get("soc_pu"))
-            p_poi_kw = finite_float(row.get("p_poi_kw"))
-            q_poi_kvar = finite_float(row.get("q_poi_kvar"))
-            v_poi_pu = finite_float(row.get("v_poi_pu"))
-
-            soc_value = soc_pu * capacity_kwh if soc_pu is not None and capacity_kwh is not None else None
-            p_value = p_poi_kw * 1000.0 if p_poi_kw is not None else None
-            q_value = q_poi_kvar * 1000.0 if q_poi_kvar is not None else None
-            v_value = v_poi_pu * poi_voltage_v if v_poi_pu is not None and poi_voltage_v is not None else None
-
-            enqueue_post_item(plant_id, "soc", series.get("soc"), soc_value, timestamp_iso)
-            enqueue_post_item(plant_id, "p", series.get("p"), p_value, timestamp_iso)
-            enqueue_post_item(plant_id, "q", series.get("q"), q_value, timestamp_iso)
-            enqueue_post_item(plant_id, "v", series.get("v"), v_value, timestamp_iso)
+            for metric, series_id, value, timestamp_iso in build_post_items(row, model, series, tz):
+                enqueue_post_item(plant_id, metric, series_id, value, timestamp_iso)
 
     def drain_api_post_queue(password, max_posts_per_loop=12):
         if not api_post_queue:
@@ -620,44 +502,6 @@ def measurement_agent(config, shared_data):
                 )
                 break
 
-    def take_measurement(plant_id, endpoint, measurement_timestamp):
-        state = plant_states[plant_id]
-        client = state["client"]
-        if client is None:
-            return None
-
-        if not client.is_open:
-            if not client.open():
-                return None
-
-        try:
-            regs_p_setpoint = client.read_holding_registers(endpoint["p_setpoint_reg"], 1)
-            regs_p_actual = client.read_holding_registers(endpoint["p_battery_reg"], 1)
-            regs_q_setpoint = client.read_holding_registers(endpoint["q_setpoint_reg"], 1)
-            regs_q_actual = client.read_holding_registers(endpoint["q_battery_reg"], 1)
-            regs_soc = client.read_holding_registers(endpoint["soc_reg"], 1)
-            regs_p_poi = client.read_holding_registers(endpoint["p_poi_reg"], 1)
-            regs_q_poi = client.read_holding_registers(endpoint["q_poi_reg"], 1)
-            regs_v_poi = client.read_holding_registers(endpoint["v_poi_reg"], 1)
-
-            if not all([regs_p_setpoint, regs_p_actual, regs_q_setpoint, regs_q_actual, regs_soc, regs_p_poi, regs_q_poi, regs_v_poi]):
-                return None
-
-            return {
-                "timestamp": normalize_timestamp_value(measurement_timestamp, tz),
-                "p_setpoint_kw": hw_to_kw(uint16_to_int(regs_p_setpoint[0])),
-                "battery_active_power_kw": hw_to_kw(uint16_to_int(regs_p_actual[0])),
-                "q_setpoint_kvar": hw_to_kw(uint16_to_int(regs_q_setpoint[0])),
-                "battery_reactive_power_kvar": hw_to_kw(uint16_to_int(regs_q_actual[0])),
-                "soc_pu": regs_soc[0] / 10000.0,
-                "p_poi_kw": hw_to_kw(uint16_to_int(regs_p_poi[0])),
-                "q_poi_kvar": hw_to_kw(uint16_to_int(regs_q_poi[0])),
-                "v_poi_pu": regs_v_poi[0] / 100.0,
-            }
-        except Exception as exc:
-            logging.error("Measurement: read error (%s): %s", plant_id.upper(), exc)
-            return None
-
     while not shared_data["shutdown_event"].is_set():
         current_time = time.time()
         now_dt = now_tz(config)
@@ -712,7 +556,7 @@ def measurement_agent(config, shared_data):
                 state = plant_states[plant_id]
                 _, endpoint = ensure_client(plant_id, transport_mode)
 
-                row = take_measurement(plant_id, endpoint, scheduled_step_ts)
+                row = sampling_take_measurement(state["client"], endpoint, scheduled_step_ts, tz, plant_id)
                 if row is None:
                     continue
 
@@ -731,7 +575,7 @@ def measurement_agent(config, shared_data):
                         == normalize_timestamp_value(leading_null_ts, tz)
                     )
                     if not already_has_boundary:
-                        enqueue_row_for_file(build_null_row(leading_null_ts), plant_id)
+                        enqueue_row_for_file(build_null_row(leading_null_ts, tz), plant_id)
                     state["awaiting_first_real_sample"] = False
 
                 enqueue_row_for_file(row, plant_id)
