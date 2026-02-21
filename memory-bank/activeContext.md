@@ -1,21 +1,36 @@
 # Active Context: HIL Scheduler
 
 ## Current Focus (Now)
-1. Keep memory bank aligned with the dual-plant runtime contract and avoid stale schema drift.
+1. Keep memory bank and audit artifacts aligned with the current dual-plant runtime and refactor outcomes.
 2. Maintain robust plant control safety (start/stop transitions and guarded global switches).
-3. Stabilize logging and dashboard observability behavior (date-routed log files and live "Today" log view) while preserving control callback safety.
-4. Improve confidence through targeted automated tests around scheduler gating, recording boundaries, and API posting retry behavior.
+3. Expand reliability guardrails via automated regression tests and CI enforcement.
+4. Prepare follow-up hardening for remaining high-risk paths (dashboard synchronous Modbus polling, posting durability, remote smoke coverage).
 
 ## Open Decisions and Risks
-1. Test coverage gap: no focused regression suite yet for core control contracts.
-2. API posting durability: retry queue is in-memory and is lost on restart.
-3. Logging retention policy: file output is date-routed per configured timezone without automatic historical pruning.
-4. Operational validation gap: limited scripted end-to-end verification for remote transport behavior.
-5. No automated visual regression checks yet for dashboard CSS/class-hook changes.
+1. Dashboard interval callbacks still perform synchronous Modbus reads; remote endpoint slowness can degrade responsiveness.
+2. API posting durability remains in-memory only; pending queue is lost on process restart.
+3. Logging retention policy is undefined; date-routed files accumulate without automatic pruning.
+4. Operational validation gap remains for remote transport end-to-end flows.
+5. Legacy compatibility aliases in `config_loader.py` are now opt-in; removal timeline for the fallback flag remains open.
+6. Lock-discipline target is not fully met in measurement cache paths where dataframe operations still occur under lock.
 
 ## Rolling Change Log (Compressed, 30-Day Window)
 
 ### 2026-02-21
+- Completed staged cleanup plan across Stage A/B/C:
+  - Stage A shared helper extraction (`runtime_contracts.py`, `schedule_runtime.py`, `shared_state.py`).
+  - Stage B concern split for dashboard and measurement helpers/modules.
+  - Stage C legacy-path deprecation: `schedule_manager.py` marked deprecated and legacy config aliases gated behind `HIL_ENABLE_LEGACY_CONFIG_ALIASES=1`.
+- Fixed Stage B regressions:
+  - restored measurement recording start path (`sanitize_plant_name` import in `measurement_agent.py`),
+  - fixed logs parsing in `dashboard_logs.py` regex.
+- Added regression test suite under `tests/` covering:
+  - logs parsing/today-file behavior,
+  - measurement record-start boundary behavior,
+  - local runtime start/record/stop smoke flow,
+  - scheduler manual->API stale zero-dispatch behavior,
+  - measurement posting telemetry failure->recovery behavior.
+- Added CI workflow (`.github/workflows/ci.yml`) running compile + unittest checks.
 - Implemented timezone-aware date-routed logging in `logger_config.py`:
   - each log record writes to `logs/YYYY-MM-DD_hil_scheduler.log` based on record timestamp date,
   - active file switch updates `shared_data["log_file_path"]`.

@@ -90,3 +90,15 @@ Apply the following updates in `P0`/`P1` priorities:
 - `activeContext.md`, `progress.md`, `roadmap.md` updated first.
 - Drift notes in `systemPatterns.md` and `techContext.md` reflect current code truth.
 - No historical narrative older than 30 days introduced into active memory files.
+
+## 5. Reconciliation Status (Updated 2026-02-21)
+
+Implemented:
+- `memory-bank/activeContext.md` refreshed with Stage A/B/C/D progress and current risks.
+- `memory-bank/progress.md` refreshed to reflect active regression suite + CI status.
+- `memory-bank/roadmap.md` reprioritized around remaining safety/operational gaps.
+- `memory-bank/systemPatterns.md` locking discipline wording corrected to target + current exception.
+- `memory-bank/techContext.md` updated to clarify parsed-vs-active config keys and legacy alias gating behavior.
+
+Result:
+- Active memory now reflects current runtime and cleanup status without requiring archive moves.

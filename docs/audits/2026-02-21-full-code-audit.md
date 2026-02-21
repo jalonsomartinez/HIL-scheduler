@@ -202,3 +202,19 @@ No critical correctness defects were found in static review.
 2. PR-2: Dashboard concern split preserving callback interface.
 3. PR-3: Measurement concern split + queue/recording regression tests.
 4. PR-4: Legacy path deprecation cleanup + docs/memory reconciliation.
+
+## 8. Implementation Status (Updated 2026-02-21)
+
+### Completed Stages
+- Stage A completed (`273d958`): shared contracts/helpers extracted.
+- Stage B completed (`d674ae7`): dashboard + measurement concern split.
+- Regression fixes completed (`cb207b6`): measurement record-start NameError and logs parsing regex.
+- Stage C completed (`c980593`): `schedule_manager.py` deprecated; legacy config alias surface gated behind env flag.
+- Stage D (tests + validation) expanded:
+  - `3c03aa5`, `5bfbca3`, `bc4fa5a`: regression and smoke tests for logs, recording, scheduler stale-switch behavior, and posting telemetry.
+  - `9acbf74`: CI compile + unittest workflow added.
+
+### Remaining High-Priority Follow-Ups
+1. Safe-stop and source/transport switch callback regression tests.
+2. Remote transport smoke workflow equivalent to current local smoke coverage.
+3. Dashboard callback de-blocking (replace synchronous Modbus polling with cached agent state).

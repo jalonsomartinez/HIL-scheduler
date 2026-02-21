@@ -34,6 +34,11 @@
 - `recording.compression.*`
 - `plants.lib.*` and `plants.vrfb.*`
 
+Notes:
+- `schedule.*` is parsed by `config_loader.py`; active scheduler dispatch uses in-memory per-plant schedule maps and does not consume these keys directly.
+- `recording.compression.*` is parsed but currently not applied by the active measurement write path.
+- Legacy flat alias keys from `config_loader.py` are disabled by default and are only emitted when `HIL_ENABLE_LEGACY_CONFIG_ALIASES=1`.
+
 Per-plant config includes:
 - `name`
 - `model.capacity_kwh`, `model.initial_soc_pu`, `model.power_limits`, `model.poi_voltage_v`
@@ -76,7 +81,7 @@ Per-plant config includes:
 
 ## Dashboard Styling Conventions
 - Brand assets are served from Dash `assets/` (logo PNGs + local font files).
-- Dashboard visual state is class-driven in `dashboard_agent.py` and styled in `assets/custom.css` to minimize inline style drift.
+- Dashboard visual state is primarily class-driven in `dashboard_agent.py` and styled in `assets/custom.css`; a small number of inline style dictionaries remain in log/posting render helpers.
 - Plot styling in `dashboard_agent.py` uses shared figure-theme helpers for consistent axes/grid/legend presentation without altering control callbacks.
 - Current operator-requested theme constraints:
   - flat corporate-green page background,

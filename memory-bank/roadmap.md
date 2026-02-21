@@ -6,23 +6,23 @@ Increase reliability and operator confidence without changing the core dual-plan
 ## Priority Order
 
 ### P0 - Reliability and Regression Safety
-1. Add tests for scheduler dispatch gating and API stale cutoff behavior.
-2. Add tests for recording boundaries, per-day routing, and stop flush semantics.
-3. Add tests for API posting queue retry/backoff/overflow and telemetry state updates.
-4. Add tests for API auth retry semantics (`401`/`403` re-auth once, then fail fast on repeated auth errors).
-5. Add a scripted smoke test covering local mode start/stop/record/switch flows.
+1. Add tests for safe-stop result handling and source/transport switch control flows.
+2. Add tests for API posting queue overflow edge cases (oldest-drop telemetry parity).
+3. Add remote transport smoke coverage equivalent to local smoke checks.
+4. Keep compile + unittest checks green in CI on every PR/push.
 
 ### P1 - Operational Hardening
 1. Define log retention policy and implement cleanup automation.
-2. Add structured health checks for API connectivity and posting backlog age.
-3. Add explicit operator alerts for sustained posting failures or stale schedule windows.
-4. Add an operator UI validation checklist for critical control/readability states after styling updates, including logs-tab `Today` live refresh and historical-file selection behavior.
+2. Move dashboard synchronous Modbus polling to agent-cached plant-state publication.
+3. Add structured health checks for API connectivity and posting backlog age.
+4. Add explicit operator alerts for sustained posting failures or stale schedule windows.
+5. Add an operator UI validation checklist for critical control/readability states after styling updates, including logs-tab `Today` live refresh and historical-file selection behavior.
 
 ### P2 - Developer Experience
-1. Add CI checks for syntax, tests, and basic static quality gates.
-2. Expand README with architecture diagram, control semantics, and troubleshooting.
-3. Document recommended local test workflow for dual-plant scenarios.
-4. Define a low-overhead visual regression guardrail (for example, deterministic screenshots of key dashboard tabs).
+1. Expand README with architecture diagram, control semantics, and troubleshooting.
+2. Document recommended local/remote smoke workflow for dual-plant scenarios.
+3. Define a low-overhead visual regression guardrail (for example, deterministic screenshots of key dashboard tabs).
+4. Plan final removal of deprecated legacy compatibility paths (`schedule_manager.py`, alias fallback flag) after external dependency check.
 
 ### P3 - Product Enhancements
 1. Improve manual schedule validation and preview diagnostics.
@@ -30,6 +30,6 @@ Increase reliability and operator confidence without changing the core dual-plan
 3. Evaluate persistence options for measurement posting queue durability.
 
 ## Exit Criteria for Current Phase
-1. Core control and recording contracts are covered by automated tests.
-2. Local smoke workflow is repeatable and documented.
+1. Core control and recording contracts are covered by automated tests, including safe-stop/switch flows.
+2. Local and remote smoke workflows are repeatable and documented.
 3. Critical failures surface quickly via logs/status without deep code inspection.

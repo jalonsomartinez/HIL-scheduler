@@ -15,30 +15,29 @@
 - API status and posting health,
 - logs tab with live `Today` (current date file tail) and selectable historical files,
 - branded UI theme (tokenized CSS, local font assets, class-based styling hooks, and contrast-tuned controls).
+6. Automated validation now includes:
+- module compile checks (`python3 -m py_compile *.py`),
+- unit/smoke regression suite (`python -m unittest discover -s tests -v`),
+- CI execution via `.github/workflows/ci.yml`.
 
 ## In Progress
-1. Documentation right-sizing and contract cleanup (active memory + archive split).
-2. Converting operational knowledge into concise, low-drift memory-bank artifacts.
-3. UI validation pass for branded dashboard readability across desktop/mobile control workflows.
-4. Runtime smoke validation for logs callbacks and date-based file routing around day-boundary behavior.
+1. Memory-bank reconciliation to reflect completed Stage A/B/C/D implementation status.
+2. Follow-up reliability design for dashboard callback de-blocking (replace synchronous Modbus reads with cached plant state).
+3. Remote transport smoke coverage design (repeatable unattended checks).
 
 ## Next
-1. Add automated tests for:
-- per-plant dispatch gating,
-- safe-stop result handling,
-- recording boundary insertion and midnight rollover,
-- API posting queue retry/overflow behavior,
-- API auth-retry handling for `401`/`403` in fetch and post paths.
-2. Add repeatable smoke checks for local and remote transport workflows.
-3. Add a lightweight dashboard visual regression/smoke checklist to catch class/style regressions.
-4. Define and implement logging retention/cleanup policy.
-5. Expand README with architecture and operator runbook details.
+1. Add targeted tests for safe-stop result handling and source/transport switch flows.
+2. Add repeatable remote transport smoke checks.
+3. Define and implement log retention/cleanup policy.
+4. Add lightweight dashboard visual regression/smoke checklist.
+5. Expand README operator runbook/troubleshooting sections.
 
 ## Known Issues / Gaps
 1. No persistent store for API posting retry queue across process restarts.
-2. No comprehensive CI test suite yet for dashboard callback regressions.
+2. Dashboard status callback still performs direct Modbus polling and can block under slow endpoints.
 3. Operational runbook and incident handling guidance are still thin.
 4. UI styling changes are still validated manually; no screenshot/DOM snapshot checks in CI.
+5. `schedule_manager.py` remains in repository for legacy compatibility only and is intentionally deprecated.
 
 ## Current Project Phase
-Runtime architecture is functional and feature-complete for dual-plant operation; current priority is reliability hardening (tests, validation, and operational docs).
+Runtime architecture is stable for dual-plant operation; current priority is reliability hardening of remaining high-risk paths and operational docs.

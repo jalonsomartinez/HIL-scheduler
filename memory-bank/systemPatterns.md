@@ -159,6 +159,9 @@ shared_data = {
 - Log file day boundaries follow configured timezone date and record timestamps.
 
 ## Locking Discipline
-- Hold `shared_data["lock"]` only for short reference reads/writes.
-- Perform dataframe operations, Modbus I/O, API I/O, and file I/O outside the lock.
-- Keep dashboard callbacks responsive by avoiding long lock sections.
+- Target contract:
+  - hold `shared_data["lock"]` only for short reference reads/writes,
+  - perform Modbus I/O, API I/O, file I/O, and dataframe-heavy transforms outside the lock,
+  - keep dashboard callbacks responsive by avoiding long lock sections.
+- Current exception:
+  - measurement cache update paths in `measurement_agent.py` still include some lock-scoped dataframe operations; this is tracked as a follow-up cleanup item.
