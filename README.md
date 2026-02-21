@@ -49,3 +49,8 @@ Open the dashboard at:
 ## Outputs
 - Measurements: `data/`
 - Logs: `logs/YYYY-MM-DD_hil_scheduler.log`
+
+## Legacy Compatibility Notes
+- `schedule_manager.py` is deprecated and not part of the active runtime path.
+- `config_loader.py` no longer emits legacy flat alias keys by default.
+- Temporary migration fallback: set `HIL_ENABLE_LEGACY_CONFIG_ALIASES=1` to re-enable legacy alias keys.

@@ -1,6 +1,7 @@
 """Configuration loader for HIL Scheduler."""
 
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -41,6 +42,7 @@ DEFAULT_MODEL = {
     },
     "poi_voltage_v": 20000.0,
 }
+LEGACY_ALIAS_ENV_VAR = "HIL_ENABLE_LEGACY_CONFIG_ALIASES"
 
 
 def _parse_bool(value, default):
@@ -323,6 +325,11 @@ def _set_legacy_flat_keys(config, plants):
             config["PLANT_REMOTE_V_POI_REGISTER"] = value
 
 
+def _legacy_aliases_enabled():
+    raw = os.getenv(LEGACY_ALIAS_ENV_VAR, "0")
+    return _parse_bool(raw, False)
+
+
 def load_config(config_path="config.yaml"):
     """Load configuration from YAML and return validated runtime dict."""
     config_file = Path(config_path)
@@ -451,19 +458,23 @@ def load_config(config_path="config.yaml"):
     config["STARTUP_TRANSPORT_MODE"] = transport_mode
     config["STARTUP_SCHEDULE_SOURCE"] = schedule_source
 
-    # Compatibility aliases for old code paths.
-    config["TRANSPORT_MODE"] = transport_mode
-    config["STARTUP_PLANT"] = transport_mode
-    _set_legacy_flat_keys(config, plants)
+    # Legacy aliases are intentionally opt-in and only for temporary migration.
+    if _legacy_aliases_enabled():
+        logging.warning(
+            "Legacy config aliases enabled via %s. This compatibility mode is deprecated.",
+            LEGACY_ALIAS_ENV_VAR,
+        )
+        config["TRANSPORT_MODE"] = transport_mode
+        config["STARTUP_PLANT"] = transport_mode
+        _set_legacy_flat_keys(config, plants)
 
-    # Compatibility aliases for old measurement-series flat keys.
-    config["ISTENTORE_MEASUREMENT_SERIES_LOCAL_SOC_ID"] = plants["lib"]["measurement_series"]["soc"]
-    config["ISTENTORE_MEASUREMENT_SERIES_LOCAL_P_ID"] = plants["lib"]["measurement_series"]["p"]
-    config["ISTENTORE_MEASUREMENT_SERIES_LOCAL_Q_ID"] = plants["lib"]["measurement_series"]["q"]
-    config["ISTENTORE_MEASUREMENT_SERIES_LOCAL_V_ID"] = plants["lib"]["measurement_series"]["v"]
-    config["ISTENTORE_MEASUREMENT_SERIES_REMOTE_SOC_ID"] = plants["vrfb"]["measurement_series"]["soc"]
-    config["ISTENTORE_MEASUREMENT_SERIES_REMOTE_P_ID"] = plants["vrfb"]["measurement_series"]["p"]
-    config["ISTENTORE_MEASUREMENT_SERIES_REMOTE_Q_ID"] = plants["vrfb"]["measurement_series"]["q"]
-    config["ISTENTORE_MEASUREMENT_SERIES_REMOTE_V_ID"] = plants["vrfb"]["measurement_series"]["v"]
+        config["ISTENTORE_MEASUREMENT_SERIES_LOCAL_SOC_ID"] = plants["lib"]["measurement_series"]["soc"]
+        config["ISTENTORE_MEASUREMENT_SERIES_LOCAL_P_ID"] = plants["lib"]["measurement_series"]["p"]
+        config["ISTENTORE_MEASUREMENT_SERIES_LOCAL_Q_ID"] = plants["lib"]["measurement_series"]["q"]
+        config["ISTENTORE_MEASUREMENT_SERIES_LOCAL_V_ID"] = plants["lib"]["measurement_series"]["v"]
+        config["ISTENTORE_MEASUREMENT_SERIES_REMOTE_SOC_ID"] = plants["vrfb"]["measurement_series"]["soc"]
+        config["ISTENTORE_MEASUREMENT_SERIES_REMOTE_P_ID"] = plants["vrfb"]["measurement_series"]["p"]
+        config["ISTENTORE_MEASUREMENT_SERIES_REMOTE_Q_ID"] = plants["vrfb"]["measurement_series"]["q"]
+        config["ISTENTORE_MEASUREMENT_SERIES_REMOTE_V_ID"] = plants["vrfb"]["measurement_series"]["v"]
 
     return config

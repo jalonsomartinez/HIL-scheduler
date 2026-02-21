@@ -1,6 +1,10 @@
 """
 Schedule Manager for HIL Scheduler.
 
+DEPRECATED: This module is not used by the runtime entrypoint (`hil_scheduler.py`).
+It is kept only as a temporary legacy compatibility surface.
+Prefer `manual_schedule_manager.py`, `schedule_runtime.py`, and active agents.
+
 This module provides a unified interface for managing schedules across all three modes:
 1. Random schedule generation
 2. CSV file upload
@@ -16,6 +20,7 @@ The schedule manager handles:
 import logging
 import threading
 import time
+import warnings
 from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
@@ -26,6 +31,12 @@ import pandas as pd
 
 from istentore_api import IstentoreAPI
 from schedule_runtime import merge_schedule_frames
+
+warnings.warn(
+    "schedule_manager.py is deprecated and not used by hil_scheduler runtime.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
 class ScheduleMode(Enum):
