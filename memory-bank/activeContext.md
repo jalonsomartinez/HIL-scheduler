@@ -24,6 +24,14 @@
   - API-tab runtime posting toggle (`Enabled`/`Disabled`) for read-only API-mode testing,
   - modal `Cancel` buttons now red,
   - recording stop buttons now red.
+- Applied additional UI layout refinements for flatter/readability-focused operator view:
+  - page background switched to white,
+  - reduced header vertical padding,
+  - menu-like tab strip styling (no outer card shell),
+  - tab-content cards now align to tab width (removed side margins),
+  - mobile `Start All` / `Stop All` kept on one row,
+  - overall style flattened with minimal radius and reduced depth.
+- Expanded Status-tab API inline text to show both today and tomorrow per-plant fetched-point counts.
 - Added runtime posting control contract:
   - `shared_data["measurement_posting_enabled"]` initialized from `ISTENTORE_POST_MEASUREMENTS_IN_API_MODE`,
   - measurement posting gate now evaluates runtime toggle + API source + password.
@@ -75,7 +83,7 @@
   - `assets/brand/fonts/OFL.txt`.
 - Updated Plotly figure presentation through shared theme helpers while preserving existing `uirevision` and callback behavior.
 - Applied operator-requested visual refinements:
-  - green-only background treatment and later flat corporate-green page background,
+  - green-only background treatment, then flat corporate-green page background, and finally white page background,
   - non-signature logo variant,
   - stronger toggle selected-state contrast,
   - flat (non-gradient) green/red button styling.

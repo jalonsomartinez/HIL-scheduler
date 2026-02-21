@@ -34,6 +34,7 @@ The system closes the operational gap between market/control schedules and plant
 ### Observability
 - API tab shows fetch status (today/tomorrow) plus measurement posting telemetry.
 - API tab includes a runtime posting toggle (`Enabled`/`Disabled`) for session-scoped read-only testing.
+- Status tab inline API summary surfaces today/tomorrow fetched-point counts for both plants.
 - Logs tab exposes a live `Today` view (tail of the current date log file) and selectable historical log files.
 
 ## UX Intent

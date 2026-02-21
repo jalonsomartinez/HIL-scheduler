@@ -909,7 +909,9 @@ def dashboard_agent(config, shared_data):
         api_inline = (
             f"API Connected: {bool(status.get('connected'))} | "
             f"Today {status.get('today_date')}: LIB={status.get('today_points_by_plant', {}).get('lib', 0)} "
-            f"VRFB={status.get('today_points_by_plant', {}).get('vrfb', 0)}"
+            f"VRFB={status.get('today_points_by_plant', {}).get('vrfb', 0)} | "
+            f"Tomorrow {status.get('tomorrow_date')}: LIB={status.get('tomorrow_points_by_plant', {}).get('lib', 0)} "
+            f"VRFB={status.get('tomorrow_points_by_plant', {}).get('vrfb', 0)}"
         )
         if schedule_switching:
             api_inline += " | Source switching..."

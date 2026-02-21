@@ -87,6 +87,9 @@ Per-plant config includes:
 - Plot styling in `dashboard_agent.py` uses shared figure-theme helpers for consistent axes/grid/legend presentation without altering control callbacks.
 - Current operator-requested theme constraints:
   - white page background,
+  - flatter surfaces with minimal corner radius,
+  - menu-style tab strip (no enclosing tab-shell card),
+  - tab content cards aligned to tab strip width (no side margins),
   - non-signature i-STENTORE logotype in header,
   - flat green/red control buttons,
   - higher-contrast toggle selected-state pill.

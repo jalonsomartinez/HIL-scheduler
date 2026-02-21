@@ -17,7 +17,7 @@ Increase reliability and operator confidence without changing the core dual-plan
 2. Move dashboard synchronous Modbus polling to agent-cached plant-state publication.
 3. Add structured health checks for API connectivity and posting backlog age.
 4. Add explicit operator alerts for sustained posting failures or stale schedule windows.
-5. Add an operator UI validation checklist for critical control/readability states after styling updates, including logs-tab `Today` live refresh, historical-file selection behavior, and bulk-action confirmation states.
+5. Add an operator UI validation checklist for critical control/readability states after styling updates, including logs-tab `Today` live refresh, historical-file selection behavior, bulk-action confirmation states, and small-screen control-row behavior.
 
 ### P2 - Developer Experience
 1. Expand README with architecture diagram, control semantics, and troubleshooting.

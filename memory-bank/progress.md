@@ -15,9 +15,9 @@
 - top-card `Start All` / `Stop All` controls with confirmation modal for high-impact actions,
 - global source/transport switching with confirmation and safe-stop,
 - API-tab runtime posting toggle (`Enabled`/`Disabled`) for read-only tests,
-- API status and posting health,
+- API status and posting health, including inline today/tomorrow per-plant fetch counts in Status tab,
 - logs tab with live `Today` (current date file tail) and selectable historical files,
-- branded UI theme (tokenized CSS, local font assets, class-based styling hooks, contrast-tuned controls, white page background).
+- branded UI theme (tokenized CSS, local font assets, flatter visual treatment, minimal corner radius, menu-style tab strip, full-width tab content cards, white page background).
 6. Automated validation now includes:
 - module compile checks (`python3 -m py_compile *.py`),
 - unit/smoke regression suite (`python -m unittest discover -s tests -v`),

@@ -168,6 +168,10 @@ shared_data = {
   - historical file selections pause interval-driven refresh until selection changes.
 - Legacy selector value `current_session` is normalized to `today` for compatibility.
 
+### Dashboard Status Summary Pattern
+- Status tab inline API summary shows connectivity plus per-plant fetched-point counts for both `today` and `tomorrow` windows.
+- This status line is intended as quick fetch-health visibility without requiring navigation to API tab.
+
 ## Time and Timestamp Conventions
 - Runtime timestamps are timezone-aware in configured timezone.
 - API schedule delivery periods are parsed as UTC then converted to configured timezone.

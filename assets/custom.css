@@ -61,7 +61,7 @@ a {
 
 .app-header {
     margin-bottom: 16px;
-    padding: 14px 18px;
+    padding: 8px 18px;
     border: 1px solid var(--border);
     border-radius: 16px;
     background: linear-gradient(110deg, #ffffff 0%, #eefaf3 62%, #e8f8ef 100%);
@@ -103,27 +103,37 @@ a {
 }
 
 .main-tabs-parent {
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    background: rgba(255, 255, 255, 0.78);
-    box-shadow: var(--shadow);
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
 }
 
 .main-tabs {
-    border-radius: 16px;
-    overflow: hidden;
+    border-radius: 0;
+    overflow: visible;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 12px;
 }
 
 .main-tab {
-    padding: 11px 12px;
+    padding: 6px 10px;
     background: transparent;
     border: none !important;
-    border-bottom: 1px solid var(--border) !important;
+    border-bottom: 2px solid transparent !important;
     color: var(--text-muted);
-    font-size: 0.88rem;
+    font-size: 0.82rem;
     font-weight: 600;
     letter-spacing: 0.02em;
     transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Dash tabs keep their own minimum height; force a compact strip. */
+.main-tabs .main-tab {
+    min-height: 40px !important;
+    height: auto !important;
+    line-height: 1.2 !important;
+    padding: 10px 10px !important;
 }
 
 .main-tab:hover {
@@ -134,7 +144,7 @@ a {
 .main-tab--selected {
     color: var(--brand-ink) !important;
     border-bottom: 2px solid var(--brand-green) !important;
-    background: #f6fdf9;
+    background: transparent;
 }
 
 .card,
@@ -147,7 +157,7 @@ a {
 }
 
 .control-panel {
-    margin: 16px;
+    margin: 0 0 16px;
     padding: 16px;
 }
 
@@ -272,10 +282,10 @@ a {
 .btn {
     border: 1px solid transparent;
     border-radius: 10px;
-    padding: 8px 14px;
-    min-height: 40px;
+    padding: 6px 14px;
+    min-height: 0;
     font-family: var(--font-body);
-    font-size: 0.86rem;
+    font-size: 0.8rem;
     font-weight: 700;
     cursor: pointer;
     transition: transform 0.06s ease, filter 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
@@ -357,8 +367,12 @@ a {
 }
 
 .card {
-    margin: 16px;
+    margin: 0 0 16px;
     padding: 16px;
+}
+
+.plant-card {
+    margin: 0 0 16px;
 }
 
 .card-header {
@@ -613,6 +627,59 @@ input[type="number"]:focus,
     display: none !important;
 }
 
+/* Quick visual test: flat surfaces + minimal corners */
+.app-header,
+.main-tabs-parent,
+.main-tabs,
+.card,
+.plant-card,
+.control-panel,
+.compact-toggle,
+.toggle-option,
+.control-btn,
+.btn,
+.form-control,
+.DateInput_input,
+input[type="number"],
+.app-container .Select-control,
+.app-container .Select-menu-outer,
+.file-upload,
+.plot-graph,
+.modal-card,
+.posting-card,
+.logs-display {
+    border-radius: 4px !important;
+}
+
+.app-header,
+.main-tabs-parent,
+.card,
+.plant-card,
+.control-panel,
+.modal-card,
+.posting-card,
+.btn,
+.control-btn,
+.toggle-option {
+    box-shadow: none !important;
+}
+
+.app-header {
+    background: #ffffff;
+}
+
+.file-upload {
+    background: #f6fbf8;
+}
+
+.logs-display {
+    background: #122b24;
+}
+
+.modal-overlay {
+    backdrop-filter: none;
+}
+
 @media (max-width: 900px) {
     .brand-logo {
         width: min(42vw, 300px);
@@ -668,7 +735,7 @@ input[type="number"]:focus,
     .control-panel,
     .card,
     .plant-card {
-        margin: 12px;
+        margin: 0 0 12px;
         padding: 12px;
     }
 
@@ -702,6 +769,16 @@ input[type="number"]:focus,
     .control-btn,
     .btn {
         width: 100%;
+    }
+
+    .fleet-actions-group {
+        width: 100%;
+        flex-wrap: nowrap;
+    }
+
+    .fleet-actions-group .btn {
+        width: calc(50% - 4px);
+        flex: 1 1 0;
     }
 
     .control-separator {
