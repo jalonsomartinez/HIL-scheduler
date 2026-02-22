@@ -41,7 +41,7 @@ def build_dashboard_layout(
                 parent_className="main-tabs-parent",
                 children=[
                     dcc.Tab(
-                        label="Status & Plots",
+                        label="Status",
                         value="status",
                         className="main-tab",
                         selected_className="main-tab--selected",
@@ -210,6 +210,95 @@ def build_dashboard_layout(
                                     ),
                                     html.Div(id="status-vrfb", className="status-text"),
                                     dcc.Graph(id="graph-vrfb", className="plot-graph"),
+                                ],
+                            ),
+                        ],
+                    ),
+                    dcc.Tab(
+                        label="Plots",
+                        value="plots",
+                        className="main-tab",
+                        selected_className="main-tab--selected",
+                        children=[
+                            html.Div(
+                                className="card",
+                                children=[
+                                    html.H3("Historical Measurements"),
+                                    html.Div(id="plots-status-text", className="status-text"),
+                                    dcc.Graph(id="plots-timeline-graph", className="plot-graph"),
+                                    html.Div(id="plots-range-label", className="status-text"),
+                                    dcc.RangeSlider(
+                                        id="plots-range-slider",
+                                        min=0,
+                                        max=1,
+                                        value=[0, 1],
+                                        marks={},
+                                        allowCross=False,
+                                        updatemode="mouseup",
+                                        disabled=True,
+                                    ),
+                                ],
+                            ),
+                            html.Div(
+                                className="plant-card",
+                                children=[
+                                    html.Div(
+                                        className="form-row",
+                                        children=[
+                                            html.H3(f"{plant_name_fn('lib')}"),
+                                            html.Div(
+                                                className="fleet-actions-group",
+                                                children=[
+                                                    html.Button(
+                                                        "Download CSV",
+                                                        id="plots-download-csv-lib-btn",
+                                                        className="btn btn-primary",
+                                                        n_clicks=0,
+                                                    ),
+                                                    html.Button(
+                                                        "Download PNG",
+                                                        id="plots-download-png-lib-btn",
+                                                        className="btn btn-secondary",
+                                                        n_clicks=0,
+                                                    ),
+                                                ],
+                                            ),
+                                        ],
+                                    ),
+                                    dcc.Graph(id="plots-graph-lib", className="plot-graph"),
+                                    dcc.Download(id="plots-download-csv-lib"),
+                                    html.Div(id="plots-lib-png-noop", style={"display": "none"}),
+                                ],
+                            ),
+                            html.Div(
+                                className="plant-card",
+                                children=[
+                                    html.Div(
+                                        className="form-row",
+                                        children=[
+                                            html.H3(f"{plant_name_fn('vrfb')}"),
+                                            html.Div(
+                                                className="fleet-actions-group",
+                                                children=[
+                                                    html.Button(
+                                                        "Download CSV",
+                                                        id="plots-download-csv-vrfb-btn",
+                                                        className="btn btn-primary",
+                                                        n_clicks=0,
+                                                    ),
+                                                    html.Button(
+                                                        "Download PNG",
+                                                        id="plots-download-png-vrfb-btn",
+                                                        className="btn btn-secondary",
+                                                        n_clicks=0,
+                                                    ),
+                                                ],
+                                            ),
+                                        ],
+                                    ),
+                                    dcc.Graph(id="plots-graph-vrfb", className="plot-graph"),
+                                    dcc.Download(id="plots-download-csv-vrfb"),
+                                    html.Div(id="plots-vrfb-png-noop", style={"display": "none"}),
                                 ],
                             ),
                         ],
@@ -428,6 +517,9 @@ def build_dashboard_layout(
             dcc.Store(id="transport-mode-selector", data=initial_transport),
             dcc.Store(id="active-source-selector", data=initial_source),
             dcc.Store(id="api-posting-toggle-store", data=bool(initial_posting_enabled)),
+            dcc.Store(id="plots-index-store", data={"has_data": False, "files_by_plant": {"lib": [], "vrfb": []}}),
+            dcc.Store(id="plots-range-meta-store", data=None),
             dcc.Interval(id="interval-component", interval=int(float(config.get("MEASUREMENT_PERIOD_S", 1)) * 1000), n_intervals=0),
+            dcc.Interval(id="plots-refresh-interval", interval=30000, n_intervals=0),
         ],
     )

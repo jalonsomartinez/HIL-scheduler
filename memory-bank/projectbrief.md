@@ -25,6 +25,7 @@ HIL Scheduler is a multi-agent Python application that executes active and react
 - Day-ahead API schedule ingestion and stale-setpoint guardrails.
 - Per-plant Modbus endpoint management for local and remote modes.
 - CSV measurement persistence and in-memory plot caches.
+- Dashboard historical measurement browsing from `data/*.csv` with range filtering and exports.
 - API measurement posting with retry queue and observability state.
 - Dashboard fleet controls (`Start All`/`Stop All`) and confirmation-gated high-impact actions.
 
@@ -42,3 +43,4 @@ HIL Scheduler is a multi-agent Python application that executes active and react
 3. Reliable per-plant recording files (`data/YYYYMMDD_<plant>.csv`).
 4. Accurate API status (today/tomorrow windows, stale cutoff behavior).
 5. Actionable dashboard visibility for API posting success/failure/queue state.
+6. Operators can browse historical measurements across the `data/` time span and export cropped CSV/PNG per plant.

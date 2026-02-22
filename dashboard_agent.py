@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 import dash
 import pandas as pd
 import plotly.graph_objects as go
-from dash import Dash, Input, Output, State, callback_context, html
+from dash import Dash, Input, Output, State, callback_context, dcc, html
 from dash.exceptions import PreventUpdate
 
 from dashboard_control import (
@@ -17,6 +17,13 @@ from dashboard_control import (
     perform_transport_switch as perform_transport_switch_flow,
     safe_stop_all_plants as safe_stop_all_plants_flow,
     safe_stop_plant as safe_stop_plant_flow,
+)
+from dashboard_history import (
+    build_slider_marks,
+    clamp_epoch_range,
+    load_cropped_measurements_for_range,
+    scan_measurement_history_index,
+    serialize_measurements_for_download,
 )
 from dashboard_layout import build_dashboard_layout
 from dashboard_logs import get_logs_dir, get_today_log_file_path, parse_and_format_historical_logs, read_log_tail
@@ -34,6 +41,7 @@ from dashboard_plotting import (
 )
 from dashboard_ui_state import get_plant_control_labels_and_disabled, resolve_runtime_transition_state
 import manual_schedule_manager as msm
+from measurement_storage import MEASUREMENT_COLUMNS
 from runtime_contracts import resolve_modbus_endpoint, sanitize_plant_name
 from schedule_runtime import resolve_schedule_setpoint
 from shared_state import snapshot_locked
@@ -155,6 +163,140 @@ def dashboard_agent(config, shared_data):
         date_str = now_tz(config).strftime("%Y%m%d")
         return os.path.join("data", f"{date_str}_{safe_name}.csv")
 
+    def _epoch_ms_to_ts(epoch_ms):
+        return normalize_timestamp_value(pd.to_datetime(int(epoch_ms), unit="ms", utc=True), tz)
+
+    def _format_epoch_label(epoch_ms):
+        ts = _epoch_ms_to_ts(epoch_ms)
+        if pd.isna(ts):
+            return "n/a"
+        return ts.strftime("%Y-%m-%d %H:%M:%S %Z")
+
+    def _range_meta_for_selection(selected_range):
+        if not selected_range or len(selected_range) != 2:
+            return None
+        start_ms = int(selected_range[0])
+        end_ms = int(selected_range[1])
+        start_ts = _epoch_ms_to_ts(start_ms)
+        end_ts = _epoch_ms_to_ts(end_ms)
+        if pd.isna(start_ts) or pd.isna(end_ts):
+            return None
+        return {
+            "start_ms": start_ms,
+            "end_ms": end_ms,
+            "start_iso": start_ts.isoformat(),
+            "end_iso": end_ts.isoformat(),
+            "start_token": start_ts.strftime("%Y%m%dT%H%M%S%z"),
+            "end_token": end_ts.strftime("%Y%m%dT%H%M%S%z"),
+        }
+
+    def _empty_history_timeline_figure(message):
+        fig = go.Figure()
+        fig.add_annotation(text=message, xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
+        apply_figure_theme(
+            fig,
+            plot_theme,
+            height=240,
+            margin=dict(l=40, r=20, t=40, b=30),
+            uirevision="plots-timeline-empty",
+            showlegend=False,
+        )
+        fig.update_xaxes(title_text="Time")
+        fig.update_yaxes(visible=False)
+        return fig
+
+    def _build_history_timeline_figure(index_data, selected_range):
+        if not isinstance(index_data, dict) or not index_data.get("has_data"):
+            return _empty_history_timeline_figure("No historical measurements found.")
+
+        fig = go.Figure()
+        color_by_plant = {"lib": trace_colors["api_lib"], "vrfb": trace_colors["api_vrfb"]}
+        label_by_plant = {"lib": plant_name("lib"), "vrfb": plant_name("vrfb")}
+
+        for plant_id in plant_ids:
+            for item in (index_data.get("files_by_plant", {}) or {}).get(plant_id, []):
+                start_ts = _epoch_ms_to_ts(item.get("start_ms"))
+                end_ts = _epoch_ms_to_ts(item.get("end_ms"))
+                if pd.isna(start_ts) or pd.isna(end_ts):
+                    continue
+                fig.add_trace(
+                    go.Scatter(
+                        x=[start_ts, end_ts],
+                        y=[label_by_plant.get(plant_id, plant_id.upper())] * 2,
+                        mode="lines",
+                        line=dict(color=color_by_plant.get(plant_id, plot_theme["muted"]), width=8),
+                        name=label_by_plant.get(plant_id, plant_id.upper()),
+                        legendgroup=plant_id,
+                        showlegend=not any(t.legendgroup == plant_id for t in fig.data),
+                        hovertemplate=(
+                            f"{label_by_plant.get(plant_id, plant_id.upper())}<br>"
+                            f"{os.path.basename(str(item.get('path', '')))}<br>"
+                            "Start: %{x|%Y-%m-%d %H:%M:%S}<extra></extra>"
+                        ),
+                    )
+                )
+
+        if selected_range and len(selected_range) == 2:
+            try:
+                sel_start = _epoch_ms_to_ts(selected_range[0])
+                sel_end = _epoch_ms_to_ts(selected_range[1])
+                if not pd.isna(sel_start) and not pd.isna(sel_end):
+                    fig.add_vrect(
+                        x0=min(sel_start, sel_end),
+                        x1=max(sel_start, sel_end),
+                        fillcolor="#00945a",
+                        opacity=0.10,
+                        line_width=1,
+                        line_color="#00945a",
+                    )
+            except Exception:
+                pass
+
+        if not fig.data:
+            return _empty_history_timeline_figure("No historical measurements found.")
+
+        apply_figure_theme(
+            fig,
+            plot_theme,
+            height=240,
+            margin=dict(l=50, r=20, t=40, b=30),
+            uirevision="plots-timeline",
+            showlegend=True,
+            legend_y=1.12,
+        )
+        fig.update_xaxes(title_text="Time")
+        fig.update_yaxes(title_text="")
+        return fig
+
+    def _empty_history_plant_figure(plant_id, message):
+        fig = create_plant_figure(
+            plant_id,
+            plant_name,
+            pd.DataFrame(),
+            pd.DataFrame(columns=MEASUREMENT_COLUMNS),
+            uirevision_key=f"plots-empty:{plant_id}",
+            tz=tz,
+            plot_theme=plot_theme,
+            trace_colors=trace_colors,
+        )
+        fig.add_annotation(text=message, xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
+        return fig
+
+    def _load_history_df_for_plant(index_data, plant_id, selected_range):
+        if not isinstance(index_data, dict) or not index_data.get("has_data"):
+            return pd.DataFrame(columns=MEASUREMENT_COLUMNS)
+        if not selected_range or len(selected_range) != 2:
+            return pd.DataFrame(columns=MEASUREMENT_COLUMNS)
+        file_meta_list = (index_data.get("files_by_plant", {}) or {}).get(plant_id, [])
+        if not file_meta_list:
+            return pd.DataFrame(columns=MEASUREMENT_COLUMNS)
+        try:
+            start_ms = int(selected_range[0])
+            end_ms = int(selected_range[1])
+        except (TypeError, ValueError):
+            return pd.DataFrame(columns=MEASUREMENT_COLUMNS)
+        return load_cropped_measurements_for_range(file_meta_list, start_ms, end_ms, tz)
+
     def resolve_runtime_transition(plant_id, transition_state, enable_state):
         resolved = resolve_runtime_transition_state(transition_state, enable_state)
 
@@ -172,6 +314,62 @@ def dashboard_agent(config, shared_data):
         initial_source,
         initial_posting_enabled,
         now_tz(config),
+    )
+
+    app.clientside_callback(
+        """
+        function(nClicks, rangeMeta, figure) {
+            if (!nClicks || !figure) {
+                return window.dash_clientside && window.dash_clientside.no_update
+                    ? window.dash_clientside.no_update
+                    : null;
+            }
+            var wrapper = document.getElementById("plots-graph-lib");
+            var gd = wrapper ? (wrapper.querySelector(".js-plotly-plot") || wrapper) : null;
+            if (!gd || !window.Plotly || !window.Plotly.downloadImage) {
+                return "png-lib-unavailable";
+            }
+            var startToken = (rangeMeta && rangeMeta.start_token) ? rangeMeta.start_token : "start";
+            var endToken = (rangeMeta && rangeMeta.end_token) ? rangeMeta.end_token : "end";
+            window.Plotly.downloadImage(gd, {
+                format: "png",
+                filename: "measurements_lib_" + startToken + "_" + endToken
+            });
+            return "png-lib-" + String(nClicks);
+        }
+        """,
+        Output("plots-lib-png-noop", "children"),
+        [Input("plots-download-png-lib-btn", "n_clicks"), Input("plots-range-meta-store", "data")],
+        [State("plots-graph-lib", "figure")],
+        prevent_initial_call=True,
+    )
+
+    app.clientside_callback(
+        """
+        function(nClicks, rangeMeta, figure) {
+            if (!nClicks || !figure) {
+                return window.dash_clientside && window.dash_clientside.no_update
+                    ? window.dash_clientside.no_update
+                    : null;
+            }
+            var wrapper = document.getElementById("plots-graph-vrfb");
+            var gd = wrapper ? (wrapper.querySelector(".js-plotly-plot") || wrapper) : null;
+            if (!gd || !window.Plotly || !window.Plotly.downloadImage) {
+                return "png-vrfb-unavailable";
+            }
+            var startToken = (rangeMeta && rangeMeta.start_token) ? rangeMeta.start_token : "start";
+            var endToken = (rangeMeta && rangeMeta.end_token) ? rangeMeta.end_token : "end";
+            window.Plotly.downloadImage(gd, {
+                format: "png",
+                filename: "measurements_vrfb_" + startToken + "_" + endToken
+            });
+            return "png-vrfb-" + String(nClicks);
+        }
+        """,
+        Output("plots-vrfb-png-noop", "children"),
+        [Input("plots-download-png-vrfb-btn", "n_clicks"), Input("plots-range-meta-store", "data")],
+        [State("plots-graph-vrfb", "figure")],
+        prevent_initial_call=True,
     )
 
     @app.callback(
@@ -985,6 +1183,174 @@ def dashboard_agent(config, shared_data):
             vrfb_controls[6],
             vrfb_controls[7],
         )
+
+    @app.callback(
+        [
+            Output("plots-index-store", "data"),
+            Output("plots-range-slider", "min"),
+            Output("plots-range-slider", "max"),
+            Output("plots-range-slider", "value"),
+            Output("plots-range-slider", "marks"),
+            Output("plots-range-slider", "disabled"),
+            Output("plots-status-text", "children"),
+        ],
+        [Input("main-tabs", "value"), Input("plots-refresh-interval", "n_intervals")],
+        [State("plots-range-slider", "value")],
+        prevent_initial_call=False,
+    )
+    def update_historical_plots_index(active_tab, plots_refresh_n, current_slider_value):
+        if active_tab != "plots":
+            raise PreventUpdate
+
+        plant_suffix_by_id = {plant_id: sanitize_plant_name(plant_name(plant_id), plant_id) for plant_id in plant_ids}
+        index_data = scan_measurement_history_index("data", plant_suffix_by_id, tz)
+
+        if not index_data.get("has_data"):
+            return (
+                index_data,
+                0,
+                1,
+                [0, 1],
+                {},
+                True,
+                "No measurement files found in data/.",
+            )
+
+        global_start_ms = int(index_data["global_start_ms"])
+        global_end_ms = int(index_data["global_end_ms"])
+        selected_range = clamp_epoch_range(current_slider_value, global_start_ms, global_end_ms)
+
+        slider_min = global_start_ms
+        slider_max = global_end_ms if global_end_ms > global_start_ms else global_start_ms + 1
+        slider_marks = build_slider_marks(slider_min, slider_max, tz, max_marks=8)
+
+        files_by_plant = index_data.get("files_by_plant", {}) or {}
+        status_text = (
+            f"Historical files loaded: {plant_name('lib')}={len(files_by_plant.get('lib', []))} "
+            f"{plant_name('vrfb')}={len(files_by_plant.get('vrfb', []))} | "
+            f"Detected range: {_format_epoch_label(global_start_ms)} -> {_format_epoch_label(global_end_ms)}"
+        )
+
+        return (
+            index_data,
+            slider_min,
+            slider_max,
+            selected_range,
+            slider_marks,
+            False,
+            status_text,
+        )
+
+    @app.callback(
+        [
+            Output("plots-range-label", "children"),
+            Output("plots-timeline-graph", "figure"),
+            Output("plots-range-meta-store", "data"),
+        ],
+        [Input("main-tabs", "value"), Input("plots-index-store", "data"), Input("plots-range-slider", "value")],
+        prevent_initial_call=False,
+    )
+    def update_historical_range_view(active_tab, index_data, selected_range):
+        if active_tab != "plots":
+            raise PreventUpdate
+
+        if not isinstance(index_data, dict) or not index_data.get("has_data"):
+            return "Range: n/a", _empty_history_timeline_figure("No historical measurements found."), None
+
+        clamped_range = clamp_epoch_range(
+            selected_range,
+            index_data.get("global_start_ms"),
+            index_data.get("global_end_ms"),
+        )
+        if not clamped_range:
+            return "Range: n/a", _empty_history_timeline_figure("No historical measurements found."), None
+
+        range_label = f"Range: {_format_epoch_label(clamped_range[0])} -> {_format_epoch_label(clamped_range[1])}"
+        timeline_fig = _build_history_timeline_figure(index_data, clamped_range)
+        range_meta = _range_meta_for_selection(clamped_range)
+        return range_label, timeline_fig, range_meta
+
+    @app.callback(
+        [Output("plots-graph-lib", "figure"), Output("plots-graph-vrfb", "figure")],
+        [Input("main-tabs", "value"), Input("plots-index-store", "data"), Input("plots-range-slider", "value")],
+        prevent_initial_call=False,
+    )
+    def update_historical_plots(active_tab, index_data, selected_range):
+        if active_tab != "plots":
+            raise PreventUpdate
+
+        if not isinstance(index_data, dict) or not index_data.get("has_data"):
+            return (
+                _empty_history_plant_figure("lib", "No historical LIB measurements found."),
+                _empty_history_plant_figure("vrfb", "No historical VRFB measurements found."),
+            )
+
+        domain_start = index_data.get("global_start_ms")
+        domain_end = index_data.get("global_end_ms")
+        clamped_range = clamp_epoch_range(selected_range, domain_start, domain_end)
+        if not clamped_range:
+            return (
+                _empty_history_plant_figure("lib", "No historical LIB measurements found."),
+                _empty_history_plant_figure("vrfb", "No historical VRFB measurements found."),
+            )
+
+        def build_plant_fig(plant_id):
+            measurements_df = _load_history_df_for_plant(index_data, plant_id, clamped_range)
+            if measurements_df.empty:
+                return _empty_history_plant_figure(plant_id, f"No {plant_name(plant_id)} data in selected range.")
+            return create_plant_figure(
+                plant_id,
+                plant_name,
+                pd.DataFrame(),
+                measurements_df,
+                uirevision_key=f"plots:{plant_id}:{clamped_range[0]}:{clamped_range[1]}",
+                tz=tz,
+                plot_theme=plot_theme,
+                trace_colors=trace_colors,
+            )
+
+        return build_plant_fig("lib"), build_plant_fig("vrfb")
+
+    def _download_history_csv_payload(plant_id, index_data, selected_range, range_meta):
+        domain_start = (index_data or {}).get("global_start_ms")
+        domain_end = (index_data or {}).get("global_end_ms")
+        clamped_range = clamp_epoch_range(selected_range, domain_start, domain_end)
+        if not clamped_range:
+            clamped_range = [0, 0]
+        df = _load_history_df_for_plant(index_data or {}, plant_id, clamped_range)
+        csv_df = serialize_measurements_for_download(df, tz)
+
+        start_token = (range_meta or {}).get("start_token")
+        end_token = (range_meta or {}).get("end_token")
+        if not start_token or not end_token:
+            fallback_meta = _range_meta_for_selection(clamped_range)
+            start_token = (fallback_meta or {}).get("start_token", "start")
+            end_token = (fallback_meta or {}).get("end_token", "end")
+
+        filename = f"measurements_{plant_id}_{start_token}_{end_token}.csv"
+        return dcc.send_data_frame(csv_df.to_csv, filename, index=False)
+
+    @app.callback(
+        Output("plots-download-csv-lib", "data"),
+        Input("plots-download-csv-lib-btn", "n_clicks"),
+        [State("plots-index-store", "data"), State("plots-range-slider", "value"), State("plots-range-meta-store", "data")],
+        prevent_initial_call=True,
+    )
+    def download_historical_csv_lib(n_clicks, index_data, selected_range, range_meta):
+        if not n_clicks:
+            raise PreventUpdate
+        return _download_history_csv_payload("lib", index_data, selected_range, range_meta)
+
+    @app.callback(
+        Output("plots-download-csv-vrfb", "data"),
+        Input("plots-download-csv-vrfb-btn", "n_clicks"),
+        [State("plots-index-store", "data"), State("plots-range-slider", "value"), State("plots-range-meta-store", "data")],
+        prevent_initial_call=True,
+    )
+    def download_historical_csv_vrfb(n_clicks, index_data, selected_range, range_meta):
+        if not n_clicks:
+            raise PreventUpdate
+        return _download_history_csv_payload("vrfb", index_data, selected_range, range_meta)
 
     @app.callback(
         Output("log-file-selector", "options"),

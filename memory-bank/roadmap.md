@@ -28,7 +28,7 @@ Increase reliability and operator confidence without changing the core dual-plan
 
 ### P3 - Product Enhancements
 1. Improve manual schedule validation and preview diagnostics.
-2. Add richer historical analysis views for recorded sessions.
+2. Expand the new historical `Plots` tab beyond baseline browsing/exports (for example: file filters, derived stats, multi-range compare).
 3. Evaluate persistence options for measurement posting queue durability.
 
 ## Exit Criteria for Current Phase

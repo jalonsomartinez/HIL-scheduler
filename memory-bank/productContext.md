@@ -14,6 +14,7 @@ The system closes the operational gap between market/control schedules and plant
 4. See real-time status for schedule freshness and API posting health.
 5. Trigger high-impact fleet-wide start/stop actions with explicit confirmation.
 6. Run API-mode read-only tests by disabling measurement posting at runtime.
+7. Browse historical recorded measurements across days and export cropped data/plots for analysis.
 
 ## Product Behavior
 ### Scheduling
@@ -34,7 +35,8 @@ The system closes the operational gap between market/control schedules and plant
 ### Observability
 - API tab shows fetch status (today/tomorrow) plus measurement posting telemetry.
 - API tab includes a runtime posting toggle (`Enabled`/`Disabled`) for session-scoped read-only testing.
-- Status tab inline API summary surfaces today/tomorrow fetched-point counts for both plants.
+- Status tab (renamed from `Status & Plots`) keeps inline API summary with today/tomorrow fetched-point counts for both plants.
+- Plots tab provides historical measurement browsing from `data/*.csv` with a full-range timeline, range slider, and per-plant CSV/PNG exports.
 - Logs tab exposes a live `Today` view (tail of the current date log file) and selectable historical log files.
 
 ## UX Intent
@@ -42,6 +44,7 @@ The system closes the operational gap between market/control schedules and plant
 2. Explicit transition states (`starting`, `running`, `stopping`, `stopped`, `unknown`).
 3. Safe confirmation flows before global source/transport changes.
 4. Stable plot interactions during periodic refresh.
+5. Historical browsing controls should preserve context (range selection) while new files appear.
 
 ## Critical Workflows
 ### Start Plant Dispatch
@@ -70,3 +73,9 @@ The system closes the operational gap between market/control schedules and plant
 2. Dashboard opens confirmation modal before execution.
 3. `Start All`: recording is enabled for both plants, then plant start sequences execute.
 4. `Stop All`: safe-stop runs for both plants, then recording is stopped for both plants.
+
+### Browse Historical Plots
+1. User opens `Plots` tab.
+2. Dashboard scans `data/*.csv`, derives the global available measurement time range, and populates a timeline + range slider.
+3. User adjusts the range slider; both plant plots update to the selected time window.
+4. User optionally downloads cropped CSV or PNG for either plant.

@@ -86,6 +86,7 @@ shared_data = {
 - `plant_agent.py`: local emulation server for each logical plant with SoC and power limit behavior.
 - `measurement_agent.py`: measurement sampling, recording, cache updates, API posting queue/telemetry.
 - `dashboard_agent.py`: user controls, safe-stop flows, source/transport switch modals, plots, logs.
+- `dashboard_history.py`: helper functions for dashboard historical measurement scan/index, range clamping, file loading/cropping, and CSV serialization.
 - `dashboard_control.py`: shared safe-stop + global switch control-flow helpers used by dashboard callbacks.
 
 ## Operational Patterns
@@ -136,6 +137,7 @@ shared_data = {
   - latest point of active runs may replace the mutable in-memory tail row.
 - During periodic non-force flushes, one tail row per active recording file is retained in memory to preserve first/latest segment semantics across flush boundaries.
 - Current-day plot cache is maintained per plant in memory.
+- Historical plot browsing reads persisted CSVs from `data/*.csv` on demand and does not depend on current-day in-memory caches.
 
 ### API Measurement Posting
 - Posting is owned by `measurement_agent.py` and is independent from sample/flush cadence.
@@ -171,6 +173,15 @@ shared_data = {
 ### Dashboard Status Summary Pattern
 - Status tab inline API summary shows connectivity plus per-plant fetched-point counts for both `today` and `tomorrow` windows.
 - This status line is intended as quick fetch-health visibility without requiring navigation to API tab.
+
+### Dashboard Historical Plots Pattern
+- `Plots` tab scans `data/*.csv` on a slower dedicated interval (separate from the main 1s UI refresh interval).
+- File discovery maps known plant filename suffixes (sanitized plant names) to `lib`/`vrfb`; unknown suffixes are ignored.
+- Global timeline range is derived from actual CSV timestamps (not filenames).
+- Range selection is represented as epoch milliseconds and clamped to the discovered global range.
+- Historical plant figures reuse the same multi-panel plot helper as live status plots, with empty schedule overlays and cropped measurement traces only.
+- CSV export serializes cropped rows in canonical measurement column order.
+- PNG export is client-side via Plotly browser APIs using the already-rendered graph.
 
 ## Time and Timestamp Conventions
 - Runtime timestamps are timezone-aware in configured timezone.

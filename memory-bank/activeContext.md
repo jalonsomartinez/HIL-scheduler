@@ -3,8 +3,9 @@
 ## Current Focus (Now)
 1. Keep memory bank and audit artifacts aligned with the current dual-plant runtime and refactor outcomes.
 2. Maintain robust plant control safety (per-plant transitions, guarded global switches, and confirmation-gated fleet actions).
-3. Keep reliability guardrails green via automated regression tests and CI enforcement, including measurement compression and posting-gate semantics.
-4. Prepare follow-up hardening for remaining high-risk paths (dashboard synchronous Modbus polling, posting durability, remote smoke coverage).
+3. Stabilize and validate the new historical `Plots` tab (timeline/range browsing + CSV/PNG exports) against real operator datasets.
+4. Keep reliability guardrails green via automated regression tests and CI enforcement, including measurement compression and posting-gate semantics.
+5. Prepare follow-up hardening for remaining high-risk paths (dashboard synchronous Modbus polling, posting durability, remote smoke coverage).
 
 ## Open Decisions and Risks
 1. Dashboard interval callbacks still perform synchronous Modbus reads; remote endpoint slowness can degrade responsiveness.
@@ -14,8 +15,22 @@
 5. Legacy compatibility aliases in `config_loader.py` are now opt-in; removal timeline for the fallback flag remains open.
 6. Lock-discipline target is not fully met in measurement cache paths where dataframe operations still occur under lock.
 7. Historical dense measurement CSV files created while compression was inactive are intentionally not backfilled.
+8. Historical plots tab currently rescans and reloads CSV files on demand; performance may degrade with very large `data/` directories.
 
 ## Rolling Change Log (Compressed, 30-Day Window)
+
+### 2026-02-22
+- Renamed dashboard `Status & Plots` tab to `Status` (functionality unchanged for live controls/status plots).
+- Added new dashboard `Plots` tab for historical measurement browsing:
+  - scans `data/*.csv` for known plant files (`lib`, `vrfb`) using sanitized filename suffix matching,
+  - builds a full-range timeline across discovered measurement timestamps,
+  - exposes a range slider (epoch-ms backed, timezone-formatted labels),
+  - renders per-plant historical measurement plots using the shared plant-figure helper (measurements only; no schedule overlay).
+- Added per-plant historical export actions:
+  - cropped CSV download for selected range,
+  - PNG export of current graph via client-side Plotly download (no `kaleido` dependency).
+- Added `dashboard_history.py` helper module for history scan/index, range clamping, crop loading, and CSV serialization.
+- Added `tests/test_dashboard_history.py` coverage for helper behaviors (scan mapping, clamp logic, inclusive crop, serialization, slider marks).
 
 ### 2026-02-21
 - Added dashboard UI/operator-control updates:

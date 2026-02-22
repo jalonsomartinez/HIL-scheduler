@@ -13,6 +13,7 @@
 - `hil_scheduler.py`: director, shared state initialization, thread startup/shutdown.
 - `config_loader.py`: validates/normalizes YAML into runtime dict.
 - `dashboard_agent.py`: UI layout, callbacks, safe-stop controls, switch modals, fleet start/stop actions, and API posting toggle handling.
+- `dashboard_history.py`: historical plots helper utilities (file scan/index, slider range helpers, CSV crop/export serialization).
 - `dashboard_control.py`: safe-stop/source-switch/transport-switch control-flow helpers for dashboard callbacks.
 - `assets/custom.css`: dashboard design tokens, responsive rules, control/tab/modal/log styling.
 - `assets/brand/fonts/*`: locally served dashboard fonts (DM Sans files + OFL license).
@@ -85,6 +86,7 @@ Per-plant config includes:
 - Brand assets are served from Dash `assets/` (logo PNGs + local font files).
 - Dashboard visual state is primarily class-driven in `dashboard_agent.py` and styled in `assets/custom.css`; a small number of inline style dictionaries remain in log/posting render helpers.
 - Plot styling in `dashboard_agent.py` uses shared figure-theme helpers for consistent axes/grid/legend presentation without altering control callbacks.
+- Historical `Plots` tab reuses the same figure helper/theme as Status plots for visual consistency; PNG downloads use client-side Plotly export (`window.Plotly.downloadImage`) and do not require `kaleido`.
 - Current operator-requested theme constraints:
   - white page background,
   - flatter surfaces with minimal corner radius,
@@ -104,5 +106,6 @@ Per-plant config includes:
 - Threaded model requires short lock sections and external I/O outside locks.
 - Measurement posting queue is in-memory only; it does not persist across restarts.
 - Measurement compression applies only to new runtime writes; no automatic backfill is performed for historical dense CSV files.
+- Historical plots tab reads `data/*.csv` directly on demand; large datasets may increase dashboard callback latency because there is no persistent history index/cache yet.
 - The dashboard assumes both logical plants are always present in runtime state.
 - API auth renewal is reactive (on `401`/`403`) with one retry per request path; no proactive token TTL refresh exists.

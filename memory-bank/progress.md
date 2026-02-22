@@ -14,6 +14,9 @@
 - per-plant Start/Stop + Record/Stop controls,
 - top-card `Start All` / `Stop All` controls with confirmation modal for high-impact actions,
 - global source/transport switching with confirmation and safe-stop,
+- `Status` tab (formerly `Status & Plots`) live status + control plots,
+- `Plots` tab historical measurement browsing from `data/*.csv` with full-range timeline + range slider,
+- per-plant historical exports (cropped CSV and client-side PNG),
 - API-tab runtime posting toggle (`Enabled`/`Disabled`) for read-only tests,
 - API status and posting health, including inline today/tomorrow per-plant fetch counts in Status tab,
 - logs tab with live `Today` (current date file tail) and selectable historical files,
@@ -22,6 +25,7 @@
 - module compile checks (`python3 -m py_compile *.py`),
 - unit/smoke regression suite (`python -m unittest discover -s tests -v`),
 - CI execution via `.github/workflows/ci.yml`.
+ - targeted historical-plots helper unit tests in `tests/test_dashboard_history.py` (environment-dependent on local pandas install).
 7. Dashboard control flow is now separated into `dashboard_control.py` with dedicated tests for safe-stop and global switch semantics.
 8. Runtime shared-state initialization contract is centralized in `build_initial_shared_data(config)` with schema tests.
 9. Runtime posting gate now includes `measurement_posting_enabled` state seeded from config and adjustable from dashboard UI.
@@ -30,6 +34,7 @@
 1. Follow-up reliability design for dashboard callback de-blocking (replace synchronous Modbus reads with cached plant state).
 2. Remote transport smoke coverage design (repeatable unattended checks).
 3. Log retention policy definition and implementation scope.
+4. Manual validation pass for new historical `Plots` tab behavior on larger data directories.
 
 ## Next
 1. Add repeatable remote transport smoke checks.
@@ -45,6 +50,7 @@
 4. UI styling changes are still validated manually; no screenshot/DOM snapshot checks in CI.
 5. `schedule_manager.py` remains in repository for legacy compatibility only and is intentionally deprecated.
 6. Historical measurement files captured while compression was inactive remain dense by design (no automatic backfill).
+7. Historical `Plots` tab rescans/reads CSVs on demand and may need indexing/caching if `data/` grows large.
 
 ## Current Project Phase
 Runtime architecture is stable for dual-plant operation; current priority is reliability hardening of remaining high-risk paths and operational docs.
