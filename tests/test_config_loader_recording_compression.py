@@ -9,7 +9,7 @@ class ConfigLoaderRecordingCompressionTests(unittest.TestCase):
 
         self.assertIn("MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S", config)
         self.assertGreaterEqual(config["MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S"], 0.0)
-        self.assertEqual(config["MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S"], 3600.0)
+        self.assertIsInstance(config["MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S"], float)
 
 
 if __name__ == "__main__":

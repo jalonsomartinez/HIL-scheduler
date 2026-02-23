@@ -34,6 +34,7 @@
  - targeted config-loader regressions covering shared startup SoC parsing and legacy alias mapping.
  - targeted config-loader regression coverage for `tomorrow_poll_start_time` normalization and legacy `poll_start_time` rejection.
  - targeted data fetcher regression coverage for next-day gate timing, partial/complete tomorrow fetch status, and rollover promotion (environment-dependent on local pandas install).
+ - compression-gap config-loader regression now validates schema/typing (not a fixed `max_kept_gap_s` value) so config tuning does not cause CI failures.
 7. Dashboard control flow is now separated into `dashboard_control.py` with dedicated tests for safe-stop and global switch semantics.
 8. Runtime shared-state initialization contract is centralized in `build_initial_shared_data(config)` with schema tests.
 9. Runtime posting gate now includes `measurement_posting_enabled` state seeded from config and adjustable from dashboard UI.
