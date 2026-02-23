@@ -52,8 +52,8 @@ def plant_agent(config, shared_data):
             db = server.data_bank
             db.set_holding_registers(int(registers.get("enable", 1)), [0])
             db.set_holding_registers(int(registers.get("soc", 281)), [int(startup_initial_soc_pu * 10000)])
-            db.set_holding_registers(int(registers.get("p_setpoint_in", 86)), [0])
-            db.set_holding_registers(int(registers.get("q_setpoint_in", 88)), [0])
+            db.set_holding_registers(int(registers.get("p_setpoint", 86)), [0])
+            db.set_holding_registers(int(registers.get("q_setpoint", 88)), [0])
             db.set_holding_registers(int(registers.get("p_battery", 270)), [0])
             db.set_holding_registers(int(registers.get("q_battery", 272)), [0])
             db.set_holding_registers(int(registers.get("p_poi", 290)), [0])
@@ -74,8 +74,8 @@ def plant_agent(config, shared_data):
 
                     db = server.data_bank
 
-                    p_set_regs = db.get_holding_registers(int(reg.get("p_setpoint_in", 86)), 1) or [0]
-                    q_set_regs = db.get_holding_registers(int(reg.get("q_setpoint_in", 88)), 1) or [0]
+                    p_set_regs = db.get_holding_registers(int(reg.get("p_setpoint", 86)), 1) or [0]
+                    q_set_regs = db.get_holding_registers(int(reg.get("q_setpoint", 88)), 1) or [0]
                     enable_regs = db.get_holding_registers(int(reg.get("enable", 1)), 1) or [0]
 
                     p_sp_kw = hw_to_kw(uint16_to_int(p_set_regs[0]))

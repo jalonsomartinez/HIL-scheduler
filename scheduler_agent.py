@@ -123,14 +123,14 @@ def scheduler_agent(config, shared_data):
 
                 if previous_p[plant_id] != p_setpoint:
                     client.write_single_register(
-                        endpoint["registers"]["p_setpoint_in"],
+                        endpoint["registers"]["p_setpoint"],
                         int_to_uint16(kw_to_hw(p_setpoint)),
                     )
                     previous_p[plant_id] = p_setpoint
 
                 if previous_q[plant_id] != q_setpoint:
                     client.write_single_register(
-                        endpoint["registers"]["q_setpoint_in"],
+                        endpoint["registers"]["q_setpoint"],
                         int_to_uint16(kw_to_hw(q_setpoint)),
                     )
                     previous_q[plant_id] = q_setpoint

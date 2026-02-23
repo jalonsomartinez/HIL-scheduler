@@ -3,6 +3,7 @@
 ## Working Now
 1. Dual logical plants (`lib`, `vrfb`) run under a shared global source/transport model with per-plant dispatch and recording gates.
 2. Scheduler dispatches per plant from manual or API maps and applies API stale-setpoint guardrails.
+ - Normalized plant Modbus register maps use canonical setpoint keys `p_setpoint` / `q_setpoint` (loader still accepts legacy `*_in` aliases).
 3. Local emulation runs both plant Modbus servers concurrently with SoC and power-limit behavior.
  - Local emulation startup SoC is configured once via `startup.initial_soc_pu` and applied to both plants.
 4. Measurement pipeline provides:

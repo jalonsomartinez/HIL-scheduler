@@ -4,9 +4,9 @@ import re
 
 
 DEFAULT_MODBUS_REGISTERS = {
-    "p_setpoint_in": 86,
+    "p_setpoint": 86,
     "p_battery": 270,
-    "q_setpoint_in": 88,
+    "q_setpoint": 88,
     "q_battery": 272,
     "enable": 1,
     "soc": 281,

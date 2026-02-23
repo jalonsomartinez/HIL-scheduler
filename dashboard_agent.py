@@ -101,8 +101,8 @@ def dashboard_agent(config, shared_data):
             "host": endpoint.get("host", "localhost"),
             "port": int(endpoint.get("port", 5020 if plant_id == "lib" else 5021)),
             "enable_reg": registers["enable"],
-            "p_setpoint_reg": registers["p_setpoint_in"],
-            "q_setpoint_reg": registers["q_setpoint_in"],
+            "p_setpoint_reg": registers["p_setpoint"],
+            "q_setpoint_reg": registers["q_setpoint"],
             "p_battery_reg": registers["p_battery"],
             "q_battery_reg": registers["q_battery"],
         }

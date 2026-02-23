@@ -46,10 +46,13 @@ Per-plant config includes:
 - `name`
 - `model.capacity_kwh`, `model.power_limits`, `model.poi_voltage_v`
 - `modbus.local` and `modbus.remote` endpoints with register maps
+- canonical setpoint register keys are `p_setpoint` and `q_setpoint`
+- `config_loader.py` accepts legacy `p_setpoint_in` / `q_setpoint_in` aliases and normalizes them to canonical keys
 - `measurement_series` IDs for `soc`, `p`, `q`, `v`
 
 ## Runtime Contracts Exposed by Config Loader
 - `PLANTS`: normalized per-plant map.
+- `PLANTS[*].modbus.*.registers` uses canonical setpoint keys `p_setpoint` / `q_setpoint` in runtime code.
 - `PLANT_IDS`: `("lib", "vrfb")`.
 - `STARTUP_SCHEDULE_SOURCE`, `STARTUP_TRANSPORT_MODE`.
 - Timing/posting/settings flattened for agents (for example `SCHEDULER_PERIOD_S`, `ISTENTORE_*`).

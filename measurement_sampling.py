@@ -15,9 +15,9 @@ def get_transport_endpoint(config, plant_id, transport_mode):
     return {
         "host": endpoint.get("host", "localhost"),
         "port": int(endpoint.get("port", 5020 if plant_id == "lib" else 5021)),
-        "p_setpoint_reg": registers["p_setpoint_in"],
+        "p_setpoint_reg": registers["p_setpoint"],
         "p_battery_reg": registers["p_battery"],
-        "q_setpoint_reg": registers["q_setpoint_in"],
+        "q_setpoint_reg": registers["q_setpoint"],
         "q_battery_reg": registers["q_battery"],
         "soc_reg": registers["soc"],
         "p_poi_reg": registers["p_poi"],

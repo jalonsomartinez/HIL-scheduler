@@ -19,7 +19,7 @@ startup:
 istentore_api:
   base_url: "https://3mku48kfxf.execute-api.eu-south-2.amazonaws.com/default"
   email: "i-STENTORE"
-  poll_start_time: "17:30"
+  poll_start_time: "15:00"
   schedule_period_minutes: 15
   post_measurements_in_api_mode: true
   measurement_post_period_s: 60
@@ -64,10 +64,10 @@ plants:
         host: "localhost"
         port: 5020
         registers:
-          p_setpoint_in: 86
+          p_setpoint: 86
           p_poi: 290
           p_battery: 270
-          q_setpoint_in: 88
+          q_setpoint: 88
           q_poi: 292
           q_battery: 272
           v_poi: 296
@@ -77,10 +77,10 @@ plants:
         host: "10.117.133.21"
         port: 502
         registers:
-          p_setpoint_in: 86
+          p_setpoint: 86
           p_poi: 290
           p_battery: 270
-          q_setpoint_in: 88
+          q_setpoint: 88
           q_poi: 292
           q_battery: 272
           v_poi: 296
@@ -107,10 +107,10 @@ plants:
         host: "localhost"
         port: 5021
         registers:
-          p_setpoint_in: 86
+          p_setpoint: 86
           p_poi: 290
           p_battery: 270
-          q_setpoint_in: 88
+          q_setpoint: 88
           q_poi: 292
           q_battery: 272
           v_poi: 296
@@ -120,10 +120,10 @@ plants:
         host: "10.117.133.22"
         port: 502
         registers:
-          p_setpoint_in: 86
+          p_setpoint: 86
           p_poi: 290
           p_battery: 270
-          q_setpoint_in: 88
+          q_setpoint: 88
           q_poi: 292
           q_battery: 272
           v_poi: 296

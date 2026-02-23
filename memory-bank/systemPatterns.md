@@ -10,6 +10,7 @@
 - Per-plant runtime gates:
   - `scheduler_running_by_plant[plant_id]`.
   - `measurements_filename_by_plant[plant_id]` (`None` means recording off).
+- Normalized per-plant Modbus endpoint register maps use canonical setpoint keys `p_setpoint` and `q_setpoint`.
 
 ### Authoritative Shared State
 `hil_scheduler.py` initializes this runtime contract via `build_initial_shared_data(config)`:

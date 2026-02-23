@@ -23,9 +23,9 @@ DEFAULT_MEASUREMENT_COMPRESSION_TOLERANCES = {
 DEFAULT_MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S = 3600.0
 DEFAULT_STARTUP_INITIAL_SOC_PU = 0.5
 DEFAULT_REGISTERS = {
-    "p_setpoint_in": 86,
+    "p_setpoint": 86,
     "p_battery": 270,
-    "q_setpoint_in": 88,
+    "q_setpoint": 88,
     "q_battery": 272,
     "enable": 1,
     "soc": 281,
@@ -44,6 +44,10 @@ DEFAULT_MODEL = {
     "poi_voltage_v": 20000.0,
 }
 LEGACY_ALIAS_ENV_VAR = "HIL_ENABLE_LEGACY_CONFIG_ALIASES"
+REGISTER_KEY_ALIASES = {
+    "p_setpoint": ("p_setpoint_in",),
+    "q_setpoint": ("q_setpoint_in",),
+}
 
 
 def _parse_bool(value, default):
@@ -94,7 +98,15 @@ def _parse_timezone(timezone_name):
 def _normalize_registers(raw_registers, prefix):
     registers = {}
     for key, default in DEFAULT_REGISTERS.items():
-        registers[key] = _parse_int(raw_registers.get(key, default), default, f"{prefix}.registers.{key}")
+        if key in raw_registers:
+            raw_value = raw_registers.get(key)
+        else:
+            raw_value = default
+            for alias_key in REGISTER_KEY_ALIASES.get(key, ()):
+                if alias_key in raw_registers:
+                    raw_value = raw_registers.get(alias_key)
+                    break
+        registers[key] = _parse_int(raw_value, default, f"{prefix}.registers.{key}")
     return registers
 
 
@@ -281,11 +293,11 @@ def _set_legacy_flat_keys(config, plants, startup_initial_soc_pu):
     config["PLANT_REMOTE_MODBUS_PORT"] = lib_remote["port"]
 
     for key, value in lib_local["registers"].items():
-        if key == "p_setpoint_in":
+        if key == "p_setpoint":
             config["PLANT_P_SETPOINT_REGISTER"] = value
         elif key == "p_battery":
             config["PLANT_P_BATTERY_ACTUAL_REGISTER"] = value
-        elif key == "q_setpoint_in":
+        elif key == "q_setpoint":
             config["PLANT_Q_SETPOINT_REGISTER"] = value
         elif key == "q_battery":
             config["PLANT_Q_BATTERY_ACTUAL_REGISTER"] = value
@@ -301,11 +313,11 @@ def _set_legacy_flat_keys(config, plants, startup_initial_soc_pu):
             config["PLANT_V_POI_REGISTER"] = value
 
     for key, value in lib_remote["registers"].items():
-        if key == "p_setpoint_in":
+        if key == "p_setpoint":
             config["PLANT_REMOTE_P_SETPOINT_REGISTER"] = value
         elif key == "p_battery":
             config["PLANT_REMOTE_P_BATTERY_ACTUAL_REGISTER"] = value
-        elif key == "q_setpoint_in":
+        elif key == "q_setpoint":
             config["PLANT_REMOTE_Q_SETPOINT_REGISTER"] = value
         elif key == "q_battery":
             config["PLANT_REMOTE_Q_BATTERY_ACTUAL_REGISTER"] = value

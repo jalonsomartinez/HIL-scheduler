@@ -20,6 +20,8 @@
 ## Rolling Change Log (Compressed, 30-Day Window)
 
 ### 2026-02-23
+- Renamed per-plant Modbus register map setpoint keys from `p_setpoint_in` / `q_setpoint_in` to canonical `p_setpoint` / `q_setpoint` across runtime agents, config, and tests.
+- Updated `config_loader.py` register normalization to accept legacy `*_in` setpoint keys as backward-compatible input aliases while emitting canonical runtime register maps.
 - Moved local-emulation startup SoC config from per-plant `plants.*.model.initial_soc_pu` to shared `startup.initial_soc_pu`.
 - Updated config-loader runtime contract to expose `STARTUP_INITIAL_SOC_PU` and removed `initial_soc_pu` from normalized `PLANTS[*].model`.
 - Kept opt-in legacy alias compatibility (`PLANT_INITIAL_SOC_PU`) by sourcing it from `STARTUP_INITIAL_SOC_PU`.
@@ -31,6 +33,7 @@
   - keep-gap retention when stable samples exceed the configured interval,
   - drift prevention by comparing against the last kept row,
   - config-loader parsing of the new compression key.
+  - scheduler setpoint-register access updated to canonical keys in source-switch regression coverage.
 
 ### 2026-02-22
 - Renamed dashboard `Status & Plots` tab to `Status` (functionality unchanged for live controls/status plots).
