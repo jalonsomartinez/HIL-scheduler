@@ -20,6 +20,24 @@
 ## Rolling Change Log (Compressed, 30-Day Window)
 
 ### 2026-02-23
+- Implemented unit-aware Modbus point conversions on top of binary codec:
+  - point `unit` now drives conversions between external Modbus engineering values and internal runtime units,
+  - supported units include SoC (`pc`/`%`/`pu`), active/reactive power (`W/kW/MW`, `var/kvar/Mvar`), and voltage (`V/kV`).
+- Performed internal voltage migration from per-unit to absolute kV:
+  - runtime/measurement field renamed `v_poi_pu` -> `v_poi_kV`,
+  - API posting voltage now uses `v_poi_kV * 1000` (no pu reconstruction),
+  - compression tolerance key renamed to `recording.compression.tolerances.v_poi_kV`,
+  - plant model nominal voltage renamed `poi_voltage_v` -> `poi_voltage_kv`.
+- Implemented Modbus point-schema refactor (breaking config migration):
+  - replaced endpoint `registers` integer maps with structured `points` metadata in `config.yaml`,
+  - required explicit endpoint `byte_order` / `word_order` for every `local`/`remote` Modbus endpoint (no defaults),
+  - added shared `modbus_codec.py` for holding-register encode/decode (supports `int16`/`uint16`/`int32`/`uint32`/`float32`),
+  - refactored scheduler, measurement sampling, dashboard Modbus helpers, and local plant emulation to use shared codec + normalized point specs,
+  - runtime resolver now exposes endpoint ordering + `points`,
+  - preserved current on-wire behavior for existing P/Q and SoC points (P/Q int16 hW, `soc` `/10000`) and retained optional `start_command` / `stop_command` point definitions (voltage semantics were changed later the same day in the kV migration).
+- Added regression coverage for:
+  - Modbus codec roundtrips/overflow/quantization and float32 ordering behavior,
+  - config-loader point-schema normalization, required endpoint ordering, and legacy `registers` rejection.
 - Diagnosed CI failure source as a brittle config-loader regression test (`tests/test_config_loader_recording_compression.py`) that pinned `recording.compression.max_kept_gap_s` to `3600.0` despite `config.yaml` using `360`.
 - Relaxed the compression-gap config-loader test to validate contract shape (present, non-negative, float) instead of enforcing a specific configured value, so operator tuning of `max_kept_gap_s` does not break CI.
 - Verified full test suite passes in the project virtualenv (`venv/bin/python -m unittest discover -s tests -v`); earlier pandas-related skips were due to using system `/usr/bin/python3` instead of repo `venv`.

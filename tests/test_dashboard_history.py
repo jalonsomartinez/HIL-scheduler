@@ -26,7 +26,7 @@ def _row(ts, p_kw):
         "soc_pu": 0.5,
         "p_poi_kw": p_kw,
         "q_poi_kvar": 0.0,
-        "v_poi_pu": 1.0,
+        "v_poi_kV": 1.0,
     }
 
 

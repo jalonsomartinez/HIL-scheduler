@@ -4,11 +4,11 @@ import time
 import pandas as pd
 from pyModbusTCP.client import ModbusClient
 
+from modbus_codec import write_point_internal
 from runtime_contracts import resolve_modbus_endpoint
 from schedule_runtime import resolve_schedule_setpoint
 from shared_state import snapshot_locked
 from time_utils import get_config_tz, now_tz
-from utils import int_to_uint16, kw_to_hw
 
 
 def scheduler_agent(config, shared_data):
@@ -122,17 +122,11 @@ def scheduler_agent(config, shared_data):
                     previous_api_stale[plant_id] = None
 
                 if previous_p[plant_id] != p_setpoint:
-                    client.write_single_register(
-                        endpoint["registers"]["p_setpoint"],
-                        int_to_uint16(kw_to_hw(p_setpoint)),
-                    )
+                    write_point_internal(client, endpoint, "p_setpoint", p_setpoint)
                     previous_p[plant_id] = p_setpoint
 
                 if previous_q[plant_id] != q_setpoint:
-                    client.write_single_register(
-                        endpoint["registers"]["q_setpoint"],
-                        int_to_uint16(kw_to_hw(q_setpoint)),
-                    )
+                    write_point_internal(client, endpoint, "q_setpoint", q_setpoint)
                     previous_q[plant_id] = q_setpoint
 
             except Exception as exc:

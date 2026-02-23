@@ -3,7 +3,8 @@ import time
 
 from pyModbusTCP.server import ModbusServer
 
-from utils import hw_to_kw, int_to_uint16, kw_to_hw, uint16_to_int
+from modbus_codec import decode_engineering_value, encode_engineering_value
+from modbus_units import external_to_internal, internal_to_external
 
 
 def plant_agent(config, shared_data):
@@ -19,11 +20,25 @@ def plant_agent(config, shared_data):
     servers = {}
     states = {}
 
+    def db_read_point_eng(db, endpoint_cfg, point_name):
+        point = endpoint_cfg["points"][point_name]
+        word_count = int(point["word_count"])
+        regs = db.get_holding_registers(int(point["address"]), word_count) or []
+        if len(regs) != word_count:
+            return None
+        external_value = decode_engineering_value(endpoint_cfg, point, regs)
+        return external_to_internal(point_name, point.get("unit"), external_value)
+
+    def db_write_point_eng(db, endpoint_cfg, point_name, eng_value):
+        point = endpoint_cfg["points"][point_name]
+        external_value = internal_to_external(point_name, point.get("unit"), eng_value)
+        words = encode_engineering_value(endpoint_cfg, point, external_value)
+        db.set_holding_registers(int(point["address"]), [int(word) for word in words])
+
     try:
         for plant_id in plant_ids:
             plant_cfg = plants_cfg.get(plant_id, {})
             local_cfg = (plant_cfg.get("modbus", {}) or {}).get("local", {})
-            registers = local_cfg.get("registers", {})
             model = plant_cfg.get("model", {})
             power_limits = model.get("power_limits", {})
 
@@ -34,7 +49,7 @@ def plant_agent(config, shared_data):
             server.start()
             servers[plant_id] = {
                 "server": server,
-                "registers": registers,
+                "endpoint": local_cfg,
                 "name": plant_cfg.get("name", plant_id.upper()),
             }
 
@@ -42,7 +57,7 @@ def plant_agent(config, shared_data):
             states[plant_id] = {
                 "capacity_kwh": capacity_kwh,
                 "soc_kwh": startup_initial_soc_pu * capacity_kwh,
-                "poi_voltage_v": float(model.get("poi_voltage_v", 20000.0)),
+                "poi_voltage_kv": float(model.get("poi_voltage_kv", 20.0)),
                 "p_max_kw": float(power_limits.get("p_max_kw", 1000.0)),
                 "p_min_kw": float(power_limits.get("p_min_kw", -1000.0)),
                 "q_max_kvar": float(power_limits.get("q_max_kvar", 600.0)),
@@ -50,15 +65,15 @@ def plant_agent(config, shared_data):
             }
 
             db = server.data_bank
-            db.set_holding_registers(int(registers.get("enable", 1)), [0])
-            db.set_holding_registers(int(registers.get("soc", 281)), [int(startup_initial_soc_pu * 10000)])
-            db.set_holding_registers(int(registers.get("p_setpoint", 86)), [0])
-            db.set_holding_registers(int(registers.get("q_setpoint", 88)), [0])
-            db.set_holding_registers(int(registers.get("p_battery", 270)), [0])
-            db.set_holding_registers(int(registers.get("q_battery", 272)), [0])
-            db.set_holding_registers(int(registers.get("p_poi", 290)), [0])
-            db.set_holding_registers(int(registers.get("q_poi", 292)), [0])
-            db.set_holding_registers(int(registers.get("v_poi", 296)), [100])
+            db_write_point_eng(db, local_cfg, "enable", 0)
+            db_write_point_eng(db, local_cfg, "soc", startup_initial_soc_pu)
+            db_write_point_eng(db, local_cfg, "p_setpoint", 0.0)
+            db_write_point_eng(db, local_cfg, "q_setpoint", 0.0)
+            db_write_point_eng(db, local_cfg, "p_battery", 0.0)
+            db_write_point_eng(db, local_cfg, "q_battery", 0.0)
+            db_write_point_eng(db, local_cfg, "p_poi", 0.0)
+            db_write_point_eng(db, local_cfg, "q_poi", 0.0)
+            db_write_point_eng(db, local_cfg, "v_poi", states[plant_id]["poi_voltage_kv"])
 
             logging.info("Plant emulator %s started on %s:%s", plant_id.upper(), host, port)
 
@@ -69,18 +84,17 @@ def plant_agent(config, shared_data):
                 try:
                     entry = servers[plant_id]
                     server = entry["server"]
-                    reg = entry["registers"]
+                    endpoint_cfg = entry["endpoint"]
                     st = states[plant_id]
 
                     db = server.data_bank
 
-                    p_set_regs = db.get_holding_registers(int(reg.get("p_setpoint", 86)), 1) or [0]
-                    q_set_regs = db.get_holding_registers(int(reg.get("q_setpoint", 88)), 1) or [0]
-                    enable_regs = db.get_holding_registers(int(reg.get("enable", 1)), 1) or [0]
-
-                    p_sp_kw = hw_to_kw(uint16_to_int(p_set_regs[0]))
-                    q_sp_kvar = hw_to_kw(uint16_to_int(q_set_regs[0]))
-                    enabled = int(enable_regs[0]) == 1
+                    p_sp_kw = db_read_point_eng(db, endpoint_cfg, "p_setpoint")
+                    q_sp_kvar = db_read_point_eng(db, endpoint_cfg, "q_setpoint")
+                    enable_value = db_read_point_eng(db, endpoint_cfg, "enable")
+                    if p_sp_kw is None or q_sp_kvar is None or enable_value is None:
+                        continue
+                    enabled = int(enable_value) == 1
 
                     if not enabled:
                         p_sp_kw = 0.0
@@ -109,14 +123,14 @@ def plant_agent(config, shared_data):
 
                     p_poi_kw = p_act_kw
                     q_poi_kvar = q_act_kvar
-                    v_poi_pu = st["poi_voltage_v"] / 20000.0
+                    v_poi_kv = st["poi_voltage_kv"]
 
-                    db.set_holding_registers(int(reg.get("p_battery", 270)), [int_to_uint16(kw_to_hw(p_act_kw))])
-                    db.set_holding_registers(int(reg.get("q_battery", 272)), [int_to_uint16(kw_to_hw(q_act_kvar))])
-                    db.set_holding_registers(int(reg.get("soc", 281)), [int(max(0, min(65535, soc_pu * 10000)))])
-                    db.set_holding_registers(int(reg.get("p_poi", 290)), [int_to_uint16(kw_to_hw(p_poi_kw))])
-                    db.set_holding_registers(int(reg.get("q_poi", 292)), [int_to_uint16(kw_to_hw(q_poi_kvar))])
-                    db.set_holding_registers(int(reg.get("v_poi", 296)), [int(max(0, min(65535, v_poi_pu * 100)))])
+                    db_write_point_eng(db, endpoint_cfg, "p_battery", p_act_kw)
+                    db_write_point_eng(db, endpoint_cfg, "q_battery", q_act_kvar)
+                    db_write_point_eng(db, endpoint_cfg, "soc", soc_pu)
+                    db_write_point_eng(db, endpoint_cfg, "p_poi", p_poi_kw)
+                    db_write_point_eng(db, endpoint_cfg, "q_poi", q_poi_kvar)
+                    db_write_point_eng(db, endpoint_cfg, "v_poi", v_poi_kv)
 
                 except Exception as exc:
                     logging.error("Plant agent error (%s): %s", plant_id.upper(), exc)

@@ -212,8 +212,8 @@ class LocalRuntimeSmokeTests(unittest.TestCase):
 
                     time.sleep(0.6)
 
-                    lib_enable_reg = int(config["PLANTS"]["lib"]["modbus"]["local"]["registers"]["enable"])
-                    vrfb_enable_reg = int(config["PLANTS"]["vrfb"]["modbus"]["local"]["registers"]["enable"])
+                    lib_enable_reg = int(config["PLANTS"]["lib"]["modbus"]["local"]["points"]["enable"]["address"])
+                    vrfb_enable_reg = int(config["PLANTS"]["vrfb"]["modbus"]["local"]["points"]["enable"]["address"])
                     lib_server = _FakeModbusRegistry.get("127.0.0.1", lib_port)
                     vrfb_server = _FakeModbusRegistry.get("127.0.0.1", vrfb_port)
                     self.assertIsNotNone(lib_server)

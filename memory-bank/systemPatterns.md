@@ -10,7 +10,11 @@
 - Per-plant runtime gates:
   - `scheduler_running_by_plant[plant_id]`.
   - `measurements_filename_by_plant[plant_id]` (`None` means recording off).
-- Normalized per-plant Modbus endpoint register maps use canonical setpoint keys `p_setpoint` and `q_setpoint`.
+- Normalized per-plant Modbus endpoints expose:
+  - connection settings (`host`, `port`, required `byte_order`, required `word_order`)
+  - structured Modbus `points` metadata (address, format, access, unit, scale, derived widths)
+- Runtime Modbus I/O is holding-register-only; point codecs are shared across scheduler, sampling, dashboard helpers, and local emulation.
+- Point `unit` is operational (not display-only): runtime helpers convert between Modbus engineering values and internal units (`soc_pu`, `kW`/`kvar`, `v_poi_kV`).
 
 ### Authoritative Shared State
 `hil_scheduler.py` initializes this runtime contract via `build_initial_shared_data(config)`:
@@ -140,6 +144,7 @@ shared_data = {
 - Row timestamps are scheduled step times, not completion times.
 - Recording is file-routed by row timestamp:
   - destination `data/YYYYMMDD_<plantname>.csv`.
+- Recorded measurement schema includes voltage as absolute `v_poi_kV` (breaking migration from legacy `v_poi_pu`).
 - Compression behavior for recording rows is tolerance-based and boundary-preserving:
   - null boundary rows are always retained,
   - stable real-value runs retain first + latest points,
@@ -152,6 +157,7 @@ shared_data = {
 
 ### API Measurement Posting
 - Posting is owned by `measurement_agent.py` and is independent from sample/flush cadence.
+- Voltage posting uses measured `v_poi_kV * 1000` to send volts (no reconstruction from per-unit and model base voltage).
 - Gate conditions:
   - runtime posting toggle `measurement_posting_enabled` is true,
   - global source is API,

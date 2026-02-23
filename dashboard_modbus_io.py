@@ -5,7 +5,7 @@ import time
 
 from pyModbusTCP.client import ModbusClient
 
-from utils import hw_to_kw, int_to_uint16, kw_to_hw, uint16_to_int
+from modbus_codec import read_point_internal, write_point_internal
 
 
 def set_enable(endpoint_cfg, plant_label, value):
@@ -18,7 +18,7 @@ def set_enable(endpoint_cfg, plant_label, value):
                 endpoint_cfg["mode"],
             )
             return False
-        return bool(client.write_single_register(endpoint_cfg["enable_reg"], int(value)))
+        return bool(write_point_internal(client, endpoint_cfg, "enable", int(value)))
     except Exception as exc:
         logging.error("Dashboard: enable write error (%s): %s", plant_label, exc)
         return False
@@ -39,8 +39,8 @@ def send_setpoints(endpoint_cfg, plant_label, p_kw, q_kvar):
                 endpoint_cfg["mode"],
             )
             return False
-        p_ok = client.write_single_register(endpoint_cfg["p_setpoint_reg"], int_to_uint16(kw_to_hw(p_kw)))
-        q_ok = client.write_single_register(endpoint_cfg["q_setpoint_reg"], int_to_uint16(kw_to_hw(q_kvar)))
+        p_ok = write_point_internal(client, endpoint_cfg, "p_setpoint", p_kw)
+        q_ok = write_point_internal(client, endpoint_cfg, "q_setpoint", q_kvar)
         return bool(p_ok and q_ok)
     except Exception as exc:
         logging.error("Dashboard: setpoint write error (%s): %s", plant_label, exc)
@@ -57,10 +57,10 @@ def read_enable_state(endpoint_cfg):
     try:
         if not client.open():
             return None
-        regs = client.read_holding_registers(endpoint_cfg["enable_reg"], 1)
-        if not regs:
+        value = read_point_internal(client, endpoint_cfg, "enable")
+        if value is None:
             return None
-        return int(regs[0])
+        return int(value)
     except Exception:
         return None
     finally:
@@ -76,11 +76,9 @@ def wait_until_battery_power_below_threshold(endpoint_cfg, threshold_kw=1.0, tim
         client = ModbusClient(host=endpoint_cfg["host"], port=endpoint_cfg["port"])
         try:
             if client.open():
-                p_regs = client.read_holding_registers(endpoint_cfg["p_battery_reg"], 1)
-                q_regs = client.read_holding_registers(endpoint_cfg["q_battery_reg"], 1)
-                if p_regs and q_regs:
-                    p_kw = hw_to_kw(uint16_to_int(p_regs[0]))
-                    q_kvar = hw_to_kw(uint16_to_int(q_regs[0]))
+                p_kw = read_point_internal(client, endpoint_cfg, "p_battery")
+                q_kvar = read_point_internal(client, endpoint_cfg, "q_battery")
+                if p_kw is not None and q_kvar is not None:
                     if abs(p_kw) < threshold_kw and abs(q_kvar) < threshold_kw:
                         return True
         except Exception:

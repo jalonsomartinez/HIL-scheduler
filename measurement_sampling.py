@@ -4,26 +4,13 @@ import logging
 
 from pyModbusTCP.client import ModbusClient
 
+from modbus_codec import read_point_internal
 from runtime_contracts import resolve_modbus_endpoint
 from time_utils import normalize_timestamp_value
-from utils import hw_to_kw, uint16_to_int
 
 
 def get_transport_endpoint(config, plant_id, transport_mode):
-    endpoint = resolve_modbus_endpoint(config, plant_id, transport_mode)
-    registers = endpoint["registers"]
-    return {
-        "host": endpoint.get("host", "localhost"),
-        "port": int(endpoint.get("port", 5020 if plant_id == "lib" else 5021)),
-        "p_setpoint_reg": registers["p_setpoint"],
-        "p_battery_reg": registers["p_battery"],
-        "q_setpoint_reg": registers["q_setpoint"],
-        "q_battery_reg": registers["q_battery"],
-        "soc_reg": registers["soc"],
-        "p_poi_reg": registers["p_poi"],
-        "q_poi_reg": registers["q_poi"],
-        "v_poi_reg": registers["v_poi"],
-    }
+    return resolve_modbus_endpoint(config, plant_id, transport_mode)
 
 
 def ensure_client(state, endpoint, plant_id, transport_mode):
@@ -56,28 +43,40 @@ def take_measurement(client, endpoint, measurement_timestamp, tz, plant_id):
             return None
 
     try:
-        regs_p_setpoint = client.read_holding_registers(endpoint["p_setpoint_reg"], 1)
-        regs_p_actual = client.read_holding_registers(endpoint["p_battery_reg"], 1)
-        regs_q_setpoint = client.read_holding_registers(endpoint["q_setpoint_reg"], 1)
-        regs_q_actual = client.read_holding_registers(endpoint["q_battery_reg"], 1)
-        regs_soc = client.read_holding_registers(endpoint["soc_reg"], 1)
-        regs_p_poi = client.read_holding_registers(endpoint["p_poi_reg"], 1)
-        regs_q_poi = client.read_holding_registers(endpoint["q_poi_reg"], 1)
-        regs_v_poi = client.read_holding_registers(endpoint["v_poi_reg"], 1)
+        p_setpoint_kw = read_point_internal(client, endpoint, "p_setpoint")
+        p_actual_kw = read_point_internal(client, endpoint, "p_battery")
+        q_setpoint_kvar = read_point_internal(client, endpoint, "q_setpoint")
+        q_actual_kvar = read_point_internal(client, endpoint, "q_battery")
+        soc_pu = read_point_internal(client, endpoint, "soc")
+        p_poi_kw = read_point_internal(client, endpoint, "p_poi")
+        q_poi_kvar = read_point_internal(client, endpoint, "q_poi")
+        v_poi_kV = read_point_internal(client, endpoint, "v_poi")
 
-        if not all([regs_p_setpoint, regs_p_actual, regs_q_setpoint, regs_q_actual, regs_soc, regs_p_poi, regs_q_poi, regs_v_poi]):
+        if any(
+            value is None
+            for value in (
+                p_setpoint_kw,
+                p_actual_kw,
+                q_setpoint_kvar,
+                q_actual_kvar,
+                soc_pu,
+                p_poi_kw,
+                q_poi_kvar,
+                v_poi_kV,
+            )
+        ):
             return None
 
         return {
             "timestamp": normalize_timestamp_value(measurement_timestamp, tz),
-            "p_setpoint_kw": hw_to_kw(uint16_to_int(regs_p_setpoint[0])),
-            "battery_active_power_kw": hw_to_kw(uint16_to_int(regs_p_actual[0])),
-            "q_setpoint_kvar": hw_to_kw(uint16_to_int(regs_q_setpoint[0])),
-            "battery_reactive_power_kvar": hw_to_kw(uint16_to_int(regs_q_actual[0])),
-            "soc_pu": regs_soc[0] / 10000.0,
-            "p_poi_kw": hw_to_kw(uint16_to_int(regs_p_poi[0])),
-            "q_poi_kvar": hw_to_kw(uint16_to_int(regs_q_poi[0])),
-            "v_poi_pu": regs_v_poi[0] / 100.0,
+            "p_setpoint_kw": float(p_setpoint_kw),
+            "battery_active_power_kw": float(p_actual_kw),
+            "q_setpoint_kvar": float(q_setpoint_kvar),
+            "battery_reactive_power_kvar": float(q_actual_kvar),
+            "soc_pu": float(soc_pu),
+            "p_poi_kw": float(p_poi_kw),
+            "q_poi_kvar": float(q_poi_kvar),
+            "v_poi_kV": float(v_poi_kV),
         }
     except Exception as exc:
         logging.error("Measurement: read error (%s): %s", plant_id.upper(), exc)

@@ -30,11 +30,13 @@ HIL Scheduler is a multi-agent Python application that executes active and react
 - Dashboard fleet controls (`Start All`/`Stop All`) and confirmation-gated high-impact actions.
 
 ## Hard Constraints
-- Power registers are 16-bit signed values encoded through two's complement (hW scale).
+- Modbus I/O uses holding registers only.
+- Endpoint `byte_order` and `word_order` are required in config (no loader defaults).
+- Current configured power points use signed 16-bit values encoded via two's complement at hW scale (`0.1` kW/kvar per count).
 - Local emulation runs one Modbus server per logical plant simultaneously.
 - Plant model limits come from `config.yaml`:
   - `lib`: 500 kWh, P +/-1000 kW, Q +/-600 kvar.
-  - `vrfb`: 3000 kWh, P +/-3000 kW, Q +/-1200 kvar.
+  - `vrfb`: 400 kWh, P +/-160 kW, Q +/-64 kvar.
 - Timestamps are timezone-aware in configured timezone (`time.timezone`).
 
 ## Success Criteria

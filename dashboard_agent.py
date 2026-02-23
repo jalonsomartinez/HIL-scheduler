@@ -95,16 +95,13 @@ def dashboard_agent(config, shared_data):
     def get_plant_modbus_config(plant_id, transport_mode=None):
         mode = transport_mode or snapshot_locked(shared_data, lambda data: data.get("transport_mode", "local"))
         endpoint = resolve_modbus_endpoint(config, plant_id, mode)
-        registers = endpoint["registers"]
         return {
             "mode": mode,
             "host": endpoint.get("host", "localhost"),
             "port": int(endpoint.get("port", 5020 if plant_id == "lib" else 5021)),
-            "enable_reg": registers["enable"],
-            "p_setpoint_reg": registers["p_setpoint"],
-            "q_setpoint_reg": registers["q_setpoint"],
-            "p_battery_reg": registers["p_battery"],
-            "q_battery_reg": registers["q_battery"],
+            "byte_order": endpoint.get("byte_order"),
+            "word_order": endpoint.get("word_order"),
+            "points": endpoint.get("points", {}),
         }
 
     def set_enable(plant_id, value):

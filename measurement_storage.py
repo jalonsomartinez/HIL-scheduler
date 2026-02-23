@@ -17,7 +17,7 @@ MEASUREMENT_VALUE_COLUMNS = [
     "soc_pu",
     "p_poi_kw",
     "q_poi_kvar",
-    "v_poi_pu",
+    "v_poi_kV",
 ]
 MEASUREMENT_COLUMNS = ["timestamp"] + MEASUREMENT_VALUE_COLUMNS
 

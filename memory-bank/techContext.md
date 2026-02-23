@@ -45,15 +45,15 @@ Notes:
 
 Per-plant config includes:
 - `name`
-- `model.capacity_kwh`, `model.power_limits`, `model.poi_voltage_v`
-- `modbus.local` and `modbus.remote` endpoints with register maps
-- canonical setpoint register keys are `p_setpoint` and `q_setpoint`
-- `config_loader.py` accepts legacy `p_setpoint_in` / `q_setpoint_in` aliases and normalizes them to canonical keys
+- `model.capacity_kwh`, `model.power_limits`, `model.poi_voltage_kv`
+- `modbus.local` and `modbus.remote` endpoints with required connection ordering (`byte_order`, `word_order`)
+- endpoint `points` map entries (holding-register-only) with explicit `address`, `format`, `access`, `unit`, `eng_per_count`
+- canonical point keys include `p_setpoint`, `q_setpoint`, `p_battery`, `q_battery`, `enable`, `soc`, `p_poi`, `q_poi`, `v_poi` (optional command points such as `start_command` / `stop_command` are preserved if present)
 - `measurement_series` IDs for `soc`, `p`, `q`, `v`
 
 ## Runtime Contracts Exposed by Config Loader
 - `PLANTS`: normalized per-plant map.
-- `PLANTS[*].modbus.*.registers` uses canonical setpoint keys `p_setpoint` / `q_setpoint` in runtime code.
+- `PLANTS[*].modbus.*` exposes endpoint `host`, `port`, `byte_order`, `word_order`, and normalized `points`.
 - `PLANT_IDS`: `("lib", "vrfb")`.
 - `STARTUP_SCHEDULE_SOURCE`, `STARTUP_TRANSPORT_MODE`.
 - Timing/posting/settings flattened for agents (for example `SCHEDULER_PERIOD_S`, `ISTENTORE_*`).
@@ -61,12 +61,23 @@ Per-plant config includes:
 - Recording compression settings are flattened for agents, including `MEASUREMENT_COMPRESSION_ENABLED`, `MEASUREMENT_COMPRESSION_TOLERANCES`, and `MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S`.
 
 ## Modbus and Unit Conventions
-- Power values are represented as signed 16-bit in hW (0.1 kW scale).
-- Conversion helpers in `utils.py`:
-  - `kw_to_hw`, `hw_to_kw`
-  - `int_to_uint16`, `uint16_to_int`
-- SoC register uses `pu * 10000`.
-- Voltage register uses `pu * 100`.
+- Modbus runtime contract is schema-driven per endpoint/point (`config.yaml`) and uses holding registers only.
+- Endpoint-level ordering is required (`byte_order`, `word_order`) and shared by all points on that endpoint (no loader defaults).
+- Shared codec implementation lives in `modbus_codec.py`; unit conversion between Modbus engineering values and internal runtime units is handled by `modbus_units.py`.
+- Runtime Modbus read/write helpers now apply both:
+  - point binary codec (`format`, `eng_per_count`)
+  - point unit conversion (`unit`) to/from internal units
+- Internal runtime units:
+  - SoC: `pu`
+  - active power: `kW`
+  - reactive power: `kvar`
+  - voltage: `kV` (measurement field `v_poi_kV`)
+- Current configured point formats/scales:
+  - `p_*` / `q_*` power and setpoint points: `int16`, `eng_per_count=0.1` (`kW` / `kvar`)
+  - `soc`: `uint16`, `eng_per_count=0.0001` (`pu`)
+  - `v_poi`: `uint16`, configured as absolute voltage (`V`/`kV`) and converted to internal `kV`
+  - `enable`, `start_command`, `stop_command`: `uint16`, `eng_per_count=1.0` (`raw`)
+- Supported point unit tokens are case-insensitive and normalized (for example `%` -> `pc`, `kW` -> `kw`, `Mvar` -> `mvar`, `kV` -> `kv`).
 
 ## Plant Emulation Behavior
 - Local mode starts one Modbus server per plant (`lib`, `vrfb`) simultaneously.
@@ -75,7 +86,7 @@ Per-plant config includes:
   - configured active/reactive power limits,
   - SoC boundary limiting.
 - POI active/reactive values mirror battery outputs in current simplified model.
-- POI voltage per unit derives from configured plant voltage relative to 20 kV base.
+- POI voltage is simulated as an absolute constant in internal `kV` using `plants.*.model.poi_voltage_kv`, then encoded to the configured Modbus point unit (`V` or `kV`).
 
 ## Logging Behavior
 - Root logger has three outputs:

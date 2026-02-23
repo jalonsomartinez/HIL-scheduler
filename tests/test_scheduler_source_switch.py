@@ -100,9 +100,9 @@ class SchedulerSourceSwitchTests(unittest.TestCase):
         config["PLANTS"]["vrfb"]["modbus"]["local"]["host"] = "127.0.0.1"
         config["PLANTS"]["vrfb"]["modbus"]["local"]["port"] = 5021
 
-        lib_registers = config["PLANTS"]["lib"]["modbus"]["local"]["registers"]
-        lib_p_reg = int(lib_registers["p_setpoint"])
-        lib_q_reg = int(lib_registers["q_setpoint"])
+        lib_points = config["PLANTS"]["lib"]["modbus"]["local"]["points"]
+        lib_p_reg = int(lib_points["p_setpoint"]["address"])
+        lib_q_reg = int(lib_points["q_setpoint"]["address"])
 
         lib_bank = _FakeDataBank()
         vrfb_bank = _FakeDataBank()

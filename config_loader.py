@@ -9,6 +9,9 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 
+from modbus_codec import format_meta
+from modbus_units import validate_point_unit
+
 
 DEFAULT_TIMEZONE_NAME = "Europe/Madrid"
 DEFAULT_MEASUREMENT_COMPRESSION_TOLERANCES = {
@@ -19,21 +22,10 @@ DEFAULT_MEASUREMENT_COMPRESSION_TOLERANCES = {
     "soc_pu": 0.0001,
     "p_poi_kw": 0.1,
     "q_poi_kvar": 0.1,
-    "v_poi_pu": 0.001,
+    "v_poi_kV": 0.001,
 }
 DEFAULT_MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S = 3600.0
 DEFAULT_STARTUP_INITIAL_SOC_PU = 0.5
-DEFAULT_REGISTERS = {
-    "p_setpoint": 86,
-    "p_battery": 270,
-    "q_setpoint": 88,
-    "q_battery": 272,
-    "enable": 1,
-    "soc": 281,
-    "p_poi": 290,
-    "q_poi": 292,
-    "v_poi": 296,
-}
 DEFAULT_MODEL = {
     "capacity_kwh": 50.0,
     "power_limits": {
@@ -42,13 +34,24 @@ DEFAULT_MODEL = {
         "q_max_kvar": 600.0,
         "q_min_kvar": -600.0,
     },
-    "poi_voltage_v": 20000.0,
+    "poi_voltage_kv": 20.0,
 }
 LEGACY_ALIAS_ENV_VAR = "HIL_ENABLE_LEGACY_CONFIG_ALIASES"
-REGISTER_KEY_ALIASES = {
-    "p_setpoint": ("p_setpoint_in",),
-    "q_setpoint": ("q_setpoint_in",),
-}
+MODBUS_BYTE_ORDERS = {"big", "little"}
+MODBUS_WORD_ORDERS = {"msw_first", "lsw_first"}
+MODBUS_POINT_FORMATS = {"int16", "uint16", "int32", "uint32", "float32"}
+MODBUS_POINT_ACCESS_VALUES = {"r", "w", "rw"}
+REQUIRED_MODBUS_POINT_NAMES = (
+    "p_setpoint",
+    "p_battery",
+    "q_setpoint",
+    "q_battery",
+    "enable",
+    "soc",
+    "p_poi",
+    "q_poi",
+    "v_poi",
+)
 
 
 def _parse_bool(value, default):
@@ -113,24 +116,98 @@ def _parse_hhmm_required(value, default, key_name):
     return f"{hour:02d}:{minute:02d}"
 
 
-def _normalize_registers(raw_registers, prefix):
-    registers = {}
-    for key, default in DEFAULT_REGISTERS.items():
-        if key in raw_registers:
-            raw_value = raw_registers.get(key)
-        else:
-            raw_value = default
-            for alias_key in REGISTER_KEY_ALIASES.get(key, ()):
-                if alias_key in raw_registers:
-                    raw_value = raw_registers.get(alias_key)
-                    break
-        registers[key] = _parse_int(raw_value, default, f"{prefix}.registers.{key}")
-    return registers
+def _parse_choice_required(value, allowed_values, key_name):
+    if value is None:
+        raise ValueError(f"Missing required config key '{key_name}'.")
+    normalized = str(value).strip().lower()
+    if normalized not in allowed_values:
+        allowed_text = ", ".join(sorted(allowed_values))
+        raise ValueError(f"Invalid {key_name}='{value}'. Allowed values: {allowed_text}.")
+    return normalized
+
+
+def _normalize_modbus_point(point_name, raw_point, prefix):
+    if not isinstance(raw_point, dict):
+        raise ValueError(f"Invalid {prefix}.points.{point_name}: expected mapping.")
+    if "register_type" in raw_point:
+        raise ValueError(
+            f"Invalid {prefix}.points.{point_name}.register_type: holding registers are the only supported type "
+            "and register_type must be omitted."
+        )
+    if "byte_order" in raw_point or "word_order" in raw_point:
+        raise ValueError(
+            f"Invalid {prefix}.points.{point_name}: byte_order/word_order must be defined at endpoint level."
+        )
+
+    address = _parse_int(raw_point.get("address"), 0, f"{prefix}.points.{point_name}.address", min_value=0)
+    if "address" not in raw_point:
+        raise ValueError(f"Missing required config key '{prefix}.points.{point_name}.address'.")
+
+    format_name = _parse_choice_required(
+        raw_point.get("format"),
+        MODBUS_POINT_FORMATS,
+        f"{prefix}.points.{point_name}.format",
+    )
+    access = _parse_choice_required(
+        raw_point.get("access"),
+        MODBUS_POINT_ACCESS_VALUES,
+        f"{prefix}.points.{point_name}.access",
+    )
+
+    if "unit" not in raw_point:
+        raise ValueError(f"Missing required config key '{prefix}.points.{point_name}.unit'.")
+    unit = str(raw_point.get("unit"))
+    if not unit.strip():
+        raise ValueError(f"Invalid {prefix}.points.{point_name}.unit: must be non-empty.")
+    unit = validate_point_unit(point_name, unit)
+
+    if "eng_per_count" not in raw_point:
+        raise ValueError(f"Missing required config key '{prefix}.points.{point_name}.eng_per_count'.")
+    eng_per_count = _parse_float(
+        raw_point.get("eng_per_count"),
+        1.0,
+        f"{prefix}.points.{point_name}.eng_per_count",
+    )
+    if eng_per_count <= 0.0:
+        raise ValueError(f"Invalid {prefix}.points.{point_name}.eng_per_count='{eng_per_count}'. Must be > 0.")
+
+    meta = format_meta(format_name)
+    return {
+        "name": str(point_name),
+        "address": int(address),
+        "format": format_name,
+        "word_count": int(meta["word_count"]),
+        "byte_count": int(meta["byte_count"]),
+        "access": access,
+        "unit": unit,
+        "eng_per_count": float(eng_per_count),
+    }
+
+
+def _normalize_points(raw_points, prefix):
+    if raw_points is None:
+        raise ValueError(f"Missing required config key '{prefix}.points'.")
+    if not isinstance(raw_points, dict):
+        raise ValueError(f"Invalid {prefix}.points: expected mapping.")
+
+    missing = [name for name in REQUIRED_MODBUS_POINT_NAMES if name not in raw_points]
+    if missing:
+        raise ValueError(f"Missing required Modbus points at {prefix}.points: {', '.join(missing)}")
+
+    points = {}
+    for point_name, raw_point in raw_points.items():
+        points[str(point_name)] = _normalize_modbus_point(str(point_name), raw_point, prefix)
+    return points
 
 
 def _normalize_model(raw_model, prefix):
     power_limits_raw = raw_model.get("power_limits", {})
     defaults = DEFAULT_MODEL["power_limits"]
+    if "poi_voltage_v" in raw_model:
+        raise ValueError(
+            f"Config key '{prefix}.model.poi_voltage_v' is no longer supported. "
+            f"Use '{prefix}.model.poi_voltage_kv'."
+        )
     model = {
         "capacity_kwh": _parse_float(
             raw_model.get("capacity_kwh", DEFAULT_MODEL["capacity_kwh"]),
@@ -160,10 +237,10 @@ def _normalize_model(raw_model, prefix):
                 f"{prefix}.model.power_limits.q_min_kvar",
             ),
         },
-        "poi_voltage_v": _parse_float(
-            raw_model.get("poi_voltage_v", DEFAULT_MODEL["poi_voltage_v"]),
-            DEFAULT_MODEL["poi_voltage_v"],
-            f"{prefix}.model.poi_voltage_v",
+        "poi_voltage_kv": _parse_float(
+            raw_model.get("poi_voltage_kv", DEFAULT_MODEL["poi_voltage_kv"]),
+            DEFAULT_MODEL["poi_voltage_kv"],
+            f"{prefix}.model.poi_voltage_kv",
             min_value=0.0,
         ),
     }
@@ -182,10 +259,18 @@ def _normalize_series(raw_series, prefix, defaults):
 
 
 def _normalize_transport_endpoint(raw_endpoint, prefix, default_host, default_port):
+    if "registers" in raw_endpoint:
+        raise ValueError(
+            f"Config key '{prefix}.registers' is no longer supported. "
+            f"Use '{prefix}.points' with structured point definitions."
+        )
+
     endpoint = {
         "host": str(raw_endpoint.get("host", default_host)),
         "port": _parse_int(raw_endpoint.get("port", default_port), default_port, f"{prefix}.port", min_value=1),
-        "registers": _normalize_registers(raw_endpoint.get("registers", {}), prefix),
+        "byte_order": _parse_choice_required(raw_endpoint.get("byte_order"), MODBUS_BYTE_ORDERS, f"{prefix}.byte_order"),
+        "word_order": _parse_choice_required(raw_endpoint.get("word_order"), MODBUS_WORD_ORDERS, f"{prefix}.word_order"),
+        "points": _normalize_points(raw_endpoint.get("points"), prefix),
     }
     return endpoint
 
@@ -261,12 +346,16 @@ def _build_legacy_plants(yaml_config):
     vrfb_local = {
         "host": local_ep["host"],
         "port": local_ep["port"] + 1 if local_ep["port"] == 5020 else local_ep["port"],
-        "registers": dict(local_ep["registers"]),
+        "byte_order": local_ep["byte_order"],
+        "word_order": local_ep["word_order"],
+        "points": dict(local_ep["points"]),
     }
     vrfb_remote = {
         "host": remote_ep["host"],
         "port": remote_ep["port"],
-        "registers": dict(remote_ep["registers"]),
+        "byte_order": remote_ep["byte_order"],
+        "word_order": remote_ep["word_order"],
+        "points": dict(remote_ep["points"]),
     }
 
     return {
@@ -300,7 +389,7 @@ def _set_legacy_flat_keys(config, plants, startup_initial_soc_pu):
     config["PLANT_P_MIN_KW"] = lib["model"]["power_limits"]["p_min_kw"]
     config["PLANT_Q_MAX_KVAR"] = lib["model"]["power_limits"]["q_max_kvar"]
     config["PLANT_Q_MIN_KVAR"] = lib["model"]["power_limits"]["q_min_kvar"]
-    config["PLANT_POI_VOLTAGE_V"] = lib["model"]["poi_voltage_v"]
+    config["PLANT_POI_VOLTAGE_V"] = lib["model"]["poi_voltage_kv"] * 1000.0
 
     config["PLANT_LOCAL_NAME"] = lib["name"]
     config["PLANT_REMOTE_NAME"] = vrfb["name"]
@@ -310,7 +399,8 @@ def _set_legacy_flat_keys(config, plants, startup_initial_soc_pu):
     config["PLANT_REMOTE_MODBUS_HOST"] = lib_remote["host"]
     config["PLANT_REMOTE_MODBUS_PORT"] = lib_remote["port"]
 
-    for key, value in lib_local["registers"].items():
+    for key, point in lib_local["points"].items():
+        value = int(point["address"])
         if key == "p_setpoint":
             config["PLANT_P_SETPOINT_REGISTER"] = value
         elif key == "p_battery":
@@ -330,7 +420,8 @@ def _set_legacy_flat_keys(config, plants, startup_initial_soc_pu):
         elif key == "v_poi":
             config["PLANT_V_POI_REGISTER"] = value
 
-    for key, value in lib_remote["registers"].items():
+    for key, point in lib_remote["points"].items():
+        value = int(point["address"])
         if key == "p_setpoint":
             config["PLANT_REMOTE_P_SETPOINT_REGISTER"] = value
         elif key == "p_battery":
@@ -416,6 +507,11 @@ def load_config(config_path="config.yaml"):
     )
 
     tolerances_cfg = compression_cfg.get("tolerances", {})
+    if "v_poi_pu" in tolerances_cfg:
+        raise ValueError(
+            "Config key 'recording.compression.tolerances.v_poi_pu' is no longer supported. "
+            "Use 'recording.compression.tolerances.v_poi_kV'."
+        )
     tolerances = {}
     for key, default_value in DEFAULT_MEASUREMENT_COMPRESSION_TOLERANCES.items():
         tolerances[key] = _parse_float(
@@ -479,7 +575,11 @@ def load_config(config_path="config.yaml"):
     if "plants" in yaml_config:
         plants = _normalize_plants_new_schema(yaml_config)
     else:
-        plants = _build_legacy_plants(yaml_config)
+        raise ValueError(
+            "Legacy top-level config schema is no longer supported. "
+            "Migrate to 'plants.*.modbus.{local,remote}.points' and add endpoint "
+            "'byte_order'/'word_order' fields."
+        )
 
     config["PLANTS"] = plants
     config["PLANT_IDS"] = tuple(["lib", "vrfb"])

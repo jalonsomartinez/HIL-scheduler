@@ -40,7 +40,7 @@ DEFAULT_COMPRESSION_TOLERANCES = {
     "soc_pu": 0.0001,
     "p_poi_kw": 0.1,
     "q_poi_kvar": 0.1,
-    "v_poi_pu": 0.001,
+    "v_poi_kV": 0.001,
 }
 
 

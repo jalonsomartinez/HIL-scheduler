@@ -3,7 +3,8 @@
 ## Working Now
 1. Dual logical plants (`lib`, `vrfb`) run under a shared global source/transport model with per-plant dispatch and recording gates.
 2. Scheduler dispatches per plant from manual or API maps and applies API stale-setpoint guardrails.
- - Normalized plant Modbus register maps use canonical setpoint keys `p_setpoint` / `q_setpoint` (loader still accepts legacy `*_in` aliases).
+ - Normalized plant Modbus endpoints now expose required connection ordering (`byte_order`, `word_order`) plus structured holding-register `points` metadata (address/format/access/unit/scale).
+ - Scheduler/measurement/dashboard/local-emulation Modbus I/O uses shared codec helpers (`modbus_codec.py`) instead of ad-hoc scaling/bit conversions.
 3. Local emulation runs both plant Modbus servers concurrently with SoC and power-limit behavior.
  - Local emulation startup SoC is configured once via `startup.initial_soc_pu` and applied to both plants.
 4. Measurement pipeline provides:
@@ -13,6 +14,9 @@
 - configurable keep-gap retention (`recording.compression.max_kept_gap_s`) and last-kept-row comparison anchoring to prevent drift,
 - in-memory plot cache,
 - API measurement posting with retry/backoff, per-plant telemetry, and token re-auth retry on `401`/`403`.
+ - Modbus point `unit` is now applied during read/write conversions (SoC `pc|pu`, power `W/kW/MW` and `var/kvar/Mvar`, voltage `V/kV`).
+ - Internal voltage is now `kV` end-to-end (`v_poi_kV` in measurement rows/CSV); API voltage posting uses `v_poi_kV * 1000`.
+ - Plant model nominal voltage is now `plants.*.model.poi_voltage_kv`.
  - API schedule fetcher next-day polling gate uses normalized `istentore_api.tomorrow_poll_start_time` (flattened `ISTENTORE_TOMORROW_POLL_START_TIME`) with explicit today/tomorrow fetch intent logging and partial-window warning/error visibility.
 5. Dashboard provides:
 - per-plant Start/Stop + Record/Stop controls,

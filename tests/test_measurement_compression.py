@@ -41,7 +41,7 @@ def _build_config(
             "lib": {
                 "name": "LIB",
                 "measurement_series": {"soc": 4, "p": 6, "q": 7, "v": 8},
-                "model": {"capacity_kwh": 500.0, "poi_voltage_v": 20000.0},
+                "model": {"capacity_kwh": 500.0, "poi_voltage_kv": 20.0},
             }
         },
         "MEASUREMENT_PERIOD_S": measurement_period_s,
@@ -56,7 +56,7 @@ def _build_config(
             "soc_pu": 0.001,
             "p_poi_kw": 0.1,
             "q_poi_kvar": 0.1,
-            "v_poi_pu": 0.001,
+            "v_poi_kV": 0.001,
         },
         "ISTENTORE_POST_MEASUREMENTS_IN_API_MODE": False,
         "ISTENTORE_MEASUREMENT_POST_PERIOD_S": 60,
@@ -136,7 +136,7 @@ class MeasurementCompressionTests(unittest.TestCase):
                 "soc_pu": 0.50000,
                 "p_poi_kw": 100.0,
                 "q_poi_kvar": 0.0,
-                "v_poi_pu": 1.0,
+                "v_poi_kV": 1.0,
             },
             {
                 "p_setpoint_kw": 100.0,
@@ -146,7 +146,7 @@ class MeasurementCompressionTests(unittest.TestCase):
                 "soc_pu": 0.50005,
                 "p_poi_kw": 100.0,
                 "q_poi_kvar": 0.0,
-                "v_poi_pu": 1.0,
+                "v_poi_kV": 1.0,
             },
             {
                 "p_setpoint_kw": 100.0,
@@ -156,7 +156,7 @@ class MeasurementCompressionTests(unittest.TestCase):
                 "soc_pu": 0.50008,
                 "p_poi_kw": 100.0,
                 "q_poi_kvar": 0.0,
-                "v_poi_pu": 1.0,
+                "v_poi_kV": 1.0,
             },
             {
                 "p_setpoint_kw": 100.0,
@@ -166,7 +166,7 @@ class MeasurementCompressionTests(unittest.TestCase):
                 "soc_pu": 0.50009,
                 "p_poi_kw": 100.0,
                 "q_poi_kvar": 0.0,
-                "v_poi_pu": 1.0,
+                "v_poi_kV": 1.0,
             },
         ]
 
@@ -195,7 +195,7 @@ class MeasurementCompressionTests(unittest.TestCase):
                     "soc_pu": 0.50 + (idx * 0.00005),
                     "p_poi_kw": 120.0,
                     "q_poi_kvar": 0.0,
-                    "v_poi_pu": 1.0,
+                    "v_poi_kV": 1.0,
                 }
             )
 
@@ -223,7 +223,7 @@ class MeasurementCompressionTests(unittest.TestCase):
                     "soc_pu": 0.48 + (idx * 0.00005),
                     "p_poi_kw": 80.0,
                     "q_poi_kvar": 0.0,
-                    "v_poi_pu": 1.0,
+                    "v_poi_kV": 1.0,
                 }
             )
 
@@ -262,7 +262,7 @@ class MeasurementCompressionTests(unittest.TestCase):
                     "soc_pu": 0.40 + (idx * 0.00005),
                     "p_poi_kw": 60.0,
                     "q_poi_kvar": 0.0,
-                    "v_poi_pu": 1.0,
+                    "v_poi_kV": 1.0,
                 }
             )
 
@@ -294,7 +294,7 @@ class MeasurementCompressionTests(unittest.TestCase):
                     "soc_pu": 0.50 + (idx * 0.0004),
                     "p_poi_kw": 75.0,
                     "q_poi_kvar": 0.0,
-                    "v_poi_pu": 1.0,
+                    "v_poi_kV": 1.0,
                 }
             )
 

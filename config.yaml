@@ -46,7 +46,7 @@ recording:
       soc_pu: 0.001
       p_poi_kw: 0.1
       q_poi_kvar: 0.1
-      v_poi_pu: 0.001
+      v_poi_kV: 0.001
 
 plants:
   lib:
@@ -58,36 +58,40 @@ plants:
         p_min_kw: -1000.0
         q_max_kvar: 600.0
         q_min_kvar: -600.0
-      poi_voltage_v: 20000.0
+      poi_voltage_kv: 20.0
     modbus:
       local:
         host: "localhost"
         port: 5020
-        registers:
-          p_setpoint: 86
-          p_poi: 290
-          p_battery: 270
-          q_setpoint: 88
-          q_poi: 292
-          q_battery: 272
-          v_poi: 296
-          enable: 1
-          soc: 281
-          stop_command: 85
+        byte_order: big
+        word_order: msw_first
+        points:
+          p_setpoint: {address: 86, format: int16, access: rw, unit: kW, eng_per_count: 0.1}
+          p_poi: {address: 290, format: int16, access: r, unit: kW, eng_per_count: 0.1}
+          p_battery: {address: 270, format: int16, access: r, unit: kW, eng_per_count: 0.1}
+          q_setpoint: {address: 88, format: int16, access: rw, unit: kvar, eng_per_count: 0.1}
+          q_poi: {address: 292, format: int16, access: r, unit: kvar, eng_per_count: 0.1}
+          q_battery: {address: 272, format: int16, access: r, unit: kvar, eng_per_count: 0.1}
+          v_poi: {address: 296, format: uint16, access: r, unit: V, eng_per_count: 1.0}
+          enable: {address: 1, format: uint16, access: rw, unit: raw, eng_per_count: 1.0}
+          soc: {address: 281, format: uint16, access: r, unit: pu, eng_per_count: 0.0001} # pc is percentage
+          stop_command: {address: 85, format: uint16, access: w, unit: raw, eng_per_count: 1.0}
       remote:
         host: "10.117.133.21"
         port: 502
-        registers:
-          p_setpoint: 86
-          p_poi: 290
-          p_battery: 270
-          q_setpoint: 88
-          q_poi: 292
-          q_battery: 272
-          v_poi: 296
-          enable: 1 # El enable permite la escritura en la batería. Debe estar a 1 para permitir escritura
-          soc: 281
-          stop_command: 85 # 1: stop, 0: start. Este registro debe estar a 0 para permitir la operación normal de la batería. Si se pone a 1, la batería se detiene y no responde a comandos de potencia.
+        byte_order: big
+        word_order: msw_first
+        points:
+          p_setpoint: {address: 86, format: int16, access: rw, unit: kW, eng_per_count: 0.1}
+          p_poi: {address: 290, format: int16, access: r, unit: kW, eng_per_count: 0.1}
+          p_battery: {address: 270, format: int16, access: r, unit: kW, eng_per_count: 0.1}
+          q_setpoint: {address: 88, format: int16, access: rw, unit: kvar, eng_per_count: 0.1}
+          q_poi: {address: 292, format: int16, access: r, unit: kvar, eng_per_count: 0.1}
+          q_battery: {address: 272, format: int16, access: r, unit: kvar, eng_per_count: 0.1}
+          v_poi: {address: 296, format: uint16, access: r, unit: V, eng_per_count: 1.0}
+          enable: {address: 1, format: uint16, access: rw, unit: raw, eng_per_count: 1.0} # El enable permite la escritura en la batería. Debe estar a 1 para permitir escritura
+          soc: {address: 281, format: uint16, access: r, unit: pu, eng_per_count: 0.0001} # pc is percentage
+          stop_command: {address: 85, format: int16, access: w, unit: raw, eng_per_count: 1.0} # 1: stop, 0: start. Este registro debe estar a 0 para permitir la operación normal de la batería. Si se pone a 1, la batería se detiene y no responde a comandos de potencia.
     measurement_series:
       soc: 4
       p: 6
@@ -103,35 +107,40 @@ plants:
         p_min_kw: -160
         q_max_kvar: 64
         q_min_kvar: -64
-      poi_voltage_v: 220
+      poi_voltage_kv: 0.22
     modbus:
       local:
         host: "localhost"
         port: 5021
-        registers:
-          p_setpoint: 1
-          p_poi: 14
-          p_battery: 14
-          q_setpoint: 2
-          q_poi: 15
-          q_battery: 15
-          v_poi: 29
-          enable: 7
-          soc: 22
+        byte_order: big
+        word_order: msw_first
+        points:
+          p_setpoint: {address: 1, format: int16, access: rw, unit: kW, eng_per_count: 0.1}
+          p_poi: {address: 14, format: int16, access: r, unit: kW, eng_per_count: 0.1}
+          p_battery: {address: 14, format: int16, access: r, unit: kW, eng_per_count: 0.1}
+          q_setpoint: {address: 2, format: int16, access: rw, unit: kvar, eng_per_count: 0.1}
+          q_poi: {address: 15, format: int16, access: r, unit: kvar, eng_per_count: 0.1}
+          q_battery: {address: 15, format: int16, access: r, unit: kvar, eng_per_count: 0.1}
+          v_poi: {address: 29, format: uint16, access: r, unit: V, eng_per_count: 1.0}
+          enable: {address: 7, format: uint16, access: rw, unit: raw, eng_per_count: 1.0}
+          soc: {address: 22, format: uint16, access: r, unit: pu, eng_per_count: 0.0001} # pc is percentage
+          start_command: {address: 0, format: uint16, access: w, unit: raw, eng_per_count: 1.0} # 2: start, 0: stop. Este registro debe estar a 2 para permitir la operación normal de la batería. Si se pone a 0, la batería se detiene y no responde a comandos de potencia.
       remote:
         host: "10.117.133.26"
         port: 502
-        registers:
-          p_setpoint: 1
-          p_poi: 14 # Mismo que p_battery porque no hay impedancia entre inversor y POI
-          p_battery: 14
-          q_setpoint: 2
-          q_poi: 15 # Igual que para p_poi
-          q_battery: 15
-          v_poi: 29
-          enable: 7
-          soc: 22
-          start_command: 0 # 2: start, 0: stop. Este registro debe estar a 2 para permitir la operación normal de la batería. Si se pone a 0, la batería se detiene y no responde a comandos de potencia.
+        byte_order: big
+        word_order: msw_first
+        points:
+          p_setpoint: {address: 1, format: int16, access: rw, unit: kW, eng_per_count: 0.1}
+          p_poi: {address: 14, format: int16, access: r, unit: kW, eng_per_count: 0.1} # Mismo que p_battery porque no hay impedancia entre inversor y POI
+          p_battery: {address: 14, format: int16, access: r, unit: kW, eng_per_count: 0.1}
+          q_setpoint: {address: 2, format: int16, access: rw, unit: kvar, eng_per_count: 0.1}
+          q_poi: {address: 15, format: int16, access: r, unit: kvar, eng_per_count: 0.1} # Igual que para p_poi
+          q_battery: {address: 15, format: int16, access: r, unit: kvar, eng_per_count: 0.1}
+          v_poi: {address: 29, format: uint16, access: r, unit: V, eng_per_count: 1.0}
+          enable: {address: 7, format: uint16, access: rw, unit: raw, eng_per_count: 1.0}
+          soc: {address: 22, format: uint16, access: r, unit: pu, eng_per_count: 0.0001} # pc is percentage
+          start_command: {address: 0, format: uint16, access: w, unit: raw, eng_per_count: 1.0} # 2: start, 0: stop. Este registro debe estar a 2 para permitir la operación normal de la batería. Si se pone a 0, la batería se detiene y no responde a comandos de potencia.
     measurement_series:
       soc: 5
       p: 11

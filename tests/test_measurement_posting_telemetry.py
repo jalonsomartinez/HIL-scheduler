@@ -52,12 +52,12 @@ def _build_config():
         "PLANTS": {
             "lib": {
                 "name": "LIB",
-                "model": {"capacity_kwh": 500.0, "poi_voltage_v": 20000.0},
+                "model": {"capacity_kwh": 500.0, "poi_voltage_kv": 20.0},
                 "measurement_series": {"soc": 4, "p": 6, "q": 7, "v": 8},
             },
             "vrfb": {
                 "name": "VRFB",
-                "model": {"capacity_kwh": 3000.0, "poi_voltage_v": 20000.0},
+                "model": {"capacity_kwh": 3000.0, "poi_voltage_kv": 20.0},
                 "measurement_series": {"soc": 5, "p": 11, "q": 10, "v": 9},
             },
         },
@@ -98,7 +98,7 @@ def _fake_row(_client, _endpoint, measurement_timestamp, _tz, _plant_id):
         "soc_pu": 0.5,
         "p_poi_kw": 100.0,
         "q_poi_kvar": 0.0,
-        "v_poi_pu": 1.0,
+        "v_poi_kV": 1.0,
     }
 
 
@@ -213,7 +213,7 @@ class MeasurementPostingTelemetryTests(unittest.TestCase):
         config["PLANTS"] = {
             "lib": {
                 "name": "LIB",
-                "model": {"capacity_kwh": 500.0, "poi_voltage_v": 20000.0},
+                "model": {"capacity_kwh": 500.0, "poi_voltage_kv": 20.0},
                 "measurement_series": {"soc": 4, "p": 6, "q": 7, "v": 8},
             }
         }

@@ -1,19 +1,7 @@
 """Shared runtime contracts for plant endpoint resolution and naming."""
 
+import copy
 import re
-
-
-DEFAULT_MODBUS_REGISTERS = {
-    "p_setpoint": 86,
-    "p_battery": 270,
-    "q_setpoint": 88,
-    "q_battery": 272,
-    "enable": 1,
-    "soc": 281,
-    "p_poi": 290,
-    "q_poi": 292,
-    "v_poi": 296,
-}
 
 
 def sanitize_plant_name(name, fallback):
@@ -29,17 +17,13 @@ def resolve_modbus_endpoint(config, plant_id, transport_mode):
     plants_cfg = config.get("PLANTS", {})
     plant_cfg = plants_cfg.get(plant_id, {}) or {}
     endpoint = ((plant_cfg.get("modbus", {}) or {}).get(transport_mode, {})) or {}
-    registers = endpoint.get("registers", {}) or {}
-
-    normalized_registers = {
-        key: int(registers.get(key, default))
-        for key, default in DEFAULT_MODBUS_REGISTERS.items()
-    }
-
     default_port = 5020 if plant_id == "lib" else 5021
+    points = endpoint.get("points", {}) or {}
     return {
         "mode": transport_mode,
         "host": endpoint.get("host", "localhost"),
         "port": int(endpoint.get("port", default_port)),
-        "registers": normalized_registers,
+        "byte_order": endpoint.get("byte_order"),
+        "word_order": endpoint.get("word_order"),
+        "points": copy.deepcopy(points),
     }

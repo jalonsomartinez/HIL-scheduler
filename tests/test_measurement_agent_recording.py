@@ -61,7 +61,7 @@ class MeasurementAgentRecordingTests(unittest.TestCase):
                     "soc_pu": 0.5,
                     "p_poi_kw": 10.0,
                     "q_poi_kvar": 0.0,
-                    "v_poi_pu": 1.0,
+                    "v_poi_kV": 1.0,
                 }
                 pd.DataFrame([initial_row], columns=MEASUREMENT_COLUMNS).to_csv(lib_file_path, index=False)
                 initial_len = len(pd.read_csv(lib_file_path))

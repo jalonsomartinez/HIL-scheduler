@@ -18,7 +18,7 @@ startup:
 istentore_api:
   base_url: "https://3mku48kfxf.execute-api.eu-south-2.amazonaws.com/default"
   email: "i-STENTORE"
-  poll_start_time: "17:30"
+  tomorrow_poll_start_time: "17:30"
   schedule_period_minutes: 15
   post_measurements_in_api_mode: true
   measurement_post_period_s: 60
@@ -44,7 +44,7 @@ recording:
       soc_pu: 0.001
       p_poi_kw: 0.1
       q_poi_kvar: 0.1
-      v_poi_pu: 0.001
+      v_poi_kV: 0.001
 
 plants:
   lib:
@@ -57,36 +57,40 @@ plants:
         p_min_kw: -1000.0
         q_max_kvar: 600.0
         q_min_kvar: -600.0
-      poi_voltage_v: 20000.0
+      poi_voltage_kv: 20.0
     modbus:
       local:
         host: "localhost"
         port: 5020 # El puerto en el PLC es el 502, supongo que está cambiado adrede
-        registers:
-          p_setpoint_in: 86
-          p_poi: 290
-          p_battery: 270
-          q_setpoint_in: 88
-          q_poi: 292
-          q_battery: 272
-          v_poi: 296
-          enable: 1
-          soc: 281
+        byte_order: big
+        word_order: msw_first
+        points:
+          p_setpoint: {address: 86, format: int16, access: rw, unit: kW, eng_per_count: 0.1}
+          p_poi: {address: 290, format: int16, access: r, unit: kW, eng_per_count: 0.1}
+          p_battery: {address: 270, format: int16, access: r, unit: kW, eng_per_count: 0.1}
+          q_setpoint: {address: 88, format: int16, access: rw, unit: kvar, eng_per_count: 0.1}
+          q_poi: {address: 292, format: int16, access: r, unit: kvar, eng_per_count: 0.1}
+          q_battery: {address: 272, format: int16, access: r, unit: kvar, eng_per_count: 0.1}
+          v_poi: {address: 296, format: uint16, access: r, unit: V, eng_per_count: 1.0}
+          enable: {address: 1, format: uint16, access: rw, unit: raw, eng_per_count: 1.0}
+          soc: {address: 281, format: uint16, access: r, unit: pu, eng_per_count: 0.0001}
           # He añadido en "remote" el registro "stop_command". No sé si lo tienes que duplicar también en "local" o no, pero lo pongo aquí para que lo tengas en cuenta.
       remote:
         host: "10.117.133.21"
         port: 502
-        registers:
-          p_setpoint_in: 86
-          p_poi: 290
-          p_battery: 270
-          q_setpoint_in: 88
-          q_poi: 292
-          q_battery: 272
-          v_poi: 296
-          enable: 1 # El enable permite la escritura en la batería. Debe estar a 1 para permitir escritura
-          soc: 281
-          stop_command: 85 # 1: stop, 0: start. Este registro debe estar a 0 para permitir la operación normal de la batería. Si se pone a 1, la batería se detiene y no responde a comandos de potencia.
+        byte_order: big
+        word_order: msw_first
+        points:
+          p_setpoint: {address: 86, format: int16, access: rw, unit: kW, eng_per_count: 0.1}
+          p_poi: {address: 290, format: int16, access: r, unit: kW, eng_per_count: 0.1}
+          p_battery: {address: 270, format: int16, access: r, unit: kW, eng_per_count: 0.1}
+          q_setpoint: {address: 88, format: int16, access: rw, unit: kvar, eng_per_count: 0.1}
+          q_poi: {address: 292, format: int16, access: r, unit: kvar, eng_per_count: 0.1}
+          q_battery: {address: 272, format: int16, access: r, unit: kvar, eng_per_count: 0.1}
+          v_poi: {address: 296, format: uint16, access: r, unit: V, eng_per_count: 1.0}
+          enable: {address: 1, format: uint16, access: rw, unit: raw, eng_per_count: 1.0} # El enable permite la escritura en la batería. Debe estar a 1 para permitir escritura
+          soc: {address: 281, format: uint16, access: r, unit: pu, eng_per_count: 0.0001}
+          stop_command: {address: 85, format: uint16, access: w, unit: raw, eng_per_count: 1.0} # 1: stop, 0: start. Este registro debe estar a 0 para permitir la operación normal de la batería. Si se pone a 1, la batería se detiene y no responde a comandos de potencia.
     measurement_series:
       soc: 4
       p: 6
@@ -103,36 +107,40 @@ plants:
         p_min_kw: -160
         q_max_kvar: 64
         q_min_kvar: -64
-      poi_voltage_v: 220 # En vez de 20000 que sería la tensión en el POC, te pongo 220 V, que es la tensión ac del inversor, tal y como lo he implementado en el RTDS. Lo pongo así para que las medidas "poi" coincidan con las de la salida del inversor y no tengamos que usar la IP del analizador.
+      poi_voltage_kv: 0.22 # En vez de 20 kV que sería la tensión en el POC, te pongo 220 V (=0.22 kV), que es la tensión ac del inversor, tal y como lo he implementado en el RTDS. Lo pongo así para que las medidas "poi" coincidan con las de la salida del inversor y no tengamos que usar la IP del analizador.
     modbus:
       local:
         host: "localhost" # He puesto los mismos registros que en "remote". No sé si prefieres que estén los mismos o no.
         port: 5021 # El puerto en el RTDS es el 502, supongo que está cambiado adrede
-        registers:
-          p_setpoint_in: 1
-          p_poi: 14
-          p_battery: 14
-          q_setpoint_in: 2
-          q_poi: 15
-          q_battery: 15
-          v_poi: 29
-          enable: 7
-          soc: 22
-          stop_command: 0
+        byte_order: big
+        word_order: msw_first
+        points:
+          p_setpoint: {address: 1, format: int16, access: rw, unit: kW, eng_per_count: 0.1}
+          p_poi: {address: 14, format: int16, access: r, unit: kW, eng_per_count: 0.1}
+          p_battery: {address: 14, format: int16, access: r, unit: kW, eng_per_count: 0.1}
+          q_setpoint: {address: 2, format: int16, access: rw, unit: kvar, eng_per_count: 0.1}
+          q_poi: {address: 15, format: int16, access: r, unit: kvar, eng_per_count: 0.1}
+          q_battery: {address: 15, format: int16, access: r, unit: kvar, eng_per_count: 0.1}
+          v_poi: {address: 29, format: uint16, access: r, unit: V, eng_per_count: 1.0}
+          enable: {address: 7, format: uint16, access: rw, unit: raw, eng_per_count: 1.0}
+          soc: {address: 22, format: uint16, access: r, unit: pu, eng_per_count: 0.0001}
+          stop_command: {address: 0, format: uint16, access: w, unit: raw, eng_per_count: 1.0}
       remote:
         host: "10.117.133.26"
         port: 502
-        registers:
-          p_setpoint_in: 1
-          p_poi: 14 # Como te he comentado, realmente es la potencia a la salida del inversor (las medidas en el POC, tras impedancias y trafos estarían en el analizador, que tiene otra IP).
-          p_battery: 14
-          q_setpoint_in: 2
-          q_poi: 15 # Lo mismo que el p_poi, realmente es la q a la salida del inversor.
-          q_battery: 15
-          v_poi: 29 # Lo mismo que el p_poi, realmente es la tensión a la salida del inversor.
-          enable: 7 # Este registro debe estar a 1 para permitir el control de la vrfb desde el orquestador
-          soc: 22
-          start_command: 0 # 2: start, 0: stop. Este registro debe estar a 2 para permitir la operación normal de la batería. Si se pone a 0, la batería se detiene y no responde a comandos de potencia.
+        byte_order: big
+        word_order: msw_first
+        points:
+          p_setpoint: {address: 1, format: int16, access: rw, unit: kW, eng_per_count: 0.1}
+          p_poi: {address: 14, format: int16, access: r, unit: kW, eng_per_count: 0.1} # Como te he comentado, realmente es la potencia a la salida del inversor (las medidas en el POC, tras impedancias y trafos estarían en el analizador, que tiene otra IP).
+          p_battery: {address: 14, format: int16, access: r, unit: kW, eng_per_count: 0.1}
+          q_setpoint: {address: 2, format: int16, access: rw, unit: kvar, eng_per_count: 0.1}
+          q_poi: {address: 15, format: int16, access: r, unit: kvar, eng_per_count: 0.1} # Lo mismo que el p_poi, realmente es la q a la salida del inversor.
+          q_battery: {address: 15, format: int16, access: r, unit: kvar, eng_per_count: 0.1}
+          v_poi: {address: 29, format: uint16, access: r, unit: V, eng_per_count: 1.0} # Lo mismo que el p_poi, realmente es la tensión a la salida del inversor.
+          enable: {address: 7, format: uint16, access: rw, unit: raw, eng_per_count: 1.0} # Este registro debe estar a 1 para permitir el control de la vrfb desde el orquestador
+          soc: {address: 22, format: uint16, access: r, unit: pu, eng_per_count: 0.0001}
+          start_command: {address: 0, format: uint16, access: w, unit: raw, eng_per_count: 1.0} # 2: start, 0: stop. Este registro debe estar a 2 para permitir la operación normal de la batería. Si se pone a 0, la batería se detiene y no responde a comandos de potencia.
           # IMPORTANTE QUE DEBE ESTAR A 2, NO A 1. Lo he implementado así porque lo hice análogo al mapa de CEN. Es distinto que para la LIB porque en la LIB es el PLC el que manda el 2. Aquí, al no estar en medio el PLC, lo tiene que mandar directamente el orquestador. Si esto supone un incoveniente, lo cambio.
     measurement_series:
       soc: 5
