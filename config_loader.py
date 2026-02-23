@@ -21,6 +21,7 @@ DEFAULT_MEASUREMENT_COMPRESSION_TOLERANCES = {
     "v_poi_pu": 0.001,
 }
 DEFAULT_MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S = 3600.0
+DEFAULT_STARTUP_INITIAL_SOC_PU = 0.5
 DEFAULT_REGISTERS = {
     "p_setpoint_in": 86,
     "p_battery": 270,
@@ -34,7 +35,6 @@ DEFAULT_REGISTERS = {
 }
 DEFAULT_MODEL = {
     "capacity_kwh": 50.0,
-    "initial_soc_pu": 0.5,
     "power_limits": {
         "p_max_kw": 1000.0,
         "p_min_kw": -1000.0,
@@ -107,11 +107,6 @@ def _normalize_model(raw_model, prefix):
             DEFAULT_MODEL["capacity_kwh"],
             f"{prefix}.model.capacity_kwh",
             min_value=0.0,
-        ),
-        "initial_soc_pu": _parse_float(
-            raw_model.get("initial_soc_pu", DEFAULT_MODEL["initial_soc_pu"]),
-            DEFAULT_MODEL["initial_soc_pu"],
-            f"{prefix}.model.initial_soc_pu",
         ),
         "power_limits": {
             "p_max_kw": _parse_float(
@@ -262,7 +257,7 @@ def _build_legacy_plants(yaml_config):
     }
 
 
-def _set_legacy_flat_keys(config, plants):
+def _set_legacy_flat_keys(config, plants, startup_initial_soc_pu):
     lib = plants["lib"]
     vrfb = plants["vrfb"]
 
@@ -270,7 +265,7 @@ def _set_legacy_flat_keys(config, plants):
     lib_remote = lib["modbus"]["remote"]
 
     config["PLANT_CAPACITY_KWH"] = lib["model"]["capacity_kwh"]
-    config["PLANT_INITIAL_SOC_PU"] = lib["model"]["initial_soc_pu"]
+    config["PLANT_INITIAL_SOC_PU"] = startup_initial_soc_pu
     config["PLANT_P_MAX_KW"] = lib["model"]["power_limits"]["p_max_kw"]
     config["PLANT_P_MIN_KW"] = lib["model"]["power_limits"]["p_min_kw"]
     config["PLANT_Q_MAX_KVAR"] = lib["model"]["power_limits"]["q_max_kvar"]
@@ -462,6 +457,11 @@ def load_config(config_path="config.yaml"):
         logging.warning("Invalid startup.schedule_source='%s'. Using 'manual'.", schedule_source)
         schedule_source = "manual"
 
+    config["STARTUP_INITIAL_SOC_PU"] = _parse_float(
+        startup_cfg.get("initial_soc_pu", DEFAULT_STARTUP_INITIAL_SOC_PU),
+        DEFAULT_STARTUP_INITIAL_SOC_PU,
+        "startup.initial_soc_pu",
+    )
     config["STARTUP_TRANSPORT_MODE"] = transport_mode
     config["STARTUP_SCHEDULE_SOURCE"] = schedule_source
 
@@ -473,7 +473,7 @@ def load_config(config_path="config.yaml"):
         )
         config["TRANSPORT_MODE"] = transport_mode
         config["STARTUP_PLANT"] = transport_mode
-        _set_legacy_flat_keys(config, plants)
+        _set_legacy_flat_keys(config, plants, config["STARTUP_INITIAL_SOC_PU"])
 
         config["ISTENTORE_MEASUREMENT_SERIES_LOCAL_SOC_ID"] = plants["lib"]["measurement_series"]["soc"]
         config["ISTENTORE_MEASUREMENT_SERIES_LOCAL_P_ID"] = plants["lib"]["measurement_series"]["p"]

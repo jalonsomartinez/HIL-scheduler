@@ -25,6 +25,7 @@ pip install -r requirements.txt
 Edit `config.yaml` as needed:
 - `startup.schedule_source`: `manual` or `api`
 - `startup.transport_mode`: `local` or `remote`
+- `startup.initial_soc_pu`: shared local-emulation startup SoC for all plants
 - `plants.lib` / `plants.vrfb`: model limits, Modbus endpoints, register maps
 - `time.timezone`: runtime timezone
 

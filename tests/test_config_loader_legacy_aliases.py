@@ -21,6 +21,8 @@ class ConfigLoaderLegacyAliasTests(unittest.TestCase):
         self.assertEqual(config.get("TRANSPORT_MODE"), config.get("STARTUP_TRANSPORT_MODE"))
         self.assertEqual(config.get("STARTUP_PLANT"), config.get("STARTUP_TRANSPORT_MODE"))
         self.assertIn("PLANT_P_MAX_KW", config)
+        self.assertIn("PLANT_INITIAL_SOC_PU", config)
+        self.assertEqual(config["PLANT_INITIAL_SOC_PU"], config["STARTUP_INITIAL_SOC_PU"])
         self.assertIn("ISTENTORE_MEASUREMENT_SERIES_LOCAL_SOC_ID", config)
 
 

@@ -4,6 +4,7 @@
 1. Dual logical plants (`lib`, `vrfb`) run under a shared global source/transport model with per-plant dispatch and recording gates.
 2. Scheduler dispatches per plant from manual or API maps and applies API stale-setpoint guardrails.
 3. Local emulation runs both plant Modbus servers concurrently with SoC and power-limit behavior.
+ - Local emulation startup SoC is configured once via `startup.initial_soc_pu` and applied to both plants.
 4. Measurement pipeline provides:
 - anchored sampling timing,
 - per-plant daily recording,
@@ -28,6 +29,7 @@
 - CI execution via `.github/workflows/ci.yml`.
  - targeted historical-plots helper unit tests in `tests/test_dashboard_history.py` (environment-dependent on local pandas install).
  - targeted measurement compression regressions covering keep-gap retention and last-kept-row drift prevention.
+ - targeted config-loader regressions covering shared startup SoC parsing and legacy alias mapping.
 7. Dashboard control flow is now separated into `dashboard_control.py` with dedicated tests for safe-stop and global switch semantics.
 8. Runtime shared-state initialization contract is centralized in `build_initial_shared_data(config)` with schema tests.
 9. Runtime posting gate now includes `measurement_posting_enabled` state seeded from config and adjustable from dashboard UI.

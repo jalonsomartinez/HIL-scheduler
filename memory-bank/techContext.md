@@ -31,7 +31,7 @@
 - `general.log_level`
 - `time.timezone`
 - `schedule.source_csv`, `schedule.duration_h`, `schedule.default_resolution_min`
-- `startup.schedule_source`, `startup.transport_mode`
+- `startup.schedule_source`, `startup.transport_mode`, `startup.initial_soc_pu`
 - `timing.*_period_s`
 - `istentore_api.*`
 - `recording.compression.*`
@@ -44,7 +44,7 @@ Notes:
 
 Per-plant config includes:
 - `name`
-- `model.capacity_kwh`, `model.initial_soc_pu`, `model.power_limits`, `model.poi_voltage_v`
+- `model.capacity_kwh`, `model.power_limits`, `model.poi_voltage_v`
 - `modbus.local` and `modbus.remote` endpoints with register maps
 - `measurement_series` IDs for `soc`, `p`, `q`, `v`
 

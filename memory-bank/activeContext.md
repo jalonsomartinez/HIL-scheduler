@@ -20,6 +20,11 @@
 ## Rolling Change Log (Compressed, 30-Day Window)
 
 ### 2026-02-23
+- Moved local-emulation startup SoC config from per-plant `plants.*.model.initial_soc_pu` to shared `startup.initial_soc_pu`.
+- Updated config-loader runtime contract to expose `STARTUP_INITIAL_SOC_PU` and removed `initial_soc_pu` from normalized `PLANTS[*].model`.
+- Kept opt-in legacy alias compatibility (`PLANT_INITIAL_SOC_PU`) by sourcing it from `STARTUP_INITIAL_SOC_PU`.
+- Updated local plant emulator startup initialization to apply one shared startup SoC for both plants.
+- Added config-loader regression coverage for shared startup SoC parsing, plant-model schema removal, and alias mapping.
 - Added configurable measurement compression keep-gap threshold `recording.compression.max_kept_gap_s` (flattened as `MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S`; default `3600s`).
 - Updated measurement compression semantics so both tolerance comparison and keep-gap comparison are anchored to the last kept real row (not the last raw sample), preventing drift in long stable runs.
 - Added/updated regression coverage for:

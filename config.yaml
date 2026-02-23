@@ -14,6 +14,7 @@ schedule:
 startup:
   schedule_source: "manual"    # manual | api
   transport_mode: "local"      # local | remote
+  initial_soc_pu: 0.5          # shared local-emulation startup SoC for all plants
 
 istentore_api:
   base_url: "https://3mku48kfxf.execute-api.eu-south-2.amazonaws.com/default"
@@ -52,7 +53,6 @@ plants:
     name: "LIB"
     model:
       capacity_kwh: 500.0
-      initial_soc_pu: 0.5
       power_limits:
         p_max_kw: 1000.0
         p_min_kw: -1000.0
@@ -96,7 +96,6 @@ plants:
     name: "VRFB"
     model:
       capacity_kwh: 3000.0
-      initial_soc_pu: 0.5
       power_limits:
         p_max_kw: 3000.0
         p_min_kw: -3000.0

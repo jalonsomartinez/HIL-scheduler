@@ -14,6 +14,7 @@ def plant_agent(config, shared_data):
     plants_cfg = config.get("PLANTS", {})
     dt_s = float(config.get("PLANT_PERIOD_S", 1.0))
     dt_h = dt_s / 3600.0
+    startup_initial_soc_pu = float(config.get("STARTUP_INITIAL_SOC_PU", 0.5))
 
     servers = {}
     states = {}
@@ -38,10 +39,9 @@ def plant_agent(config, shared_data):
             }
 
             capacity_kwh = float(model.get("capacity_kwh", 50.0))
-            initial_soc_pu = float(model.get("initial_soc_pu", 0.5))
             states[plant_id] = {
                 "capacity_kwh": capacity_kwh,
-                "soc_kwh": initial_soc_pu * capacity_kwh,
+                "soc_kwh": startup_initial_soc_pu * capacity_kwh,
                 "poi_voltage_v": float(model.get("poi_voltage_v", 20000.0)),
                 "p_max_kw": float(power_limits.get("p_max_kw", 1000.0)),
                 "p_min_kw": float(power_limits.get("p_min_kw", -1000.0)),
@@ -51,7 +51,7 @@ def plant_agent(config, shared_data):
 
             db = server.data_bank
             db.set_holding_registers(int(registers.get("enable", 1)), [0])
-            db.set_holding_registers(int(registers.get("soc", 281)), [int(initial_soc_pu * 10000)])
+            db.set_holding_registers(int(registers.get("soc", 281)), [int(startup_initial_soc_pu * 10000)])
             db.set_holding_registers(int(registers.get("p_setpoint_in", 86)), [0])
             db.set_holding_registers(int(registers.get("q_setpoint_in", 88)), [0])
             db.set_holding_registers(int(registers.get("p_battery", 270)), [0])
