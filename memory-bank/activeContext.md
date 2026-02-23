@@ -19,6 +19,14 @@
 
 ## Rolling Change Log (Compressed, 30-Day Window)
 
+### 2026-02-23
+- Added configurable measurement compression keep-gap threshold `recording.compression.max_kept_gap_s` (flattened as `MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S`; default `3600s`).
+- Updated measurement compression semantics so both tolerance comparison and keep-gap comparison are anchored to the last kept real row (not the last raw sample), preventing drift in long stable runs.
+- Added/updated regression coverage for:
+  - keep-gap retention when stable samples exceed the configured interval,
+  - drift prevention by comparing against the last kept row,
+  - config-loader parsing of the new compression key.
+
 ### 2026-02-22
 - Renamed dashboard `Status & Plots` tab to `Status` (functionality unchanged for live controls/status plots).
 - Added new dashboard `Plots` tab for historical measurement browsing:

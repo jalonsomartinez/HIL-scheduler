@@ -39,7 +39,7 @@
 
 Notes:
 - `schedule.*` is parsed by `config_loader.py`; active scheduler dispatch uses in-memory per-plant schedule maps and does not consume these keys directly.
-- `recording.compression.*` is parsed and applied by `measurement_agent.py` for tolerance-based in-memory row compaction and periodic flush tail retention.
+- `recording.compression.*` is parsed and applied by `measurement_agent.py` for tolerance-based in-memory row compaction, configurable keep-gap retention (`max_kept_gap_s`), and periodic flush tail retention.
 - Legacy flat alias keys from `config_loader.py` are disabled by default and are only emitted when `HIL_ENABLE_LEGACY_CONFIG_ALIASES=1`.
 
 Per-plant config includes:
@@ -53,6 +53,7 @@ Per-plant config includes:
 - `PLANT_IDS`: `("lib", "vrfb")`.
 - `STARTUP_SCHEDULE_SOURCE`, `STARTUP_TRANSPORT_MODE`.
 - Timing/posting/settings flattened for agents (for example `SCHEDULER_PERIOD_S`, `ISTENTORE_*`).
+- Recording compression settings are flattened for agents, including `MEASUREMENT_COMPRESSION_ENABLED`, `MEASUREMENT_COMPRESSION_TOLERANCES`, and `MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S`.
 
 ## Modbus and Unit Conventions
 - Power values are represented as signed 16-bit in hW (0.1 kW scale).

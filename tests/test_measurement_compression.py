@@ -28,7 +28,12 @@ def _build_shared_data(recording_path):
     }
 
 
-def _build_config(compression_enabled=True, measurement_period_s=0.1, write_period_s=0.15):
+def _build_config(
+    compression_enabled=True,
+    measurement_period_s=0.1,
+    write_period_s=0.15,
+    compression_max_kept_gap_s=3600.0,
+):
     return {
         "TIMEZONE_NAME": "Europe/Madrid",
         "PLANT_IDS": ("lib",),
@@ -42,6 +47,7 @@ def _build_config(compression_enabled=True, measurement_period_s=0.1, write_peri
         "MEASUREMENT_PERIOD_S": measurement_period_s,
         "MEASUREMENTS_WRITE_PERIOD_S": write_period_s,
         "MEASUREMENT_COMPRESSION_ENABLED": compression_enabled,
+        "MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S": compression_max_kept_gap_s,
         "MEASUREMENT_COMPRESSION_TOLERANCES": {
             "p_setpoint_kw": 0.0,
             "battery_active_power_kw": 0.1,
@@ -242,6 +248,70 @@ class MeasurementCompressionTests(unittest.TestCase):
         real_rows = output_df.dropna(subset=["battery_active_power_kw"])
         self.assertGreaterEqual(append_calls["count"], 3)
         self.assertEqual(len(real_rows), 2)
+        self.assertAlmostEqual(float(real_rows.iloc[-1]["soc_pu"]), samples[-1]["soc_pu"], places=6)
+
+    def test_compression_keeps_similar_row_when_gap_exceeds_configured_interval(self):
+        samples = []
+        for idx in range(6):
+            samples.append(
+                {
+                    "p_setpoint_kw": 60.0,
+                    "battery_active_power_kw": 60.0,
+                    "q_setpoint_kvar": 0.0,
+                    "battery_reactive_power_kvar": 0.0,
+                    "soc_pu": 0.40 + (idx * 0.00005),
+                    "p_poi_kw": 60.0,
+                    "q_poi_kvar": 0.0,
+                    "v_poi_pu": 1.0,
+                }
+            )
+
+        with TemporaryDirectory() as tmpdir:
+            with chdir(tmpdir):
+                os.makedirs("data", exist_ok=True)
+                shared_data = _build_shared_data("data/20990101_lib.csv")
+                config = _build_config(
+                    compression_enabled=True,
+                    measurement_period_s=0.1,
+                    write_period_s=0.15,
+                    compression_max_kept_gap_s=0.25,
+                )
+                output_df = _run_agent_and_load_output(config, shared_data, samples)
+
+        real_rows = output_df.dropna(subset=["battery_active_power_kw"])
+        self.assertEqual(len(real_rows), 4)
+        self.assertAlmostEqual(float(real_rows.iloc[-1]["soc_pu"]), samples[-1]["soc_pu"], places=6)
+
+    def test_compression_tolerance_uses_last_kept_row_to_prevent_drift(self):
+        samples = []
+        for idx in range(8):
+            samples.append(
+                {
+                    "p_setpoint_kw": 75.0,
+                    "battery_active_power_kw": 75.0,
+                    "q_setpoint_kvar": 0.0,
+                    "battery_reactive_power_kvar": 0.0,
+                    "soc_pu": 0.50 + (idx * 0.0004),
+                    "p_poi_kw": 75.0,
+                    "q_poi_kvar": 0.0,
+                    "v_poi_pu": 1.0,
+                }
+            )
+
+        with TemporaryDirectory() as tmpdir:
+            with chdir(tmpdir):
+                os.makedirs("data", exist_ok=True)
+                shared_data = _build_shared_data("data/20990101_lib.csv")
+                config = _build_config(
+                    compression_enabled=True,
+                    measurement_period_s=0.1,
+                    write_period_s=0.15,
+                    compression_max_kept_gap_s=3600.0,
+                )
+                output_df = _run_agent_and_load_output(config, shared_data, samples)
+
+        real_rows = output_df.dropna(subset=["battery_active_power_kw"])
+        self.assertEqual(len(real_rows), 4)
         self.assertAlmostEqual(float(real_rows.iloc[-1]["soc_pu"]), samples[-1]["soc_pu"], places=6)
 
 

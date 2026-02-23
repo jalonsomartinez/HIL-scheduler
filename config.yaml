@@ -36,6 +36,7 @@ timing:
 recording:
   compression:
     enabled: true
+    max_kept_gap_s: 360  # compression keep-gap threshold (not the sampling period)
     tolerances:
       p_setpoint_kw: 0.0
       battery_active_power_kw: 0.1

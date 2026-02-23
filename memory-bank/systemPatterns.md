@@ -134,6 +134,8 @@ shared_data = {
 - Compression behavior for recording rows is tolerance-based and boundary-preserving:
   - null boundary rows are always retained,
   - stable real-value runs retain first + latest points,
+  - tolerance and keep-gap decisions are evaluated against the last kept real row (prevents drift),
+  - a configurable keep-gap threshold (`recording.compression.max_kept_gap_s`) forces retention when stable runs exceed the interval,
   - latest point of active runs may replace the mutable in-memory tail row.
 - During periodic non-force flushes, one tail row per active recording file is retained in memory to preserve first/latest segment semantics across flush boundaries.
 - Current-day plot cache is maintained per plant in memory.

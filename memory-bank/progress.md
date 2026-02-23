@@ -8,6 +8,7 @@
 - anchored sampling timing,
 - per-plant daily recording,
 - tolerance-based compression for stable measurement runs with explicit session boundaries,
+- configurable keep-gap retention (`recording.compression.max_kept_gap_s`) and last-kept-row comparison anchoring to prevent drift,
 - in-memory plot cache,
 - API measurement posting with retry/backoff, per-plant telemetry, and token re-auth retry on `401`/`403`.
 5. Dashboard provides:
@@ -26,6 +27,7 @@
 - unit/smoke regression suite (`python -m unittest discover -s tests -v`),
 - CI execution via `.github/workflows/ci.yml`.
  - targeted historical-plots helper unit tests in `tests/test_dashboard_history.py` (environment-dependent on local pandas install).
+ - targeted measurement compression regressions covering keep-gap retention and last-kept-row drift prevention.
 7. Dashboard control flow is now separated into `dashboard_control.py` with dedicated tests for safe-stop and global switch semantics.
 8. Runtime shared-state initialization contract is centralized in `build_initial_shared_data(config)` with schema tests.
 9. Runtime posting gate now includes `measurement_posting_enabled` state seeded from config and adjustable from dashboard UI.

@@ -57,6 +57,7 @@ def measurement_agent(config, shared_data):
     measurement_period_delta = timedelta(seconds=measurement_period_s)
     compression_enabled_raw = config.get("MEASUREMENT_COMPRESSION_ENABLED", True)
     configured_tolerances = config.get("MEASUREMENT_COMPRESSION_TOLERANCES", {})
+    compression_max_kept_gap_s_raw = config.get("MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S", 3600.0)
 
     def parse_bool(value, default):
         if isinstance(value, bool):
@@ -80,6 +81,12 @@ def measurement_agent(config, shared_data):
             compression_tolerances[column] = parsed if parsed >= 0.0 else default_value
         except (TypeError, ValueError):
             compression_tolerances[column] = default_value
+    try:
+        compression_max_kept_gap_s = float(compression_max_kept_gap_s_raw)
+        if compression_max_kept_gap_s < 0.0:
+            compression_max_kept_gap_s = 3600.0
+    except (TypeError, ValueError):
+        compression_max_kept_gap_s = 3600.0
 
     config_post_measurements_enabled = parse_bool(
         config.get("ISTENTORE_POST_MEASUREMENTS_IN_API_MODE", True),
@@ -108,6 +115,7 @@ def measurement_agent(config, shared_data):
 
     last_write_time = time.time()
     last_real_row_by_file = {}
+    last_appended_real_row_by_file = {}
     run_active_by_file = {}
 
     plant_states = {}
@@ -259,8 +267,20 @@ def measurement_agent(config, shared_data):
         replace_previous = False
 
         row_is_real = is_real_row(row)
-        prev_real_row = last_real_row_by_file.get(file_path)
+        last_appended_real_row = last_appended_real_row_by_file.get(file_path)
         run_active = bool(run_active_by_file.get(file_path, False))
+        rows_similar_to_prev = (
+            row_is_real
+            and last_appended_real_row is not None
+            and rows_are_similar(last_appended_real_row, row, compression_tolerances)
+        )
+        force_keep_due_to_gap = False
+        if rows_similar_to_prev and last_appended_real_row is not None:
+            prev_ts = normalize_timestamp_value(last_appended_real_row.get("timestamp"), tz)
+            row_ts = normalize_timestamp_value(row.get("timestamp"), tz)
+            if not pd.isna(prev_ts) and not pd.isna(row_ts):
+                gap_s = abs((row_ts - prev_ts).total_seconds())
+                force_keep_due_to_gap = gap_s > compression_max_kept_gap_s
 
         with shared_data["lock"]:
             pending = shared_data.setdefault("pending_rows_by_file", {})
@@ -273,16 +293,19 @@ def measurement_agent(config, shared_data):
                 rows.append(row)
                 append_new = True
                 last_real_row_by_file[file_path] = None
+                last_appended_real_row_by_file[file_path] = None
                 run_active_by_file[file_path] = False
-            elif prev_real_row is None or not rows_are_similar(prev_real_row, row, compression_tolerances):
+            elif last_appended_real_row is None or (not rows_similar_to_prev) or force_keep_due_to_gap:
                 rows.append(row)
                 append_new = True
                 last_real_row_by_file[file_path] = row
+                last_appended_real_row_by_file[file_path] = row
                 run_active_by_file[file_path] = False
             elif not run_active:
                 rows.append(row)
                 append_new = True
                 last_real_row_by_file[file_path] = row
+                last_appended_real_row_by_file[file_path] = row
                 run_active_by_file[file_path] = True
             else:
                 if rows:
@@ -291,6 +314,7 @@ def measurement_agent(config, shared_data):
                 else:
                     rows.append(row)
                     append_new = True
+                    last_appended_real_row_by_file[file_path] = row
                 last_real_row_by_file[file_path] = row
                 run_active_by_file[file_path] = True
 
@@ -452,6 +476,7 @@ def measurement_agent(config, shared_data):
         state["session_tail_is_null"] = False
         if stopped_file_path is not None:
             last_real_row_by_file[stopped_file_path] = None
+            last_appended_real_row_by_file[stopped_file_path] = None
             run_active_by_file[stopped_file_path] = False
 
         logging.info("Measurement: recording stopped for %s", plant_id.upper())

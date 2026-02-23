@@ -20,6 +20,7 @@ DEFAULT_MEASUREMENT_COMPRESSION_TOLERANCES = {
     "q_poi_kvar": 0.1,
     "v_poi_pu": 0.001,
 }
+DEFAULT_MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S = 3600.0
 DEFAULT_REGISTERS = {
     "p_setpoint_in": 86,
     "p_battery": 270,
@@ -382,6 +383,12 @@ def load_config(config_path="config.yaml"):
     recording_cfg = yaml_config.get("recording", {})
     compression_cfg = recording_cfg.get("compression", {})
     config["MEASUREMENT_COMPRESSION_ENABLED"] = _parse_bool(compression_cfg.get("enabled", True), True)
+    config["MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S"] = _parse_float(
+        compression_cfg.get("max_kept_gap_s", DEFAULT_MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S),
+        DEFAULT_MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S,
+        "recording.compression.max_kept_gap_s",
+        min_value=0.0,
+    )
 
     tolerances_cfg = compression_cfg.get("tolerances", {})
     tolerances = {}
