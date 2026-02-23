@@ -11,6 +11,7 @@ Increase reliability and operator confidence without changing the core dual-plan
 3. Add one integration test for dashboard callback->control wiring (ID stability + state mutation path), including new fleet-action and posting-toggle controls.
 4. Add safe-stop timeout-path regression test (`threshold_reached=False`, disable fallback).
 5. Keep measurement compression and config-loader schema regression coverage green to prevent config/runtime drift.
+6. Keep API schedule fetcher poll-gate/config regression coverage green (`tomorrow_poll_start_time` parsing, gate timing, partial-window status semantics).
 
 ### P1 - Operational Hardening
 1. Define log retention policy and implement cleanup automation.

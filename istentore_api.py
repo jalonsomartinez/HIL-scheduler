@@ -109,18 +109,28 @@ class IstentoreAPI:
 
         start_utc = start_time.astimezone(timezone.utc)
         end_utc = end_time.astimezone(timezone.utc)
+        logging.debug(
+            "Istentore API: get_day_ahead_schedules request utc_range=[%s -> %s]",
+            start_utc.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
+            end_utc.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
+        )
 
         data_list = self._get_market_products(
             market_id=4,
             delivery_period_gte=start_utc.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
             delivery_period_lte=end_utc.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
         )
+        logging.debug("Istentore API: day-ahead market_products payload count=%s", len(data_list or []))
 
         result = {"lib": {}, "vrfb": {}}
         if not data_list:
             return result
 
         market_data = data_list[0]
+        logging.debug(
+            "Istentore API: day-ahead delivery_periods count=%s",
+            len(market_data.get("delivery_periods", []) or []),
+        )
         for period in market_data.get("delivery_periods", []):
             delivery_period_str = period.get("delivery_period")
             if not delivery_period_str:

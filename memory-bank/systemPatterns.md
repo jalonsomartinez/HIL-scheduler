@@ -125,6 +125,14 @@ shared_data = {
 - API source reads `api_schedule_df_by_plant`.
 - API source applies stale-row cutoff via `ISTENTORE_SCHEDULE_PERIOD_MINUTES`; stale rows dispatch zero setpoints.
 
+### API Schedule Fetching and Day Rollover
+- `data_fetcher_agent.py` always attempts `today` day-ahead fetch when `data_fetcher_status.today_fetched` is false (no time-of-day gate).
+- `tomorrow` day-ahead fetch attempts are gated by normalized config key `ISTENTORE_TOMORROW_POLL_START_TIME` (local configured timezone wall-clock).
+- Fetcher logs include explicit request purpose (`today`/`tomorrow`), local request window, and trigger reason to support operator troubleshooting.
+- Next-day gate visibility is logged on state transitions (`waiting` -> `eligible`) per target `tomorrow_date` to avoid log spam.
+- Partial API windows (one plant missing data) are still published into `api_schedule_df_by_plant` for available plants, but `*_fetched` remains false and `data_fetcher_status.error` is set to a window-specific incomplete-data message so retries continue and the dashboard shows the issue.
+- Day rollover reconciliation may promote a previously fetched `tomorrow` status window into `today` status if dates align; the new `tomorrow` window status is reset.
+
 ### Measurement Triggering and Persistence
 - Measurement timing uses anchored monotonic steps to prevent drift.
 - One measurement attempt max per step.

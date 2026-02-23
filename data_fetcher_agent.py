@@ -14,6 +14,43 @@ def _empty_points_by_plant(plant_ids):
     return {plant_id: 0 for plant_id in plant_ids}
 
 
+def _parse_hhmm_to_minutes(value, key_name):
+    text = str(value).strip()
+    parts = text.split(":")
+    if len(parts) != 2:
+        raise ValueError(f"Invalid {key_name}='{value}'. Expected HH:MM.")
+    try:
+        hour = int(parts[0])
+        minute = int(parts[1])
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Invalid {key_name}='{value}'. Expected HH:MM.") from exc
+    if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+        raise ValueError(f"Invalid {key_name}='{value}'. Expected HH:MM.")
+    return (hour * 60) + minute
+
+
+def _format_window_ts(dt_value):
+    return dt_value.strftime("%Y-%m-%d %H:%M:%S %Z")
+
+
+def _log_fetch_attempt(window_name, target_date, start_dt, end_dt, reason):
+    logging.info(
+        "Data fetcher: requesting API schedule purpose=%s date=%s reason=%s local_window=[%s -> %s]",
+        window_name,
+        target_date,
+        reason,
+        _format_window_ts(start_dt),
+        _format_window_ts(end_dt),
+    )
+
+
+def _format_incomplete_fetch_error(window_name, points_by_plant):
+    return (
+        f"Incomplete {window_name} day-ahead data for all plants "
+        f"(LIB={int(points_by_plant.get('lib', 0))} VRFB={int(points_by_plant.get('vrfb', 0))})"
+    )
+
+
 def _update_status(shared_data, **kwargs):
     def _mutate(data):
         if "data_fetcher_status" not in data:
@@ -72,18 +109,23 @@ def data_fetcher_agent(config, shared_data):
     logging.info("Data fetcher agent started.")
 
     plant_ids = tuple(config.get("PLANT_IDS", ("lib", "vrfb")))
-    poll_start_time = config.get("ISTENTORE_POLL_START_TIME", "17:30")
+    tomorrow_poll_start_time = config.get("ISTENTORE_TOMORROW_POLL_START_TIME", "17:30")
+    tomorrow_poll_start_minutes = _parse_hhmm_to_minutes(
+        tomorrow_poll_start_time,
+        "ISTENTORE_TOMORROW_POLL_START_TIME",
+    )
     poll_interval_s = float(config.get("DATA_FETCHER_PERIOD_S", 120))
     error_backoff_s = 30
 
     api = None
     password_checked = False
+    last_tomorrow_gate_log = {"date": None, "state": None}
 
     logging.info(
-        "Data fetcher config: poll_interval=%ss error_backoff=%ss poll_start_time=%s",
+        "Data fetcher config: poll_interval=%ss error_backoff=%ss tomorrow_poll_start_time=%s",
         poll_interval_s,
         error_backoff_s,
-        poll_start_time,
+        tomorrow_poll_start_time,
     )
 
     while not shared_data["shutdown_event"].is_set():
@@ -128,6 +170,13 @@ def data_fetcher_agent(config, shared_data):
 
             if not today_fetched:
                 try:
+                    _log_fetch_attempt(
+                        "today",
+                        today_date,
+                        today_start,
+                        today_end,
+                        "today missing/incomplete",
+                    )
                     schedules = api.get_day_ahead_schedules(today_start, today_end)
                     dfs = {
                         plant_id: api.schedule_to_dataframe(schedules.get(plant_id, {}))
@@ -137,6 +186,7 @@ def data_fetcher_agent(config, shared_data):
                     points_by_plant = _extract_points_by_plant(dfs, plant_ids)
                     total_points = sum(points_by_plant.values())
                     fetched_ok = all(points_by_plant[plant_id] > 0 for plant_id in plant_ids)
+                    incomplete_error = _format_incomplete_fetch_error("today", points_by_plant)
 
                     def _write_today(data):
                         schedule_map = data.get("api_schedule_df_by_plant", {})
@@ -152,14 +202,22 @@ def data_fetcher_agent(config, shared_data):
                         today_date=today_date,
                         today_points=total_points,
                         today_points_by_plant=points_by_plant,
-                        error=None if fetched_ok else "No complete day-ahead data for all plants",
+                        error=None if fetched_ok else incomplete_error,
                     )
-                    logging.info(
-                        "Data fetcher: today's schedules fetched (%s) LIB=%s VRFB=%s",
-                        today_date,
-                        points_by_plant.get("lib", 0),
-                        points_by_plant.get("vrfb", 0),
-                    )
+                    if fetched_ok:
+                        logging.info(
+                            "Data fetcher: today schedules fetched complete (%s) LIB=%s VRFB=%s",
+                            today_date,
+                            points_by_plant.get("lib", 0),
+                            points_by_plant.get("vrfb", 0),
+                        )
+                    else:
+                        logging.warning(
+                            "Data fetcher: today schedules fetched partial (%s) LIB=%s VRFB=%s; will retry",
+                            today_date,
+                            points_by_plant.get("lib", 0),
+                            points_by_plant.get("vrfb", 0),
+                        )
                 except AuthenticationError as exc:
                     _update_status(shared_data, connected=False, error=f"Authentication failed: {exc}")
                     api = None
@@ -169,9 +227,39 @@ def data_fetcher_agent(config, shared_data):
                     _update_status(shared_data, error=str(exc))
                     logging.error("Data fetcher: error fetching today's schedules: %s", exc)
 
-            current_time = now.strftime("%H:%M")
-            if not tomorrow_fetched and current_time >= poll_start_time:
+            now_minutes = (int(now.hour) * 60) + int(now.minute)
+            tomorrow_gate_open = now_minutes >= tomorrow_poll_start_minutes
+            if last_tomorrow_gate_log["date"] != tomorrow_date:
+                last_tomorrow_gate_log = {"date": tomorrow_date, "state": None}
+
+            if not tomorrow_fetched:
+                gate_state = "eligible" if tomorrow_gate_open else "waiting"
+                if last_tomorrow_gate_log["state"] != gate_state:
+                    if tomorrow_gate_open:
+                        logging.info(
+                            "Data fetcher: tomorrow poll gate eligible date=%s now=%s start=%s",
+                            tomorrow_date,
+                            now.strftime("%H:%M"),
+                            tomorrow_poll_start_time,
+                        )
+                    else:
+                        logging.info(
+                            "Data fetcher: tomorrow poll gate waiting date=%s now=%s start=%s",
+                            tomorrow_date,
+                            now.strftime("%H:%M"),
+                            tomorrow_poll_start_time,
+                        )
+                    last_tomorrow_gate_log["state"] = gate_state
+
+            if not tomorrow_fetched and tomorrow_gate_open:
                 try:
+                    _log_fetch_attempt(
+                        "tomorrow",
+                        tomorrow_date,
+                        tomorrow_start,
+                        tomorrow_end,
+                        "tomorrow missing/incomplete + gate open",
+                    )
                     schedules = api.get_day_ahead_schedules(tomorrow_start, tomorrow_end)
                     new_dfs = {
                         plant_id: api.schedule_to_dataframe(schedules.get(plant_id, {}))
@@ -201,6 +289,7 @@ def data_fetcher_agent(config, shared_data):
                     points_by_plant = _extract_points_by_plant(new_dfs, plant_ids)
                     total_points = sum(points_by_plant.values())
                     fetched_ok = all(points_by_plant[plant_id] > 0 for plant_id in plant_ids)
+                    incomplete_error = _format_incomplete_fetch_error("tomorrow", points_by_plant)
 
                     _update_status(
                         shared_data,
@@ -209,14 +298,22 @@ def data_fetcher_agent(config, shared_data):
                         tomorrow_date=tomorrow_date,
                         tomorrow_points=total_points,
                         tomorrow_points_by_plant=points_by_plant,
-                        error=None,
+                        error=None if fetched_ok else incomplete_error,
                     )
-                    logging.info(
-                        "Data fetcher: tomorrow's schedules fetched (%s) LIB=%s VRFB=%s",
-                        tomorrow_date,
-                        points_by_plant.get("lib", 0),
-                        points_by_plant.get("vrfb", 0),
-                    )
+                    if fetched_ok:
+                        logging.info(
+                            "Data fetcher: tomorrow schedules fetched complete (%s) LIB=%s VRFB=%s",
+                            tomorrow_date,
+                            points_by_plant.get("lib", 0),
+                            points_by_plant.get("vrfb", 0),
+                        )
+                    else:
+                        logging.warning(
+                            "Data fetcher: tomorrow schedules fetched partial (%s) LIB=%s VRFB=%s; will retry",
+                            tomorrow_date,
+                            points_by_plant.get("lib", 0),
+                            points_by_plant.get("vrfb", 0),
+                        )
                 except AuthenticationError as exc:
                     _update_status(shared_data, connected=False, error=f"Authentication failed: {exc}")
                     api = None

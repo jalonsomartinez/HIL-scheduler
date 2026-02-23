@@ -39,6 +39,7 @@
 
 Notes:
 - `schedule.*` is parsed by `config_loader.py`; active scheduler dispatch uses in-memory per-plant schedule maps and does not consume these keys directly.
+- `istentore_api.tomorrow_poll_start_time` is the canonical next-day polling gate key for API day-ahead fetches; legacy `istentore_api.poll_start_time` is intentionally rejected (breaking rename, no alias).
 - `recording.compression.*` is parsed and applied by `measurement_agent.py` for tolerance-based in-memory row compaction, configurable keep-gap retention (`max_kept_gap_s`), and periodic flush tail retention.
 - Legacy flat alias keys from `config_loader.py` are disabled by default and are only emitted when `HIL_ENABLE_LEGACY_CONFIG_ALIASES=1`.
 
@@ -56,6 +57,7 @@ Per-plant config includes:
 - `PLANT_IDS`: `("lib", "vrfb")`.
 - `STARTUP_SCHEDULE_SOURCE`, `STARTUP_TRANSPORT_MODE`.
 - Timing/posting/settings flattened for agents (for example `SCHEDULER_PERIOD_S`, `ISTENTORE_*`).
+- API fetcher next-day poll gate is exposed as normalized `ISTENTORE_TOMORROW_POLL_START_TIME` (`HH:MM`).
 - Recording compression settings are flattened for agents, including `MEASUREMENT_COMPRESSION_ENABLED`, `MEASUREMENT_COMPRESSION_TOLERANCES`, and `MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S`.
 
 ## Modbus and Unit Conventions
@@ -81,6 +83,7 @@ Per-plant config includes:
   2. date-routed file `logs/YYYY-MM-DD_hil_scheduler.log` (record timestamp date in configured timezone),
   3. in-memory session list (retained for compatibility and lightweight in-process diagnostics).
 - Session logs are bounded to latest 1000 entries.
+- `data_fetcher_agent.py` logs explicit API fetch intent (`today` vs `tomorrow`), local request windows, and next-day gate state transitions (`waiting` / `eligible`) to reduce ambiguity around missing schedules.
 - Dashboard logs tab behavior:
   - default selector is `today`,
   - `today` reads tail of current date file for live refresh,

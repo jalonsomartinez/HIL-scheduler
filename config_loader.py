@@ -2,6 +2,7 @@
 
 import logging
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -93,6 +94,23 @@ def _parse_timezone(timezone_name):
             DEFAULT_TIMEZONE_NAME,
         )
         return DEFAULT_TIMEZONE_NAME
+
+
+def _parse_hhmm_required(value, default, key_name):
+    if value is None:
+        value = default
+
+    text = str(value).strip()
+    match = re.fullmatch(r"(\d{1,2}):(\d{2})", text)
+    if not match:
+        raise ValueError(f"Invalid {key_name}='{value}'. Expected HH:MM (24-hour clock).")
+
+    hour = int(match.group(1))
+    minute = int(match.group(2))
+    if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+        raise ValueError(f"Invalid {key_name}='{value}'. Expected HH:MM (24-hour clock).")
+
+    return f"{hour:02d}:{minute:02d}"
 
 
 def _normalize_registers(raw_registers, prefix):
@@ -411,7 +429,16 @@ def load_config(config_path="config.yaml"):
     api_cfg = yaml_config.get("istentore_api", {})
     config["ISTENTORE_BASE_URL"] = api_cfg.get("base_url", "https://3mku48kfxf.execute-api.eu-south-2.amazonaws.com/default")
     config["ISTENTORE_EMAIL"] = api_cfg.get("email", "i-STENTORE")
-    config["ISTENTORE_POLL_START_TIME"] = api_cfg.get("poll_start_time", "17:30")
+    if "poll_start_time" in api_cfg:
+        raise ValueError(
+            "Config key 'istentore_api.poll_start_time' was renamed to "
+            "'istentore_api.tomorrow_poll_start_time'. Update config.yaml."
+        )
+    config["ISTENTORE_TOMORROW_POLL_START_TIME"] = _parse_hhmm_required(
+        api_cfg.get("tomorrow_poll_start_time", "17:30"),
+        "17:30",
+        "istentore_api.tomorrow_poll_start_time",
+    )
     config["ISTENTORE_SCHEDULE_PERIOD_MINUTES"] = _parse_int(
         api_cfg.get("schedule_period_minutes", 15),
         15,

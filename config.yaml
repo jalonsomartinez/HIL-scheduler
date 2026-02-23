@@ -19,7 +19,7 @@ startup:
 istentore_api:
   base_url: "https://3mku48kfxf.execute-api.eu-south-2.amazonaws.com/default"
   email: "i-STENTORE"
-  poll_start_time: "15:00"
+  tomorrow_poll_start_time: "15:00"  # gates polling for next-day schedule only (today is fetched whenever missing)
   schedule_period_minutes: 15
   post_measurements_in_api_mode: true
   measurement_post_period_s: 60

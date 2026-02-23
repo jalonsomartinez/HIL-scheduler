@@ -13,6 +13,7 @@
 - configurable keep-gap retention (`recording.compression.max_kept_gap_s`) and last-kept-row comparison anchoring to prevent drift,
 - in-memory plot cache,
 - API measurement posting with retry/backoff, per-plant telemetry, and token re-auth retry on `401`/`403`.
+ - API schedule fetcher next-day polling gate uses normalized `istentore_api.tomorrow_poll_start_time` (flattened `ISTENTORE_TOMORROW_POLL_START_TIME`) with explicit today/tomorrow fetch intent logging and partial-window warning/error visibility.
 5. Dashboard provides:
 - per-plant Start/Stop + Record/Stop controls,
 - top-card `Start All` / `Stop All` controls with confirmation modal for high-impact actions,
@@ -31,6 +32,8 @@
  - targeted historical-plots helper unit tests in `tests/test_dashboard_history.py` (environment-dependent on local pandas install).
  - targeted measurement compression regressions covering keep-gap retention and last-kept-row drift prevention.
  - targeted config-loader regressions covering shared startup SoC parsing and legacy alias mapping.
+ - targeted config-loader regression coverage for `tomorrow_poll_start_time` normalization and legacy `poll_start_time` rejection.
+ - targeted data fetcher regression coverage for next-day gate timing, partial/complete tomorrow fetch status, and rollover promotion (environment-dependent on local pandas install).
 7. Dashboard control flow is now separated into `dashboard_control.py` with dedicated tests for safe-stop and global switch semantics.
 8. Runtime shared-state initialization contract is centralized in `build_initial_shared_data(config)` with schema tests.
 9. Runtime posting gate now includes `measurement_posting_enabled` state seeded from config and adjustable from dashboard UI.

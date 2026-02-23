@@ -20,6 +20,16 @@
 ## Rolling Change Log (Compressed, 30-Day Window)
 
 ### 2026-02-23
+- Hardened API schedule fetcher observability and next-day polling gate:
+  - renamed config key `istentore_api.poll_start_time` -> `istentore_api.tomorrow_poll_start_time` (breaking change, no compatibility alias),
+  - `config_loader.py` now normalizes `tomorrow_poll_start_time` to `HH:MM` and rejects legacy key usage,
+  - `data_fetcher_agent.py` now compares next-day poll gate time numerically (fixes fragile string comparison for values like `9:00`),
+  - added explicit fetch-attempt logs with `purpose=today|tomorrow`, local request window, and trigger reason,
+  - added throttled tomorrow-gate state logs (`waiting` / `eligible`),
+  - fixed partial `tomorrow` fetch status/logging to preserve retryable partial writes while surfacing window-specific error messages.
+- Added regression coverage for:
+  - `tomorrow_poll_start_time` parsing/normalization and legacy-key rejection in `config_loader.py`,
+  - data fetcher next-day gate timing, partial/complete tomorrow fetch handling, and rollover promotion behavior (environment-dependent on local pandas install).
 - Renamed per-plant Modbus register map setpoint keys from `p_setpoint_in` / `q_setpoint_in` to canonical `p_setpoint` / `q_setpoint` across runtime agents, config, and tests.
 - Updated `config_loader.py` register normalization to accept legacy `*_in` setpoint keys as backward-compatible input aliases while emitting canonical runtime register maps.
 - Moved local-emulation startup SoC config from per-plant `plants.*.model.initial_soc_pu` to shared `startup.initial_soc_pu`.
