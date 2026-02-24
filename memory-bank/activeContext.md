@@ -19,6 +19,20 @@
 
 ## Rolling Change Log (Compressed, 30-Day Window)
 
+### 2026-02-24
+- Added local-mode plant-start SoC restore from persisted measurements:
+  - dashboard start flow now looks up the latest on-disk non-null `soc_pu` for the target plant from `data/YYYYMMDD_<plant>.csv`,
+  - falls back to `STARTUP_INITIAL_SOC_PU` when no persisted SoC is available,
+  - local-only behavior (remote transport start path unchanged).
+- Added explicit dashboard->plant-agent local emulator SoC seed handshake in shared state:
+  - `local_emulator_soc_seed_request_by_plant`,
+  - `local_emulator_soc_seed_result_by_plant`.
+- Updated `plant_agent.py` to apply SoC seed requests only while the local emulator plant is disabled (guard against mid-run SoC resets), then acknowledge `applied|skipped|error`.
+- Added regression coverage for:
+  - latest persisted SoC lookup helper behavior (latest row selection, null-boundary ignore, suffix filtering, clamping),
+  - plant-agent seed request handling (`applied` when disabled, `skipped` when enabled),
+  - shared-state contract keys for the new seed request/ack maps.
+
 ### 2026-02-23
 - Implemented unit-aware Modbus point conversions on top of binary codec:
   - point `unit` now drives conversions between external Modbus engineering values and internal runtime units,

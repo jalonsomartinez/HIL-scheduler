@@ -7,6 +7,8 @@
  - Scheduler/measurement/dashboard/local-emulation Modbus I/O uses shared codec helpers (`modbus_codec.py`) instead of ad-hoc scaling/bit conversions.
 3. Local emulation runs both plant Modbus servers concurrently with SoC and power-limit behavior.
  - Local emulation startup SoC is configured once via `startup.initial_soc_pu` and applied to both plants.
+ - On local plant start, dashboard now attempts to seed emulator SoC from the latest persisted on-disk measurement (`soc_pu`) for that plant, with fallback to `startup.initial_soc_pu`.
+ - Local SoC seeding uses an explicit shared-state request/ack handshake so `plant_agent.py` updates internal emulator state (`soc_kwh`) before enable, not just the Modbus `soc` register.
 4. Measurement pipeline provides:
 - anchored sampling timing,
 - per-plant daily recording,
@@ -39,8 +41,10 @@
  - targeted config-loader regression coverage for `tomorrow_poll_start_time` normalization and legacy `poll_start_time` rejection.
  - targeted data fetcher regression coverage for next-day gate timing, partial/complete tomorrow fetch status, and rollover promotion (environment-dependent on local pandas install).
  - compression-gap config-loader regression now validates schema/typing (not a fixed `max_kept_gap_s` value) so config tuning does not cause CI failures.
+ - targeted measurement-storage SoC lookup regressions (`tests/test_measurement_storage_latest_soc.py`) and plant-agent local SoC seed request regressions (`tests/test_plant_agent_soc_seed_requests.py`).
 7. Dashboard control flow is now separated into `dashboard_control.py` with dedicated tests for safe-stop and global switch semantics.
 8. Runtime shared-state initialization contract is centralized in `build_initial_shared_data(config)` with schema tests.
+ - Shared-state contract now includes local emulator SoC seed request/result maps for dashboard->plant-agent local-start coordination.
 9. Runtime posting gate now includes `measurement_posting_enabled` state seeded from config and adjustable from dashboard UI.
 
 ## In Progress

@@ -2,6 +2,7 @@
 
 import logging
 import os
+import re
 
 import numpy as np
 import pandas as pd
@@ -20,6 +21,7 @@ MEASUREMENT_VALUE_COLUMNS = [
     "v_poi_kV",
 ]
 MEASUREMENT_COLUMNS = ["timestamp"] + MEASUREMENT_VALUE_COLUMNS
+_DAILY_MEASUREMENT_FILE_RE = re.compile(r"^(?P<date>\d{8})_(?P<suffix>[a-z0-9_-]+)\.csv$", re.IGNORECASE)
 
 
 def normalize_measurements_df(df, tz):
@@ -65,6 +67,62 @@ def load_file_for_cache(file_path, tz):
     except Exception as exc:
         logging.error("Measurement: error reading %s: %s", file_path, exc)
         return pd.DataFrame(columns=MEASUREMENT_COLUMNS)
+
+
+def find_latest_persisted_soc_for_plant(data_dir, plant_name, plant_id, tz):
+    """Return latest persisted non-null SoC row metadata for one plant, or None."""
+    safe_name = sanitize_plant_name(plant_name, plant_id)
+
+    try:
+        filenames = sorted(os.listdir(data_dir), reverse=True)
+    except FileNotFoundError:
+        return None
+    except Exception as exc:
+        logging.error("Measurement: error listing %s: %s", data_dir, exc)
+        return None
+
+    latest = None
+    for filename in filenames:
+        match = _DAILY_MEASUREMENT_FILE_RE.match(filename)
+        if not match:
+            continue
+        if str(match.group("suffix")).lower() != str(safe_name).lower():
+            continue
+
+        file_path = os.path.join(data_dir, filename)
+        if not os.path.isfile(file_path):
+            continue
+
+        df = load_file_for_cache(file_path, tz)
+        if df.empty or "timestamp" not in df.columns or "soc_pu" not in df.columns:
+            continue
+
+        real_soc = df.dropna(subset=["timestamp", "soc_pu"])
+        if real_soc.empty:
+            continue
+
+        row = real_soc.iloc[-1]
+        try:
+            soc_pu = float(row["soc_pu"])
+        except (TypeError, ValueError):
+            continue
+        if pd.isna(soc_pu):
+            continue
+
+        soc_pu = min(1.0, max(0.0, soc_pu))
+        timestamp = normalize_timestamp_value(row.get("timestamp"), tz)
+        if pd.isna(timestamp):
+            continue
+
+        candidate = {
+            "soc_pu": soc_pu,
+            "timestamp": timestamp,
+            "file_path": file_path,
+        }
+        if latest is None or pd.Timestamp(candidate["timestamp"]) > pd.Timestamp(latest["timestamp"]):
+            latest = candidate
+
+    return latest
 
 
 def is_null_row(row):

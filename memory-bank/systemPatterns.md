@@ -59,6 +59,11 @@ shared_data = {
             "last_enqueue": None,
         },
     },
+    "local_emulator_soc_seed_request_by_plant": {"lib": None, "vrfb": None},
+    "local_emulator_soc_seed_result_by_plant": {
+        "lib": {"request_id": None, "status": "idle", "soc_pu": None, "message": None},
+        "vrfb": {"request_id": None, "status": "idle", "soc_pu": None, "message": None},
+    },
     "measurement_posting_enabled": True,
 
     "api_password": None,
@@ -122,6 +127,17 @@ shared_data = {
 - `Stop All` sequence:
   1. Safe-stop both plants.
   2. Clear recording flags for both plants.
+
+### Local Plant Start SoC Restore
+- Applies only when transport mode is `local`.
+- Dashboard start flow resolves a target SoC before enable:
+  1. Read latest persisted non-null `soc_pu` for the plant from `data/*.csv` (by highest timestamp).
+  2. Fallback to `STARTUP_INITIAL_SOC_PU` if none exists.
+  3. Publish a seed request into `local_emulator_soc_seed_request_by_plant[plant_id]`.
+  4. Wait briefly for `plant_agent.py` acknowledgement in `local_emulator_soc_seed_result_by_plant[plant_id]`.
+  5. Continue normal enable + initial setpoint start sequence even if the ack times out (warning logged).
+- `plant_agent.py` is authoritative for applying the seed because it owns internal emulator SoC state (`soc_kwh`).
+- Seed requests are rejected/skipped while the plant is enabled to avoid mid-run SoC resets.
 
 ### Scheduler Dispatch Selection
 - Scheduler chooses map by `active_schedule_source`.

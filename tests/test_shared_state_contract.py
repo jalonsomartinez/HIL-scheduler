@@ -28,6 +28,8 @@ class SharedStateContractTests(unittest.TestCase):
             "pending_rows_by_file",
             "measurements_df",
             "measurement_post_status",
+            "local_emulator_soc_seed_request_by_plant",
+            "local_emulator_soc_seed_result_by_plant",
             "measurement_posting_enabled",
             "api_password",
             "data_fetcher_status",
@@ -45,6 +47,11 @@ class SharedStateContractTests(unittest.TestCase):
         self.assertEqual(set(shared_data["api_schedule_df_by_plant"].keys()), set(plant_ids))
         self.assertEqual(set(shared_data["scheduler_running_by_plant"].keys()), set(plant_ids))
         self.assertEqual(set(shared_data["measurement_post_status"].keys()), set(plant_ids))
+        self.assertEqual(set(shared_data["local_emulator_soc_seed_request_by_plant"].keys()), set(plant_ids))
+        self.assertEqual(set(shared_data["local_emulator_soc_seed_result_by_plant"].keys()), set(plant_ids))
+        self.assertTrue(
+            all(result.get("status") == "idle" for result in shared_data["local_emulator_soc_seed_result_by_plant"].values())
+        )
         self.assertIsInstance(shared_data["measurements_df"], pd.DataFrame)
 
     def test_build_initial_shared_data_normalizes_invalid_startup_values(self):

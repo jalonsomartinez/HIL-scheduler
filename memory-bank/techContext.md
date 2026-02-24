@@ -21,7 +21,7 @@
 - `scheduler_agent.py`: per-plant setpoint dispatch.
 - `plant_agent.py`: local dual-server plant emulation.
 - `measurement_agent.py`: sampling, recording, cache, API posting queue.
-- `measurement_storage.py`: measurement normalization, CSV read/write helpers, and row-similarity primitives for compression.
+- `measurement_storage.py`: measurement normalization, CSV read/write helpers, latest persisted per-plant SoC lookup helper, and row-similarity primitives for compression.
 - `istentore_api.py`: API auth, schedule fetch, measurement post, and bounded token re-auth retry on `401`/`403`.
 - `time_utils.py`: timezone normalization and serialization helpers.
 - `logger_config.py`: console/file/session logging setup.
@@ -81,6 +81,8 @@ Per-plant config includes:
 
 ## Plant Emulation Behavior
 - Local mode starts one Modbus server per plant (`lib`, `vrfb`) simultaneously.
+- Local plant start in dashboard local transport now attempts to restore emulator SoC from the latest persisted on-disk `soc_pu` for that plant (`data/YYYYMMDD_<sanitized_plant>.csv`), with fallback to `STARTUP_INITIAL_SOC_PU`.
+- Dashboard->plant-agent coordination for this restore uses shared-state request/ack maps; `plant_agent.py` applies the seed to internal emulator state (`soc_kwh`) before enable.
 - Plant emulation applies:
   - enable gating,
   - configured active/reactive power limits,
@@ -122,6 +124,7 @@ Per-plant config includes:
 
 ## Operational Constraints
 - Threaded model requires short lock sections and external I/O outside locks.
+- Local SoC restore handshake is best-effort by design: dashboard start waits briefly for plant-agent ack and logs timeout, but still proceeds with plant enable/start sequence.
 - Measurement posting queue is in-memory only; it does not persist across restarts.
 - Measurement compression applies only to new runtime writes; no automatic backfill is performed for historical dense CSV files.
 - Historical plots tab reads `data/*.csv` directly on demand; large datasets may increase dashboard callback latency because there is no persistent history index/cache yet.

@@ -20,6 +20,48 @@ def plant_agent(config, shared_data):
     servers = {}
     states = {}
 
+    def _ensure_seed_control_maps():
+        lock = shared_data.get("lock")
+        if lock is None:
+            return
+        with lock:
+            request_map = shared_data.setdefault("local_emulator_soc_seed_request_by_plant", {})
+            result_map = shared_data.setdefault("local_emulator_soc_seed_result_by_plant", {})
+            for plant_id in plant_ids:
+                request_map.setdefault(plant_id, None)
+                result_map.setdefault(
+                    plant_id,
+                    {"request_id": None, "status": "idle", "soc_pu": None, "message": None},
+                )
+
+    def _read_seed_request(plant_id):
+        lock = shared_data.get("lock")
+        if lock is None:
+            return None
+        with lock:
+            request_map = (shared_data.get("local_emulator_soc_seed_request_by_plant", {}) or {})
+            request = request_map.get(plant_id)
+            if not isinstance(request, dict):
+                return None
+            return dict(request)
+
+    def _complete_seed_request(plant_id, request_id, *, status, soc_pu=None, message=None):
+        lock = shared_data.get("lock")
+        if lock is None:
+            return
+        with lock:
+            request_map = shared_data.setdefault("local_emulator_soc_seed_request_by_plant", {})
+            result_map = shared_data.setdefault("local_emulator_soc_seed_result_by_plant", {})
+            current = request_map.get(plant_id)
+            if isinstance(current, dict) and current.get("request_id") == request_id:
+                request_map[plant_id] = None
+                result_map[plant_id] = {
+                    "request_id": request_id,
+                    "status": str(status),
+                    "soc_pu": (float(soc_pu) if soc_pu is not None else None),
+                    "message": None if message is None else str(message),
+                }
+
     def db_read_point_eng(db, endpoint_cfg, point_name):
         point = endpoint_cfg["points"][point_name]
         word_count = int(point["word_count"])
@@ -36,6 +78,7 @@ def plant_agent(config, shared_data):
         db.set_holding_registers(int(point["address"]), [int(word) for word in words])
 
     try:
+        _ensure_seed_control_maps()
         for plant_id in plant_ids:
             plant_cfg = plants_cfg.get(plant_id, {})
             local_cfg = (plant_cfg.get("modbus", {}) or {}).get("local", {})
@@ -94,6 +137,48 @@ def plant_agent(config, shared_data):
                     enable_value = db_read_point_eng(db, endpoint_cfg, "enable")
                     if p_sp_kw is None or q_sp_kvar is None or enable_value is None:
                         continue
+
+                    seed_request = _read_seed_request(plant_id)
+                    if seed_request:
+                        request_id = seed_request.get("request_id")
+                        try:
+                            requested_soc_pu = float(seed_request.get("soc_pu"))
+                        except (TypeError, ValueError):
+                            requested_soc_pu = None
+
+                        if request_id is None or requested_soc_pu is None:
+                            _complete_seed_request(
+                                plant_id,
+                                request_id,
+                                status="error",
+                                message="invalid seed request payload",
+                            )
+                        elif int(enable_value) == 1:
+                            _complete_seed_request(
+                                plant_id,
+                                request_id,
+                                status="skipped",
+                                message="plant enabled; refusing mid-run soc reset",
+                            )
+                        else:
+                            requested_soc_pu = min(1.0, max(0.0, requested_soc_pu))
+                            st["soc_kwh"] = requested_soc_pu * st["capacity_kwh"]
+                            db_write_point_eng(db, endpoint_cfg, "soc", requested_soc_pu)
+                            _complete_seed_request(
+                                plant_id,
+                                request_id,
+                                status="applied",
+                                soc_pu=requested_soc_pu,
+                                message=f"source={seed_request.get('source', 'unknown')}",
+                            )
+                            logging.info(
+                                "Plant agent: applied local SoC seed for %s (id=%s soc=%.4f pu source=%s).",
+                                plant_id.upper(),
+                                request_id,
+                                requested_soc_pu,
+                                seed_request.get("source", "unknown"),
+                            )
+
                     enabled = int(enable_value) == 1
 
                     if not enabled:

@@ -32,6 +32,22 @@ def _default_measurement_post_status_by_plant(plant_ids):
     }
 
 
+def _default_local_emulator_soc_seed_request_by_plant(plant_ids):
+    return {plant_id: None for plant_id in plant_ids}
+
+
+def _default_local_emulator_soc_seed_result_by_plant(plant_ids):
+    return {
+        plant_id: {
+            "request_id": None,
+            "status": "idle",
+            "soc_pu": None,
+            "message": None,
+        }
+        for plant_id in plant_ids
+    }
+
+
 def build_initial_shared_data(config):
     """Create the authoritative runtime shared_data contract."""
     plant_ids = tuple(config.get("PLANT_IDS", ("lib", "vrfb")))
@@ -61,6 +77,8 @@ def build_initial_shared_data(config):
         "pending_rows_by_file": {},
         "measurements_df": pd.DataFrame(),
         "measurement_post_status": _default_measurement_post_status_by_plant(plant_ids),
+        "local_emulator_soc_seed_request_by_plant": _default_local_emulator_soc_seed_request_by_plant(plant_ids),
+        "local_emulator_soc_seed_result_by_plant": _default_local_emulator_soc_seed_result_by_plant(plant_ids),
         "measurement_posting_enabled": bool(config.get("ISTENTORE_POST_MEASUREMENTS_IN_API_MODE", True)),
         "api_password": None,
         "data_fetcher_status": {

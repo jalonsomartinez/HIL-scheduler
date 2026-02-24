@@ -41,7 +41,7 @@ from dashboard_plotting import (
 )
 from dashboard_ui_state import get_plant_control_labels_and_disabled, resolve_runtime_transition_state
 import manual_schedule_manager as msm
-from measurement_storage import MEASUREMENT_COLUMNS
+from measurement_storage import MEASUREMENT_COLUMNS, find_latest_persisted_soc_for_plant
 from runtime_contracts import resolve_modbus_endpoint, sanitize_plant_name
 from schedule_runtime import resolve_schedule_setpoint
 from shared_state import snapshot_locked
@@ -69,6 +69,7 @@ def dashboard_agent(config, shared_data):
     except (TypeError, ValueError):
         schedule_period_minutes = 15.0
     api_validity_window = pd.Timedelta(minutes=schedule_period_minutes)
+    startup_initial_soc_pu = float(config.get("STARTUP_INITIAL_SOC_PU", 0.5))
     initial_snapshot = snapshot_locked(
         shared_data,
         lambda data: {
@@ -159,6 +160,102 @@ def dashboard_agent(config, shared_data):
         safe_name = sanitize_plant_name(plant_name(plant_id), plant_id)
         date_str = now_tz(config).strftime("%Y%m%d")
         return os.path.join("data", f"{date_str}_{safe_name}.csv")
+
+    def _clamp_soc_pu(value):
+        try:
+            soc_value = float(value)
+        except (TypeError, ValueError):
+            soc_value = startup_initial_soc_pu
+        if pd.isna(soc_value):
+            soc_value = startup_initial_soc_pu
+        return min(1.0, max(0.0, soc_value))
+
+    def resolve_local_start_soc_seed(plant_id):
+        latest = find_latest_persisted_soc_for_plant("data", plant_name(plant_id), plant_id, tz)
+        if latest is not None:
+            logging.info(
+                "Dashboard: %s local start SoC seed from disk %.4f pu (%s @ %s).",
+                plant_id.upper(),
+                float(latest["soc_pu"]),
+                latest["file_path"],
+                pd.Timestamp(latest["timestamp"]).isoformat(),
+            )
+            return {
+                "soc_pu": _clamp_soc_pu(latest["soc_pu"]),
+                "source": "disk",
+                "message": f"{latest['file_path']}",
+            }
+
+        fallback_soc = _clamp_soc_pu(startup_initial_soc_pu)
+        logging.info(
+            "Dashboard: %s local start SoC seed not found on disk; using startup fallback %.4f pu.",
+            plant_id.upper(),
+            fallback_soc,
+        )
+        return {
+            "soc_pu": fallback_soc,
+            "source": "startup_fallback",
+            "message": "no persisted soc found",
+        }
+
+    def request_local_emulator_soc_seed(plant_id, soc_pu, source, timeout_s=1.5):
+        request_id = int(time.time_ns())
+        request_payload = {
+            "request_id": request_id,
+            "soc_pu": _clamp_soc_pu(soc_pu),
+            "source": str(source),
+        }
+
+        with shared_data["lock"]:
+            request_map = shared_data.setdefault("local_emulator_soc_seed_request_by_plant", {})
+            result_map = shared_data.setdefault("local_emulator_soc_seed_result_by_plant", {})
+            request_map[plant_id] = dict(request_payload)
+            result_map.setdefault(
+                plant_id,
+                {"request_id": None, "status": "idle", "soc_pu": None, "message": None},
+            )
+
+        logging.info(
+            "Dashboard: %s local emulator SoC seed request published (id=%s source=%s soc=%.4f pu).",
+            plant_id.upper(),
+            request_id,
+            request_payload["source"],
+            request_payload["soc_pu"],
+        )
+
+        deadline = time.monotonic() + max(0.1, float(timeout_s))
+        while time.monotonic() < deadline:
+            result = snapshot_locked(
+                shared_data,
+                lambda data: dict((data.get("local_emulator_soc_seed_result_by_plant", {}) or {}).get(plant_id, {})),
+            )
+            if result and result.get("request_id") == request_id:
+                status = str(result.get("status", ""))
+                if status in {"applied", "skipped", "error"}:
+                    if status == "applied":
+                        logging.info(
+                            "Dashboard: %s local emulator SoC seed applied (id=%s soc=%.4f pu).",
+                            plant_id.upper(),
+                            request_id,
+                            float(result.get("soc_pu", request_payload["soc_pu"])),
+                        )
+                    else:
+                        logging.warning(
+                            "Dashboard: %s local emulator SoC seed %s (id=%s message=%s).",
+                            plant_id.upper(),
+                            status,
+                            request_id,
+                            result.get("message"),
+                        )
+                    return result
+            time.sleep(0.05)
+
+        logging.warning(
+            "Dashboard: %s local emulator SoC seed request timed out (id=%s, continuing start).",
+            plant_id.upper(),
+            request_id,
+        )
+        return None
 
     def _epoch_ms_to_ts(epoch_ms):
         return normalize_timestamp_value(pd.to_datetime(int(epoch_ms), unit="ms", utc=True), tz)
@@ -631,6 +728,15 @@ def dashboard_agent(config, shared_data):
                 shared_data["plant_transition_by_plant"][plant_id] = "starting"
 
             def start_sequence():
+                transport_mode = snapshot_locked(shared_data, lambda data: data.get("transport_mode", "local"))
+                if transport_mode == "local":
+                    seed = resolve_local_start_soc_seed(plant_id)
+                    request_local_emulator_soc_seed(
+                        plant_id,
+                        seed.get("soc_pu"),
+                        seed.get("source", "unknown"),
+                    )
+
                 enabled = set_enable(plant_id, 1)
                 if not enabled:
                     logging.error("Dashboard: %s start failed while enabling plant.", plant_id.upper())
