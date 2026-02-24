@@ -215,7 +215,9 @@ shared_data = {
 - File discovery maps known plant filename suffixes (sanitized plant names) to `lib`/`vrfb`; unknown suffixes are ignored.
 - Global timeline range is derived from actual CSV timestamps (not filenames).
 - Range selection is represented as epoch milliseconds and clamped to the discovered global range.
+- If a slider selection is fully outside the current discovered domain (for example the initial layout placeholder `[0, 1]` before history bounds load), the helper defaults back to the full discovered range instead of collapsing to one edge.
 - Historical plant figures reuse the same multi-panel plot helper as live status plots, with empty schedule overlays and cropped measurement traces only.
+- The top availability timeline intentionally uses a compact figure height/margins because it only renders two categorical lanes (`LIB`, `VRFB`).
 - CSV export serializes cropped rows in canonical measurement column order.
 - PNG export is client-side via Plotly browser APIs using the already-rendered graph.
 

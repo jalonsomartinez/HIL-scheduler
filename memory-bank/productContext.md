@@ -79,5 +79,6 @@ The system closes the operational gap between market/control schedules and plant
 ### Browse Historical Plots
 1. User opens `Plots` tab.
 2. Dashboard scans `data/*.csv`, derives the global available measurement time range, and populates a timeline + range slider.
-3. User adjusts the range slider; both plant plots update to the selected time window.
-4. User optionally downloads cropped CSV or PNG for either plant.
+3. Range slider defaults to the full detected time span when the current slider value is invalid/stale (for example initial placeholder values before history bounds are loaded).
+4. User adjusts the range slider; both plant plots update to the selected time window.
+5. User optionally downloads cropped CSV or PNG for either plant.

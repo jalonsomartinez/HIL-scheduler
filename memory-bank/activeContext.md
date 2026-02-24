@@ -22,6 +22,14 @@
 ## Rolling Change Log (Compressed, 30-Day Window)
 
 ### 2026-02-24
+- Fixed historical `Plots` tab range-slider default behavior:
+  - `dashboard_history.clamp_epoch_range()` now treats fully out-of-domain selections (including the initial layout placeholder `[0, 1]`) as stale and defaults back to the full discovered history range,
+  - prevents first-load collapsed selection at the left edge and empty-looking historical plots.
+- Added/extended `tests/test_dashboard_history.py` clamp-range regression coverage for:
+  - stale placeholder below-domain selection,
+  - fully above-domain selection,
+  - partial overlap clamping behavior.
+- Compacted the `Plots` tab historical availability timeline (`LIB` / `VRFB`) in `dashboard_agent.py` by reducing figure height/margins and lowering legend placement so the bars render closer together with less vertical whitespace.
 - Bounded API schedule runtime retention in `data_fetcher_agent.py` to the local calendar window `[today 00:00, day+2 00:00)` so `api_schedule_df_by_plant` no longer grows indefinitely across days.
 - Updated API `today` fetch writes to merge with existing in-window rows (instead of blind overwrite) so previously fetched tomorrow rows are preserved during same-day retries.
 - Constrained Status-tab plots (all sources: `manual` and `api`) to the same local `current day + next day` window via optional plot-helper x-window filtering.

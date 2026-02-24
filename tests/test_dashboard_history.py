@@ -66,7 +66,10 @@ class DashboardHistoryTests(unittest.TestCase):
 
     def test_clamp_epoch_range_defaults_and_clamps(self):
         self.assertEqual(clamp_epoch_range(None, 100, 200), [100, 200])
+        self.assertEqual(clamp_epoch_range([0, 1], 100, 200), [100, 200])
         self.assertEqual(clamp_epoch_range([90, 210], 100, 200), [100, 200])
+        self.assertEqual(clamp_epoch_range([300, 400], 100, 200), [100, 200])
+        self.assertEqual(clamp_epoch_range([150, 250], 100, 200), [150, 200])
         self.assertEqual(clamp_epoch_range([180, 120], 100, 200), [120, 180])
         self.assertEqual(clamp_epoch_range(["bad", 200], 100, 200), [100, 200])
 

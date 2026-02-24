@@ -104,6 +104,11 @@ def clamp_epoch_range(selected, domain_min, domain_max):
     except (TypeError, ValueError):
         return [lo, hi]
 
+    # Treat fully out-of-domain selections as stale placeholders (for example
+    # the layout's initial [0, 1] before real history bounds are known).
+    if (a < lo and b < lo) or (a > hi and b > hi):
+        return [lo, hi]
+
     start = max(lo, min(a, hi))
     end = max(lo, min(b, hi))
     if start > end:

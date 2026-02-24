@@ -110,6 +110,8 @@ Per-plant config includes:
 - Plot styling in `dashboard_agent.py` uses shared figure-theme helpers for consistent axes/grid/legend presentation without altering control callbacks.
 - Historical `Plots` tab reuses the same figure helper/theme as Status plots for visual consistency; PNG downloads use client-side Plotly export (`window.Plotly.downloadImage`) and do not require `kaleido`.
 - Status-tab figures call the same helper with an explicit local `today..day+2` x-window so live plots remain focused on immediate context while preserving historical browsing in `Plots`.
+- Historical `Plots` tab range selection is resilient to stale/default slider values: helper clamping treats fully out-of-domain selections (including the layout placeholder `[0, 1]`) as invalid and restores full discovered history span.
+- Historical `Plots` tab availability timeline (`LIB`/`VRFB`) is intentionally compacted (reduced figure height/margins, lower legend placement) to minimize vertical whitespace.
 - Current operator-requested theme constraints:
   - white page background,
   - flatter surfaces with minimal corner radius,

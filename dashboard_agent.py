@@ -290,8 +290,8 @@ def dashboard_agent(config, shared_data):
         apply_figure_theme(
             fig,
             plot_theme,
-            height=240,
-            margin=dict(l=40, r=20, t=40, b=30),
+            height=160,
+            margin=dict(l=40, r=20, t=28, b=22),
             uirevision="plots-timeline-empty",
             showlegend=False,
         )
@@ -352,11 +352,11 @@ def dashboard_agent(config, shared_data):
         apply_figure_theme(
             fig,
             plot_theme,
-            height=240,
-            margin=dict(l=50, r=20, t=40, b=30),
+            height=160,
+            margin=dict(l=50, r=20, t=28, b=22),
             uirevision="plots-timeline",
             showlegend=True,
-            legend_y=1.12,
+            legend_y=1.04,
         )
         fig.update_xaxes(title_text="Time")
         fig.update_yaxes(title_text="")

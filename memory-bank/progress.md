@@ -27,6 +27,8 @@
 - global source/transport switching with confirmation and safe-stop,
 - `Status` tab (formerly `Status & Plots`) live status + control plots,
 - `Plots` tab historical measurement browsing from `data/*.csv` with full-range timeline + range slider,
+- `Plots` tab range slider now defaults to the full detected history span when the current value is a stale/placeholder out-of-domain range (avoids first-load collapsed selection),
+- compacted `Plots` tab availability timeline (`LIB`/`VRFB`) to reduce vertical whitespace while preserving the top-range overview,
 - per-plant historical exports (cropped CSV and client-side PNG),
 - API-tab runtime posting toggle (`Enabled`/`Disabled`) for read-only tests,
 - API status and posting health, including inline today/tomorrow per-plant fetch counts in Status tab,
@@ -38,6 +40,7 @@
 - unit/smoke regression suite (`python -m unittest discover -s tests -v`),
 - CI execution via `.github/workflows/ci.yml`.
  - targeted historical-plots helper unit tests in `tests/test_dashboard_history.py` (environment-dependent on local pandas install).
+ - `tests/test_dashboard_history.py` now explicitly covers stale-placeholder and fully out-of-domain slider-range defaulting semantics.
  - targeted measurement compression regressions covering keep-gap retention and last-kept-row drift prevention.
  - targeted config-loader regressions covering shared startup SoC parsing and legacy alias mapping.
  - targeted config-loader regression coverage for `tomorrow_poll_start_time` normalization and legacy `poll_start_time` rejection.
