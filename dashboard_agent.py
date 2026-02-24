@@ -1424,7 +1424,7 @@ def dashboard_agent(config, shared_data):
     def run_app():
         app.run(debug=False, threaded=True)
 
-    thread = threading.Thread(target=run_app, daemon=True)
+    thread = threading.Thread(host="0.0.0.0", port="8050", target=run_app, daemon=True)
     thread.start()
 
     while not shared_data["shutdown_event"].is_set():
