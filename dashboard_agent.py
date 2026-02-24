@@ -1422,9 +1422,9 @@ def dashboard_agent(config, shared_data):
             return [html.Div(message, className="logs-error")], f"Error: {selected}"
 
     def run_app():
-        app.run(debug=False, threaded=True)
+        app.run(host="0.0.0.0", port="8050", debug=False, threaded=True)
 
-    thread = threading.Thread(host="0.0.0.0", port="8050", target=run_app, daemon=True)
+    thread = threading.Thread(target=run_app, daemon=True)
     thread.start()
 
     while not shared_data["shutdown_event"].is_set():
