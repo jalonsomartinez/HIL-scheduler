@@ -3,8 +3,10 @@
 ## Current Focus (Now)
 1. Keep memory bank and audit artifacts aligned with the current dual-plant runtime and refactor outcomes.
 2. Maintain robust plant control safety (per-plant transitions, guarded global switches, and confirmation-gated fleet actions).
-3. Stabilize and validate the new historical `Plots` tab (timeline/range browsing + CSV/PNG exports) against real operator datasets.
-4. Keep reliability guardrails green via automated regression tests and CI enforcement, including measurement compression and posting-gate semantics.
+3. Stabilize and validate dashboard time-window semantics:
+ - Status tab should show only immediate context (current day + next day),
+ - Plots tab remains the path for historical inspection.
+4. Keep reliability guardrails green via automated regression tests and CI enforcement, including measurement compression, posting-gate semantics, and schedule-window pruning behavior.
 5. Prepare follow-up hardening for remaining high-risk paths (dashboard synchronous Modbus polling, posting durability, remote smoke coverage).
 
 ## Open Decisions and Risks
@@ -20,6 +22,12 @@
 ## Rolling Change Log (Compressed, 30-Day Window)
 
 ### 2026-02-24
+- Bounded API schedule runtime retention in `data_fetcher_agent.py` to the local calendar window `[today 00:00, day+2 00:00)` so `api_schedule_df_by_plant` no longer grows indefinitely across days.
+- Updated API `today` fetch writes to merge with existing in-window rows (instead of blind overwrite) so previously fetched tomorrow rows are preserved during same-day retries.
+- Constrained Status-tab plots (all sources: `manual` and `api`) to the same local `current day + next day` window via optional plot-helper x-window filtering.
+- Added regression coverage for:
+  - API schedule pruning/retention and bounded tomorrow merges in `tests/test_data_fetcher_agent.py`,
+  - plot-helper schedule/measurement x-window cropping and boundary semantics in `tests/test_dashboard_plotting.py`.
 - Added local-mode plant-start SoC restore from persisted measurements:
   - dashboard start flow now looks up the latest on-disk non-null `soc_pu` for the target plant from `data/YYYYMMDD_<plant>.csv`,
   - falls back to `STARTUP_INITIAL_SOC_PU` when no persisted SoC is available,

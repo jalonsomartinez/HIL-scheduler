@@ -148,9 +148,11 @@ shared_data = {
 ### API Schedule Fetching and Day Rollover
 - `data_fetcher_agent.py` always attempts `today` day-ahead fetch when `data_fetcher_status.today_fetched` is false (no time-of-day gate).
 - `tomorrow` day-ahead fetch attempts are gated by normalized config key `ISTENTORE_TOMORROW_POLL_START_TIME` (local configured timezone wall-clock).
+- `api_schedule_df_by_plant` retention is bounded to the local calendar window `[today 00:00, day+2 00:00)` to prevent indefinite growth across long-running sessions.
 - Fetcher logs include explicit request purpose (`today`/`tomorrow`), local request window, and trigger reason to support operator troubleshooting.
 - Next-day gate visibility is logged on state transitions (`waiting` -> `eligible`) per target `tomorrow_date` to avoid log spam.
 - Partial API windows (one plant missing data) are still published into `api_schedule_df_by_plant` for available plants, but `*_fetched` remains false and `data_fetcher_status.error` is set to a window-specific incomplete-data message so retries continue and the dashboard shows the issue.
+- `today` refetch writes merge into existing in-window API rows so already-fetched tomorrow rows are preserved until replaced or pruned out of the retention window.
 - Day rollover reconciliation may promote a previously fetched `tomorrow` status window into `today` status if dates align; the new `tomorrow` window status is reset.
 
 ### Measurement Triggering and Persistence
@@ -206,6 +208,7 @@ shared_data = {
 ### Dashboard Status Summary Pattern
 - Status tab inline API summary shows connectivity plus per-plant fetched-point counts for both `today` and `tomorrow` windows.
 - This status line is intended as quick fetch-health visibility without requiring navigation to API tab.
+- Status tab plots are display-cropped to local `current day + next day` for both `manual` and `api` sources; this is a UI-only crop for manual schedules (manual future rows remain available for later dispatch).
 
 ### Dashboard Historical Plots Pattern
 - `Plots` tab scans `data/*.csv` on a slower dedicated interval (separate from the main 1s UI refresh interval).

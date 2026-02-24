@@ -36,6 +36,7 @@ The system closes the operational gap between market/control schedules and plant
 - API tab shows fetch status (today/tomorrow) plus measurement posting telemetry.
 - API tab includes a runtime posting toggle (`Enabled`/`Disabled`) for session-scoped read-only testing.
 - Status tab (renamed from `Status & Plots`) keeps inline API summary with today/tomorrow fetched-point counts for both plants.
+- Status tab live plots are intentionally limited to immediate context (local current day + next day) for both schedule and measurements.
 - Plots tab provides historical measurement browsing from `data/*.csv` with a full-range timeline, range slider, and per-plant CSV/PNG exports.
 - Logs tab exposes a live `Today` view (tail of the current date log file) and selectable historical log files.
 
@@ -45,6 +46,7 @@ The system closes the operational gap between market/control schedules and plant
 3. Safe confirmation flows before global source/transport changes.
 4. Stable plot interactions during periodic refresh.
 5. Historical browsing controls should preserve context (range selection) while new files appear.
+6. Status-tab plots should avoid long-running-session clutter and present only the immediate past/future operating window.
 
 ## Critical Workflows
 ### Start Plant Dispatch

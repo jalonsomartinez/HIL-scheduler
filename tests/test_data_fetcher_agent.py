@@ -113,6 +113,19 @@ def _build_shared_data(now_value, *, today_fetched=False, tomorrow_fetched=False
     }
 
 
+def _schedule_df(*timestamps):
+    rows = []
+    for idx, ts in enumerate(timestamps, start=1):
+        rows.append(
+            {
+                "datetime": ts,
+                "power_setpoint_kw": float(idx),
+                "reactive_power_setpoint_kvar": 0.0,
+            }
+        )
+    return pd.DataFrame(rows).set_index("datetime").sort_index()
+
+
 class _StopAfterPollSleep:
     def __init__(self, shutdown_event):
         self.shutdown_event = shutdown_event
@@ -264,6 +277,109 @@ class DataFetcherAgentTests(unittest.TestCase):
         self.assertEqual(status["tomorrow_points"], 0)
         self.assertEqual(status["today_date"], "2026-02-23")
         self.assertEqual(status["tomorrow_date"], "2026-02-24")
+
+    def test_prunes_api_schedule_frames_to_current_and_next_day_window(self):
+        tz = ZoneInfo("Europe/Madrid")
+        now_value = datetime(2026, 2, 23, 12, 0, tzinfo=tz)
+        config = _build_config(tomorrow_poll_start_time="09:00")
+        shared_data = _build_shared_data(now_value, today_fetched=True, tomorrow_fetched=True)
+
+        today_start = now_value.replace(hour=0, minute=0, second=0, microsecond=0)
+        tomorrow_start = today_start + timedelta(days=1)
+        window_end = today_start + timedelta(days=2)
+        seed_df = _schedule_df(
+            today_start - timedelta(minutes=15),
+            today_start,
+            tomorrow_start + timedelta(minutes=15),
+            window_end,
+        )
+
+        with shared_data["lock"]:
+            shared_data["api_schedule_df_by_plant"] = {"lib": seed_df.copy(), "vrfb": seed_df.copy()}
+
+        self._run_once(now_value, config, shared_data)
+
+        with shared_data["lock"]:
+            lib_df = shared_data["api_schedule_df_by_plant"]["lib"].copy()
+            vrfb_df = shared_data["api_schedule_df_by_plant"]["vrfb"].copy()
+
+        for df in (lib_df, vrfb_df):
+            self.assertEqual(len(df), 2)
+            self.assertTrue((df.index >= today_start).all())
+            self.assertTrue((df.index < window_end).all())
+            self.assertNotIn(window_end, set(df.index))
+
+    def test_today_refetch_preserves_existing_tomorrow_rows_in_window(self):
+        tz = ZoneInfo("Europe/Madrid")
+        now_value = datetime(2026, 2, 23, 8, 0, tzinfo=tz)
+        config = _build_config(tomorrow_poll_start_time="09:00")
+        shared_data = _build_shared_data(now_value, today_fetched=False, tomorrow_fetched=True)
+
+        today_start = now_value.replace(hour=0, minute=0, second=0, microsecond=0)
+        tomorrow_start = today_start + timedelta(days=1)
+        with shared_data["lock"]:
+            shared_data["api_schedule_df_by_plant"] = {
+                "lib": _schedule_df(tomorrow_start + timedelta(minutes=30)),
+                "vrfb": _schedule_df(tomorrow_start + timedelta(minutes=45)),
+            }
+
+        _FakeIstentoreAPI.responses = [_full_schedule_for_day(today_start)]
+        self._run_once(now_value, config, shared_data)
+
+        with shared_data["lock"]:
+            lib_df = shared_data["api_schedule_df_by_plant"]["lib"].copy()
+            vrfb_df = shared_data["api_schedule_df_by_plant"]["vrfb"].copy()
+
+        self.assertEqual(len(_FakeIstentoreAPI.calls), 1)
+        self.assertEqual(len(lib_df), 2)
+        self.assertEqual(len(vrfb_df), 2)
+        self.assertTrue(any(ts.date() == tomorrow_start.date() for ts in lib_df.index))
+        self.assertTrue(any(ts.date() == tomorrow_start.date() for ts in vrfb_df.index))
+
+    def test_tomorrow_fetch_merge_remains_bounded_on_repeated_runs(self):
+        tz = ZoneInfo("Europe/Madrid")
+        now_value = datetime(2026, 2, 23, 10, 0, tzinfo=tz)
+        config = _build_config(tomorrow_poll_start_time="09:00")
+        shared_data = _build_shared_data(now_value, today_fetched=True, tomorrow_fetched=False)
+
+        today_start = now_value.replace(hour=0, minute=0, second=0, microsecond=0)
+        tomorrow_start = today_start + timedelta(days=1)
+        window_end = today_start + timedelta(days=2)
+        with shared_data["lock"]:
+            shared_data["api_schedule_df_by_plant"] = {
+                "lib": _schedule_df(
+                    today_start - timedelta(minutes=15),
+                    today_start + timedelta(minutes=15),
+                    window_end + timedelta(minutes=15),
+                ),
+                "vrfb": _schedule_df(
+                    today_start - timedelta(minutes=30),
+                    today_start + timedelta(minutes=30),
+                    window_end + timedelta(minutes=30),
+                ),
+            }
+
+        _FakeIstentoreAPI.responses = [_full_schedule_for_day(tomorrow_start)]
+        self._run_once(now_value, config, shared_data)
+
+        with shared_data["lock"]:
+            first_lib_df = shared_data["api_schedule_df_by_plant"]["lib"].copy()
+            first_vrfb_df = shared_data["api_schedule_df_by_plant"]["vrfb"].copy()
+            shared_data["shutdown_event"].clear()
+            shared_data["data_fetcher_status"]["tomorrow_fetched"] = False
+
+        _FakeIstentoreAPI.responses = [_full_schedule_for_day(tomorrow_start)]
+        self._run_once(now_value, config, shared_data)
+
+        with shared_data["lock"]:
+            second_lib_df = shared_data["api_schedule_df_by_plant"]["lib"].copy()
+            second_vrfb_df = shared_data["api_schedule_df_by_plant"]["vrfb"].copy()
+
+        for first_df, second_df in ((first_lib_df, second_lib_df), (first_vrfb_df, second_vrfb_df)):
+            self.assertEqual(len(first_df), len(second_df))
+            self.assertTrue((second_df.index >= today_start).all())
+            self.assertTrue((second_df.index < window_end).all())
+            self.assertNotIn(window_end, set(second_df.index))
 
 
 if __name__ == "__main__":

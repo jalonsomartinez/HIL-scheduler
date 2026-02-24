@@ -1219,6 +1219,10 @@ def dashboard_agent(config, shared_data):
         if status.get("error"):
             api_inline += f" | Error: {status.get('error')}"
 
+        status_now = now_tz(config)
+        status_window_start = status_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        status_window_end = status_window_start + timedelta(days=2)
+
         def plant_status_text(plant_id):
             enable_state = enable_state_by_plant.get(plant_id)
             running = bool(scheduler_running.get(plant_id, False))
@@ -1242,6 +1246,8 @@ def dashboard_agent(config, shared_data):
             tz=tz,
             plot_theme=plot_theme,
             trace_colors=trace_colors,
+            x_window_start=status_window_start,
+            x_window_end=status_window_end,
         )
         vrfb_fig = create_plant_figure(
             "vrfb",
@@ -1252,6 +1258,8 @@ def dashboard_agent(config, shared_data):
             tz=tz,
             plot_theme=plot_theme,
             trace_colors=trace_colors,
+            x_window_start=status_window_start,
+            x_window_end=status_window_end,
         )
 
         lib_controls = get_plant_control_labels_and_disabled(

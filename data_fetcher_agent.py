@@ -5,9 +5,9 @@ from datetime import timedelta
 import pandas as pd
 
 from istentore_api import AuthenticationError, IstentoreAPI
-from schedule_runtime import merge_schedule_frames
+from schedule_runtime import crop_schedule_frame_to_window, merge_schedule_frames
 from shared_state import mutate_locked, snapshot_locked
-from time_utils import now_tz
+from time_utils import get_config_tz, now_tz
 
 
 def _empty_points_by_plant(plant_ids):
@@ -96,6 +96,27 @@ def _reconcile_day_status(shared_data, today_date, tomorrow_date, plant_ids):
         _update_status(shared_data, **updates)
 
 
+def _prune_api_schedule_frames_to_window(shared_data, plant_ids, tz, window_start, window_end):
+    existing_map = snapshot_locked(
+        shared_data,
+        lambda data: {
+            plant_id: data.get("api_schedule_df_by_plant", {}).get(plant_id, pd.DataFrame()).copy()
+            for plant_id in plant_ids
+        },
+    )
+    pruned_map = {
+        plant_id: crop_schedule_frame_to_window(existing_map.get(plant_id), tz, window_start, window_end)
+        for plant_id in plant_ids
+    }
+
+    def _write_pruned(data):
+        schedule_map = data.setdefault("api_schedule_df_by_plant", {})
+        for plant_id in plant_ids:
+            schedule_map[plant_id] = pruned_map[plant_id]
+
+    mutate_locked(shared_data, _write_pruned)
+
+
 def _extract_points_by_plant(schedule_df_by_plant, plant_ids):
     points = {}
     for plant_id in plant_ids:
@@ -116,6 +137,7 @@ def data_fetcher_agent(config, shared_data):
     )
     poll_interval_s = float(config.get("DATA_FETCHER_PERIOD_S", 120))
     error_backoff_s = 30
+    tz = get_config_tz(config)
 
     api = None
     password_checked = False
@@ -159,10 +181,12 @@ def data_fetcher_agent(config, shared_data):
             today_end = today_start + timedelta(days=1) - timedelta(minutes=15)
             tomorrow_start = today_start + timedelta(days=1)
             tomorrow_end = tomorrow_start + timedelta(days=1) - timedelta(minutes=15)
+            retention_window_end = today_start + timedelta(days=2)
             today_date = today_start.date().isoformat()
             tomorrow_date = tomorrow_start.date().isoformat()
 
             _reconcile_day_status(shared_data, today_date, tomorrow_date, plant_ids)
+            _prune_api_schedule_frames_to_window(shared_data, plant_ids, tz, today_start, retention_window_end)
 
             status = snapshot_locked(shared_data, lambda data: data.get("data_fetcher_status", {}).copy())
             today_fetched = bool(status.get("today_fetched", False))
@@ -182,6 +206,22 @@ def data_fetcher_agent(config, shared_data):
                         plant_id: api.schedule_to_dataframe(schedules.get(plant_id, {}))
                         for plant_id in plant_ids
                     }
+                    existing_map = snapshot_locked(
+                        shared_data,
+                        lambda data: {
+                            plant_id: data.get("api_schedule_df_by_plant", {}).get(plant_id, pd.DataFrame())
+                            for plant_id in plant_ids
+                        },
+                    )
+                    merged = {
+                        plant_id: crop_schedule_frame_to_window(
+                            merge_schedule_frames(existing_map[plant_id], dfs[plant_id]),
+                            tz,
+                            today_start,
+                            retention_window_end,
+                        )
+                        for plant_id in plant_ids
+                    }
 
                     points_by_plant = _extract_points_by_plant(dfs, plant_ids)
                     total_points = sum(points_by_plant.values())
@@ -191,9 +231,10 @@ def data_fetcher_agent(config, shared_data):
                     def _write_today(data):
                         schedule_map = data.get("api_schedule_df_by_plant", {})
                         for plant_id in plant_ids:
-                            schedule_map[plant_id] = dfs[plant_id]
+                            schedule_map[plant_id] = merged[plant_id]
 
                     mutate_locked(shared_data, _write_today)
+                    _prune_api_schedule_frames_to_window(shared_data, plant_ids, tz, today_start, retention_window_end)
 
                     _update_status(
                         shared_data,
@@ -275,7 +316,12 @@ def data_fetcher_agent(config, shared_data):
                     )
 
                     merged = {
-                        plant_id: merge_schedule_frames(existing_map[plant_id], new_dfs[plant_id])
+                        plant_id: crop_schedule_frame_to_window(
+                            merge_schedule_frames(existing_map[plant_id], new_dfs[plant_id]),
+                            tz,
+                            today_start,
+                            retention_window_end,
+                        )
                         for plant_id in plant_ids
                     }
 
@@ -285,6 +331,7 @@ def data_fetcher_agent(config, shared_data):
                             schedule_map[plant_id] = merged[plant_id]
 
                     mutate_locked(shared_data, _write_tomorrow)
+                    _prune_api_schedule_frames_to_window(shared_data, plant_ids, tz, today_start, retention_window_end)
 
                     points_by_plant = _extract_points_by_plant(new_dfs, plant_ids)
                     total_points = sum(points_by_plant.values())

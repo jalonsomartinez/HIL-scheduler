@@ -82,6 +82,8 @@ def create_plant_figure(
     tz,
     plot_theme,
     trace_colors,
+    x_window_start=None,
+    x_window_end=None,
 ):
     fig = make_subplots(
         rows=3,
@@ -96,10 +98,19 @@ def create_plant_figure(
     )
 
     if schedule_df is not None and not schedule_df.empty:
+        schedule_plot_df = schedule_df
+        if x_window_start is not None:
+            schedule_plot_df = schedule_plot_df.loc[schedule_plot_df.index >= x_window_start]
+        if x_window_end is not None:
+            schedule_plot_df = schedule_plot_df.loc[schedule_plot_df.index < x_window_end]
+    else:
+        schedule_plot_df = None
+
+    if schedule_plot_df is not None and not schedule_plot_df.empty:
         fig.add_trace(
             go.Scatter(
-                x=schedule_df.index,
-                y=schedule_df.get("power_setpoint_kw", []),
+                x=schedule_plot_df.index,
+                y=schedule_plot_df.get("power_setpoint_kw", []),
                 mode="lines",
                 line_shape="hv",
                 name=f"{plant_name_fn(plant_id)} P Setpoint",
@@ -109,11 +120,11 @@ def create_plant_figure(
             col=1,
         )
 
-        if "reactive_power_setpoint_kvar" in schedule_df.columns:
+        if "reactive_power_setpoint_kvar" in schedule_plot_df.columns:
             fig.add_trace(
                 go.Scatter(
-                    x=schedule_df.index,
-                    y=schedule_df["reactive_power_setpoint_kvar"],
+                    x=schedule_plot_df.index,
+                    y=schedule_plot_df["reactive_power_setpoint_kvar"],
                     mode="lines",
                     line_shape="hv",
                     name=f"{plant_name_fn(plant_id)} Q Setpoint",
@@ -130,6 +141,11 @@ def create_plant_figure(
             df = df.dropna(subset=["datetime"])
         else:
             df["datetime"] = []
+
+        if x_window_start is not None:
+            df = df.loc[df["datetime"] >= x_window_start]
+        if x_window_end is not None:
+            df = df.loc[df["datetime"] < x_window_end]
 
         if not df.empty:
             fig.add_trace(

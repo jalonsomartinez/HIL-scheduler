@@ -5,6 +5,7 @@
 2. Scheduler dispatches per plant from manual or API maps and applies API stale-setpoint guardrails.
  - Normalized plant Modbus endpoints now expose required connection ordering (`byte_order`, `word_order`) plus structured holding-register `points` metadata (address/format/access/unit/scale).
  - Scheduler/measurement/dashboard/local-emulation Modbus I/O uses shared codec helpers (`modbus_codec.py`) instead of ad-hoc scaling/bit conversions.
+ - API schedule runtime maps are now pruned to local `current day + next day` retention in the fetcher to prevent unbounded growth across day rollovers.
 3. Local emulation runs both plant Modbus servers concurrently with SoC and power-limit behavior.
  - Local emulation startup SoC is configured once via `startup.initial_soc_pu` and applied to both plants.
  - On local plant start, dashboard now attempts to seed emulator SoC from the latest persisted on-disk measurement (`soc_pu`) for that plant, with fallback to `startup.initial_soc_pu`.
@@ -29,6 +30,7 @@
 - per-plant historical exports (cropped CSV and client-side PNG),
 - API-tab runtime posting toggle (`Enabled`/`Disabled`) for read-only tests,
 - API status and posting health, including inline today/tomorrow per-plant fetch counts in Status tab,
+- Status-tab plots intentionally show only local current-day + next-day schedule/measurement data (immediate context); historical inspection stays on `Plots`,
 - logs tab with live `Today` (current date file tail) and selectable historical files,
 - branded UI theme (tokenized CSS, local font assets, flatter visual treatment, minimal corner radius, menu-style tab strip, full-width tab content cards, white page background).
 6. Automated validation now includes:
@@ -40,6 +42,8 @@
  - targeted config-loader regressions covering shared startup SoC parsing and legacy alias mapping.
  - targeted config-loader regression coverage for `tomorrow_poll_start_time` normalization and legacy `poll_start_time` rejection.
  - targeted data fetcher regression coverage for next-day gate timing, partial/complete tomorrow fetch status, and rollover promotion (environment-dependent on local pandas install).
+ - targeted data fetcher regression coverage for API schedule pruning/retention and bounded tomorrow merges.
+ - targeted plot-helper regression coverage for status-window x-range cropping in `tests/test_dashboard_plotting.py` (environment-dependent on local pandas install).
  - compression-gap config-loader regression now validates schema/typing (not a fixed `max_kept_gap_s` value) so config tuning does not cause CI failures.
  - targeted measurement-storage SoC lookup regressions (`tests/test_measurement_storage_latest_soc.py`) and plant-agent local SoC seed request regressions (`tests/test_plant_agent_soc_seed_requests.py`).
 7. Dashboard control flow is now separated into `dashboard_control.py` with dedicated tests for safe-stop and global switch semantics.

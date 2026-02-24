@@ -16,6 +16,19 @@ def merge_schedule_frames(existing_df, new_df):
     return pd.concat([existing_df.loc[non_overlapping], new_df]).sort_index()
 
 
+def crop_schedule_frame_to_window(schedule_df, tz, start_ts, end_ts):
+    """Return a normalized schedule frame filtered to [start_ts, end_ts)."""
+    normalized_df = normalize_schedule_index(schedule_df, tz)
+    if normalized_df.empty:
+        return normalized_df
+
+    if start_ts is not None:
+        normalized_df = normalized_df.loc[normalized_df.index >= pd.Timestamp(start_ts)]
+    if end_ts is not None:
+        normalized_df = normalized_df.loc[normalized_df.index < pd.Timestamp(end_ts)]
+    return normalized_df
+
+
 def resolve_schedule_setpoint(
     schedule_df,
     now_value,
