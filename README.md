@@ -20,6 +20,11 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
+In Beaglebone Black, it was needed to install the following packages:
+```bash
+sudo apt-get update
+sudo apt-get install libopenblas-dev
+```
 
 ## Configuration
 Edit `config.yaml` as needed:
