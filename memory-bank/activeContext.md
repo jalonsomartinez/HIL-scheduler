@@ -21,11 +21,23 @@
 8. Historical plots tab currently rescans and reloads CSV files on demand; performance may degrade with very large `data/` directories.
 9. Transition UX now combines immediate click-feedback overlay + server/runtime transition state + Modbus confirmation; hold-window tuning may need additional operator validation across remote latency conditions.
 10. Modbus error strings are now surfaced to operators; message wording/aggregation may need refinement to avoid noisy UI on unstable links.
-11. API connection runtime `Error` state is currently derived in dashboard rendering from fetch/post telemetry plus connection intent; deeper runtime-agent synchronization into `api_connection_runtime` may be refined later.
+11. Manual schedule editor drafts are stored in shared runtime state (`manual_schedule_draft_series_df_by_key`), so concurrent dashboard sessions can overwrite each other's draft edits (per-session isolation deferred; single-operator assumption currently accepted).
 
 ## Rolling Change Log (Compressed, 30-Day Window)
 
 ### 2026-02-25
+- Strengthened API runtime state authority and engine helper de-dup:
+  - added `api_runtime_state.py` to centralize `api_connection_runtime` normalization/recompute and sub-health publication (`fetch_health`, `posting_health`),
+  - `settings_engine_agent.py` now publishes connect/disconnect transitions and probe results through the shared API runtime helper,
+  - `data_fetcher_agent.py` publishes fetch health (`ok` / `error` / `disabled`) into `api_connection_runtime.fetch_health`,
+  - `measurement_agent.py` publishes posting health (`ok` / `error` / `idle` / `disabled`) into `api_connection_runtime.posting_health`,
+  - dashboard API controls/status rendering now uses authoritative `api_connection_runtime.state` / `last_error` only (no dashboard-derived API `Error` state).
+- Reduced engine status duplication:
+  - added `engine_status_runtime.py` and refactored `control_engine_agent.py` + `settings_engine_agent.py` to reuse shared queue/active-command/failed-recent status publishing helpers.
+- Added regression coverage for:
+  - `api_runtime_state.py` state recompute/transition/error-clearing semantics,
+  - `engine_status_runtime.py` queue metrics + active-command metadata,
+  - fetcher/measurement/settings/shared-state tests updated for nested API sub-health runtime contract.
 - Implemented second-pass UI separation for settings/manual/API paths:
   - added `settings_engine_agent.py` + `settings_command_runtime.py` with separate FIFO settings queue and command lifecycle tracking (`settings_command_*` keys),
   - added server-owned runtime state for manual series activation (`manual_series_runtime_state_by_key`), API connection (`api_connection_runtime`), and posting policy (`posting_runtime`),

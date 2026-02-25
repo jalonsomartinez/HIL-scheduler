@@ -32,6 +32,7 @@ Increase reliability and operator confidence without changing the core dual-plan
 4. Plan final removal of deprecated legacy compatibility paths (`schedule_manager.py`, alias fallback flag) after external dependency check.
 5. Decide whether to ship an optional offline utility for historical CSV recompression.
 6. Evaluate queue topology evolution (global FIFO vs per-plant queues with global command barriers) after collecting operator observations from control-queue/health UI and new settings-queue behavior.
+7. Decide whether to move manual editor drafts from shared runtime state to per-session `dcc.Store` if multi-operator dashboard usage becomes a requirement.
 
 ### P3 - Product Enhancements
 1. Expand manual override editor validation feedback/diagnostics (without reintroducing UI clutter).

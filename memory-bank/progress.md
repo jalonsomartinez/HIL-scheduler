@@ -49,6 +49,7 @@
 - manual per-series plots overlay staged editor schedule and applied server schedule for resend/update visibility,
 - relative-row manual override CSV save/load (`hours, minutes, seconds, setpoint`) with first-row `00:00:00` validation,
 - API tab now uses command-driven `Connect` / `Disconnect` and posting enable/disable transitions (settings engine), with API connection state decoupled from password storage and posting policy shown separately from effective posting status; connect/disconnect buttons show terminal labels `Connected` / `Disconnected`,
+- API connection runtime `Error` state is now runtime-owned and published from agent health (`fetch_health` + `posting_health`) into `api_connection_runtime`; dashboard renders API state/error directly from that runtime contract,
 - API status and posting health, including inline today/tomorrow per-plant fetch counts in Status tab,
 - Status-tab plots intentionally show only local current-day + next-day schedule/measurement data (immediate context) and now render the merged effective schedule; historical inspection stays on `Plots`,
 - logs tab with live `Today` (current date file tail) and selectable historical files,
@@ -96,7 +97,7 @@
 ## Known Issues / Gaps
 1. No persistent store for API posting retry queue across process restarts.
 2. Control-engine queue is serial and bounded; long-running stop/transport commands can delay later commands. UI now surfaces backlog/failure counts, and settings commands use a separate queue, but there is no dedicated alert/escalation behavior yet.
-3. API runtime `Error` display is currently derived from fetch/post telemetry and connection intent in dashboard rendering; runtime-agent synchronization into `api_connection_runtime` can be strengthened.
+3. Manual schedule editor drafts are stored in shared runtime state (`manual_schedule_draft_series_df_by_key`), so concurrent dashboard sessions can conflict (single-operator assumption currently accepted; per-session isolation deferred).
 4. Operational runbook and incident handling guidance are still thin.
 5. UI styling changes are still validated manually; no screenshot/DOM snapshot checks in CI.
 6. `schedule_manager.py` remains in repository for legacy compatibility only and is intentionally deprecated.

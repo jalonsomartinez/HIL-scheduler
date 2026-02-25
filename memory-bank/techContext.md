@@ -15,6 +15,8 @@
 - `control_command_runtime.py`: shared-state command queue/lifecycle bookkeeping helpers (ID allocation, queued/running/terminal status updates, bounded history).
 - `settings_engine_agent.py`: serial settings command execution engine for manual activation/update/inactivation, API connect/disconnect, and posting policy commands.
 - `settings_command_runtime.py`: settings-engine command queue/lifecycle bookkeeping wrappers (same shared helper pattern as control commands).
+- `api_runtime_state.py`: shared API connection runtime-state publisher/recompute helpers (connect intent/state + fetch/posting sub-health -> authoritative API state).
+- `engine_status_runtime.py`: shared engine queue/command-status summary publisher helpers reused by control and settings engines.
 - `dashboard_command_intents.py`: pure dashboard trigger->command intent mapping helpers for UI callbacks.
 - `dashboard_settings_intents.py`: pure dashboard trigger->settings-command mapping helpers (manual/API/posting).
 - `dashboard_settings_ui_state.py`: pure UI transition/button-state helpers for manual/API/posting commanded resources.
@@ -152,7 +154,9 @@ Per-plant config includes:
 - Dashboard status controls now depend on control-engine observed-state cache freshness (`stale` marker) rather than direct Modbus reads; stale cache displays `Unknown` for Modbus enable.
 - Dashboard Status tab health lines are server-published-state-only (control engine + observed-state cache) and include queue/backlog and per-plant Modbus reachability/read-error diagnostics.
 - Manual schedule editor persists draft series in dashboard-owned runtime draft maps; scheduler dispatch uses server-applied manual series activated through settings commands.
+- Manual draft maps are shared across dashboard sessions (single-operator assumption in current runtime; per-session draft isolation deferred).
 - API connect/disconnect is no longer equivalent to setting/clearing `api_password`; password storage and connection runtime state are separate.
+- `api_connection_runtime.state` (including `error`) is now runtime-owned and recomputed from command transitions plus `fetch_health` / `posting_health`; dashboard API UI renders this state directly.
 - Measurement posting queue is in-memory only; it does not persist across restarts.
 - Measurement compression applies only to new runtime writes; no automatic backfill is performed for historical dense CSV files.
 - Historical plots tab reads `data/*.csv` directly on demand; large datasets may increase dashboard callback latency because there is no persistent history index/cache yet.

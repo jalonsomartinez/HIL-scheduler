@@ -103,6 +103,13 @@ def _build_shared_data(now_value, *, today_fetched=False, tomorrow_fetched=False
         "lock": threading.Lock(),
         "shutdown_event": threading.Event(),
         "api_password": "pw",
+        "api_connection_runtime": {
+            "state": "connected",
+            "connected": True,
+            "desired_state": "connected",
+            "fetch_health": {"state": "unknown", "last_success": None, "last_error": None, "last_attempt": None},
+            "posting_health": {"state": "idle", "last_success": None, "last_error": None, "last_attempt": None},
+        },
         "data_fetcher_status": _status_seed(
             now_value,
             today_fetched=today_fetched,
@@ -172,8 +179,10 @@ class DataFetcherAgentTests(unittest.TestCase):
         self.assertIn("tomorrow poll gate waiting", joined)
         with shared_data["lock"]:
             status = dict(shared_data["data_fetcher_status"])
+            api_runtime = dict(shared_data["api_connection_runtime"])
         self.assertTrue(status["today_fetched"])
         self.assertFalse(status["tomorrow_fetched"])
+        self.assertEqual(api_runtime["fetch_health"]["state"], "ok")
 
     def test_tomorrow_fetch_does_not_run_before_gate(self):
         tz = ZoneInfo("Europe/Madrid")
@@ -186,6 +195,23 @@ class DataFetcherAgentTests(unittest.TestCase):
 
         self.assertEqual(len(_FakeIstentoreAPI.calls), 0)
         self.assertIn("tomorrow poll gate waiting", "\n".join(logs.output))
+
+    def test_intentional_disconnect_gate_skips_fetch_and_publishes_disabled_health(self):
+        tz = ZoneInfo("Europe/Madrid")
+        now_value = datetime(2026, 2, 23, 8, 30, tzinfo=tz)
+        config = _build_config(tomorrow_poll_start_time="9:00")
+        shared_data = _build_shared_data(now_value, today_fetched=False, tomorrow_fetched=False)
+        with shared_data["lock"]:
+            shared_data["api_connection_runtime"]["state"] = "disconnected"
+            shared_data["api_connection_runtime"]["connected"] = False
+            shared_data["api_connection_runtime"]["desired_state"] = "disconnected"
+
+        self._run_once(now_value, config, shared_data)
+
+        self.assertEqual(len(_FakeIstentoreAPI.calls), 0)
+        with shared_data["lock"]:
+            api_runtime = dict(shared_data["api_connection_runtime"])
+        self.assertEqual(api_runtime["fetch_health"]["state"], "disabled")
 
     def test_tomorrow_fetch_runs_at_or_after_gate_with_non_padded_time(self):
         tz = ZoneInfo("Europe/Madrid")
@@ -225,11 +251,13 @@ class DataFetcherAgentTests(unittest.TestCase):
             status = dict(shared_data["data_fetcher_status"])
             lib_df = shared_data["api_schedule_df_by_plant"]["lib"].copy()
             vrfb_df = shared_data["api_schedule_df_by_plant"]["vrfb"].copy()
+            api_runtime = dict(shared_data["api_connection_runtime"])
         self.assertFalse(status["tomorrow_fetched"])
         self.assertIn("Incomplete tomorrow day-ahead data", str(status.get("error")))
         self.assertIn("VRFB=0", str(status.get("error")))
         self.assertEqual(len(lib_df), 1)
         self.assertTrue(vrfb_df.empty)
+        self.assertEqual(api_runtime["fetch_health"]["state"], "error")
 
     def test_complete_tomorrow_fetch_clears_error(self):
         tz = ZoneInfo("Europe/Madrid")
@@ -243,8 +271,10 @@ class DataFetcherAgentTests(unittest.TestCase):
 
         with shared_data["lock"]:
             status = dict(shared_data["data_fetcher_status"])
+            api_runtime = dict(shared_data["api_connection_runtime"])
         self.assertTrue(status["tomorrow_fetched"])
         self.assertIsNone(status.get("error"))
+        self.assertEqual(api_runtime["fetch_health"]["state"], "ok")
 
     def test_rollover_promotes_previous_tomorrow_status_to_today(self):
         shared_data = {

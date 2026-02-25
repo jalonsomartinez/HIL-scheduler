@@ -96,10 +96,11 @@ The Status tab also reads server-published:
 - `Disconnect`: enqueues `api.disconnect` (intentionally disconnects without clearing stored password).
 - `Measurement Posting Enabled/Disabled`: enqueue `posting.enable` / `posting.disable` settings commands.
 
-Dashboard renders server-owned API/posting state and uses short optimistic transition feedback on buttons (`Connecting...`, `Disconnecting...`, `Enabling...`, `Disabling...`).
+Dashboard renders server-owned API/posting state (including authoritative API `Error` state published by runtime agents) and uses short optimistic transition feedback on buttons (`Connecting...`, `Disconnecting...`, `Enabling...`, `Disabling...`).
 
 ### Manual schedule actions
 - Editor load/save/edit remains dashboard-owned (draft series data).
+- Current implementation keeps manual drafts in shared runtime state (`manual_schedule_draft_series_df_by_key`), so drafts are shared across dashboard sessions (single-operator assumption).
 - Per-series `Activate` / `Inactivate` / `Update` now enqueue settings commands:
   - `manual.activate`
   - `manual.inactivate`

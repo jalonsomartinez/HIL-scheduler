@@ -119,6 +119,24 @@ class SharedStateContractTests(unittest.TestCase):
                 "failed_recent_count",
             }.issubset(shared_data["settings_engine_status"].keys())
         )
+        api_runtime = dict(shared_data["api_connection_runtime"])
+        self.assertTrue(
+            {
+                "state",
+                "connected",
+                "desired_state",
+                "last_command_id",
+                "last_error",
+                "last_updated",
+                "last_success",
+                "last_probe",
+                "disconnect_reason",
+                "fetch_health",
+                "posting_health",
+            }.issubset(api_runtime.keys())
+        )
+        self.assertTrue({"state", "last_success", "last_error", "last_attempt"}.issubset(api_runtime["fetch_health"].keys()))
+        self.assertTrue({"state", "last_success", "last_error", "last_attempt"}.issubset(api_runtime["posting_health"].keys()))
         self.assertIsInstance(shared_data["measurements_df"], pd.DataFrame)
 
     def test_build_initial_shared_data_normalizes_invalid_startup_values(self):

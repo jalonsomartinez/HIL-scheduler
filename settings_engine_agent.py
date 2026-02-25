@@ -6,6 +6,14 @@ import time
 
 import pandas as pd
 
+from api_runtime_state import (
+    complete_api_connect_probe,
+    complete_api_disconnect,
+    ensure_api_connection_runtime,
+    publish_api_posting_health,
+    set_api_connection_transition,
+)
+from engine_status_runtime import default_engine_status, update_engine_status
 import manual_schedule_manager as msm
 from istentore_api import IstentoreAPI
 from settings_command_runtime import (
@@ -21,20 +29,7 @@ SETTINGS_ENGINE_FAILED_RECENT_WINDOW = 20
 
 
 def _default_settings_engine_status():
-    return {
-        "alive": False,
-        "last_loop_start": None,
-        "last_loop_end": None,
-        "last_exception": None,
-        "active_command_id": None,
-        "active_command_kind": None,
-        "active_command_started_at": None,
-        "last_finished_command": None,
-        "queue_depth": 0,
-        "queued_count": 0,
-        "running_count": 0,
-        "failed_recent_count": 0,
-    }
+    return default_engine_status(include_last_observed_refresh=False)
 
 
 def _error_payload(now_value, code, message):
@@ -107,52 +102,22 @@ def _update_settings_engine_status(
 ):
     if now_value is None:
         now_value = pd.Timestamp.utcnow().to_pydatetime()
-    with shared_data["lock"]:
-        status = shared_data.setdefault("settings_engine_status", _default_settings_engine_status())
-        if set_alive is not None:
-            status["alive"] = bool(set_alive)
-        if last_loop_start is not None:
-            status["last_loop_start"] = last_loop_start
-        if last_loop_end is not None:
-            status["last_loop_end"] = last_loop_end
-        if last_exception is not None:
-            status["last_exception"] = last_exception
-        if last_finished_command is not None:
-            status["last_finished_command"] = last_finished_command
-
-        queue_obj = shared_data.get("settings_command_queue")
-        try:
-            status["queue_depth"] = int(queue_obj.qsize()) if queue_obj is not None else 0
-        except Exception:
-            status["queue_depth"] = 0
-
-        active_id = shared_data.get("settings_command_active_id")
-        status["active_command_id"] = active_id
-        status_by_id = shared_data.get("settings_command_status_by_id", {}) or {}
-        active_status = status_by_id.get(active_id) if active_id else None
-        status["active_command_kind"] = active_status.get("kind") if isinstance(active_status, dict) else None
-        status["active_command_started_at"] = active_status.get("started_at") if isinstance(active_status, dict) else None
-
-        queued_count = 0
-        running_count = 0
-        for cmd_status in status_by_id.values():
-            if not isinstance(cmd_status, dict):
-                continue
-            st = str(cmd_status.get("state") or "")
-            if st == "queued":
-                queued_count += 1
-            elif st == "running":
-                running_count += 1
-        history_ids = list(shared_data.get("settings_command_history_ids", []) or [])
-        failed_recent = 0
-        for cmd_id in history_ids[-SETTINGS_ENGINE_FAILED_RECENT_WINDOW:]:
-            cmd_status = status_by_id.get(cmd_id)
-            if isinstance(cmd_status, dict) and str(cmd_status.get("state") or "") in {"failed", "rejected"}:
-                failed_recent += 1
-        status["queued_count"] = queued_count
-        status["running_count"] = running_count
-        status["failed_recent_count"] = failed_recent
-        return dict(status)
+    return update_engine_status(
+        shared_data,
+        status_key="settings_engine_status",
+        queue_key="settings_command_queue",
+        status_by_id_key="settings_command_status_by_id",
+        history_ids_key="settings_command_history_ids",
+        active_id_key="settings_command_active_id",
+        failed_recent_window=SETTINGS_ENGINE_FAILED_RECENT_WINDOW,
+        now_value=now_value,
+        set_alive=set_alive,
+        last_loop_start=last_loop_start,
+        last_loop_end=last_loop_end,
+        last_exception=last_exception,
+        last_finished_command=last_finished_command,
+        include_last_observed_refresh=False,
+    )
 
 
 def _serialize_series_df_to_rows(df):
@@ -299,31 +264,25 @@ def _apply_api_connect(config, shared_data, command):
         if isinstance(input_password, str) and input_password.strip():
             shared_data["api_password"] = input_password
         effective_password = shared_data.get("api_password")
-        shared_data["api_connection_runtime"] = {
-            **api_runtime,
-            "state": "connecting",
-            "connected": False,
-            "desired_state": "connected",
-            "last_command_id": command_id,
-            "last_updated": now_value,
-            "last_error": None,
-            "disconnect_reason": None,
-        }
+    set_api_connection_transition(
+        shared_data,
+        state="connecting",
+        desired_state="connected",
+        command_id=command_id,
+        now_value=now_value,
+        clear_error=True,
+        disconnect_reason=None,
+    )
 
     if not effective_password:
         error = _error_payload(now_value, "missing_password", "No API password provided or stored.")
-        with shared_data["lock"]:
-            runtime = dict(shared_data.get("api_connection_runtime", {}) or {})
-            runtime.update(
-                {
-                    "state": "error",
-                    "connected": False,
-                    "last_error": error,
-                    "last_updated": now_value,
-                    "last_command_id": command_id,
-                }
-            )
-            shared_data["api_connection_runtime"] = runtime
+        complete_api_connect_probe(
+            shared_data,
+            success=False,
+            now_value=now_value,
+            command_id=command_id,
+            error=error,
+        )
         return {"state": "rejected", "message": "missing_password", "result": None}
 
     try:
@@ -336,70 +295,37 @@ def _apply_api_connect(config, shared_data, command):
         api.login()
     except Exception as exc:
         error = _error_payload(now_value, "connect_failed", str(exc))
-        with shared_data["lock"]:
-            runtime = dict(shared_data.get("api_connection_runtime", {}) or {})
-            runtime.update(
-                {
-                    "state": "error",
-                    "connected": False,
-                    "last_error": error,
-                    "last_updated": now_value,
-                    "last_probe": now_value,
-                    "last_command_id": command_id,
-                }
-            )
-            shared_data["api_connection_runtime"] = runtime
+        complete_api_connect_probe(
+            shared_data,
+            success=False,
+            now_value=now_value,
+            command_id=command_id,
+            error=error,
+        )
         return {"state": "failed", "message": "connect_failed", "result": {"error": str(exc)}}
 
-    with shared_data["lock"]:
-        runtime = dict(shared_data.get("api_connection_runtime", {}) or {})
-        runtime.update(
-            {
-                "state": "connected",
-                "connected": True,
-                "desired_state": "connected",
-                "last_error": None,
-                "last_updated": now_value,
-                "last_success": now_value,
-                "last_probe": now_value,
-                "last_command_id": command_id,
-                "disconnect_reason": None,
-            }
-        )
-        shared_data["api_connection_runtime"] = runtime
+    complete_api_connect_probe(
+        shared_data,
+        success=True,
+        now_value=now_value,
+        command_id=command_id,
+    )
     return {"state": "succeeded", "message": None, "result": {"connected": True}}
 
 
 def _apply_api_disconnect(config, shared_data, command):
     command_id = str((command or {}).get("id", ""))
     now_value = now_tz(config)
+    set_api_connection_transition(
+        shared_data,
+        state="disconnecting",
+        desired_state="disconnected",
+        command_id=command_id,
+        now_value=now_value,
+        clear_error=False,
+    )
+    complete_api_disconnect(shared_data, now_value=now_value, command_id=command_id, disconnect_reason="operator")
     with shared_data["lock"]:
-        runtime = dict(shared_data.get("api_connection_runtime", {}) or {})
-        runtime.update(
-            {
-                "state": "disconnecting",
-                "connected": False,
-                "desired_state": "disconnected",
-                "last_command_id": command_id,
-                "last_updated": now_value,
-            }
-        )
-        shared_data["api_connection_runtime"] = runtime
-    with shared_data["lock"]:
-        runtime = dict(shared_data.get("api_connection_runtime", {}) or {})
-        runtime.update(
-            {
-                "state": "disconnected",
-                "connected": False,
-                "desired_state": "disconnected",
-                "disconnect_reason": "operator",
-                "last_error": None,
-                "last_updated": now_value,
-                "last_success": now_value,
-                "last_command_id": command_id,
-            }
-        )
-        shared_data["api_connection_runtime"] = runtime
         status = dict(shared_data.get("data_fetcher_status", {}) or {})
         status["connected"] = False
         shared_data["data_fetcher_status"] = status
@@ -425,6 +351,11 @@ def _apply_posting_policy(config, shared_data, command, *, enabled):
         )
         shared_data["posting_runtime"] = runtime
         shared_data["measurement_posting_enabled"] = bool(enabled)
+    publish_api_posting_health(
+        shared_data,
+        state="idle" if enabled else "disabled",
+        now_value=now_value,
+    )
     with shared_data["lock"]:
         runtime = dict(shared_data.get("posting_runtime", {}) or {})
         runtime.update(
@@ -524,20 +455,6 @@ def settings_engine_agent(config, shared_data):
     tz = get_config_tz(config)
     with shared_data["lock"]:
         _ensure_manual_runtime_state_map(shared_data)
-        shared_data.setdefault(
-            "api_connection_runtime",
-            {
-                "state": "disconnected",
-                "connected": False,
-                "desired_state": "disconnected",
-                "last_command_id": None,
-                "last_error": None,
-                "last_updated": None,
-                "last_success": None,
-                "last_probe": None,
-                "disconnect_reason": "startup",
-            },
-        )
         initial_posting_enabled = bool(
             shared_data.get("measurement_posting_enabled", config.get("ISTENTORE_POST_MEASUREMENTS_IN_API_MODE", True))
         )
@@ -554,6 +471,7 @@ def settings_engine_agent(config, shared_data):
             },
         )
         shared_data.setdefault("settings_engine_status", _default_settings_engine_status())
+    ensure_api_connection_runtime(shared_data)
 
     while not shared_data["shutdown_event"].is_set():
         loop_start = time.monotonic()

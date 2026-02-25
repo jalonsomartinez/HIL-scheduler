@@ -10,6 +10,7 @@
   - API schedule is the dispatch base.
   - Manual schedules are stored as four independent series (`lib_p`, `lib_q`, `vrfb_p`, `vrfb_q`).
   - Dashboard now maintains separate manual draft series (`manual_schedule_draft_series_df_by_key`) for editor/load/save UX.
+  - Manual drafts are currently shared across dashboard sessions (single-operator assumption; per-session isolation deferred).
   - Settings engine applies/activates server-owned manual series into `manual_schedule_series_df_by_key` + merge flags via commands.
   - Per-series booleans control whether each manual series overwrites the corresponding API signal in dispatch.
 - Per-plant runtime gates:
@@ -221,6 +222,11 @@ shared_data = {
   - Posting policy `Enable` / `Disable`.
 - Dashboard buttons use short immediate click-feedback transition overlays (e.g. `Activating...`, `Connecting...`) and then render server-owned settings runtime state.
 - `Disconnect` intentionally stops API runtime activity but preserves stored `api_password`.
+- `api_connection_runtime.state` is fully runtime-owned:
+  - `settings_engine_agent.py` publishes connect/disconnect transitions and probe outcomes,
+  - `data_fetcher_agent.py` publishes `fetch_health`,
+  - `measurement_agent.py` publishes `posting_health`,
+  - dashboard renders `api_connection_runtime` without deriving API `Error` from telemetry.
 - `measurement_agent.py` posting-effective gate now depends on:
   - stored password presence,
   - posting policy (`posting_runtime.policy_enabled` / compat `measurement_posting_enabled`),
@@ -351,5 +357,5 @@ shared_data = {
   - `settings_engine_status` publishes queue/liveness/active command metadata for settings-command execution.
 - Runtime settings state caches:
   - `manual_series_runtime_state_by_key` (per-series `inactive|activating|active|inactivating|updating|error` state + last error/command metadata),
-  - `api_connection_runtime` (`disconnected|connecting|connected|disconnecting|error`; password storage is separate),
+  - `api_connection_runtime` (`disconnected|connecting|connected|disconnecting|error`; password storage is separate) including nested `fetch_health` / `posting_health` sub-health inputs used to recompute the top-level connection state,
   - `posting_runtime` (`disabled|enabling|enabled|disabling|error` policy state).

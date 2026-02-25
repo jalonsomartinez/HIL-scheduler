@@ -21,6 +21,7 @@ from dashboard_modbus_io import (
     set_enable as set_enable_io,
     wait_until_battery_power_below_threshold as wait_until_battery_power_below_threshold_io,
 )
+from engine_status_runtime import default_engine_status, update_engine_status
 from measurement_storage import find_latest_persisted_soc_for_plant
 from modbus_codec import read_point_internal
 from runtime_contracts import resolve_modbus_endpoint, sanitize_plant_name
@@ -158,21 +159,7 @@ def _publish_observed_state(shared_data, plant_id, values, *, error=None, now_va
 
 
 def _default_control_engine_status():
-    return {
-        "alive": False,
-        "last_loop_start": None,
-        "last_loop_end": None,
-        "last_observed_refresh": None,
-        "last_exception": None,
-        "active_command_id": None,
-        "active_command_kind": None,
-        "active_command_started_at": None,
-        "last_finished_command": None,
-        "queue_depth": 0,
-        "queued_count": 0,
-        "running_count": 0,
-        "failed_recent_count": 0,
-    }
+    return default_engine_status(include_last_observed_refresh=True)
 
 
 def _update_control_engine_status(
@@ -188,60 +175,26 @@ def _update_control_engine_status(
 ):
     if now_value is None:
         now_value = pd.Timestamp.utcnow().to_pydatetime()
-
-    with shared_data["lock"]:
-        status = shared_data.setdefault("control_engine_status", _default_control_engine_status())
-        if set_alive is not None:
-            status["alive"] = bool(set_alive)
-        if last_loop_start is not None:
-            status["last_loop_start"] = last_loop_start
-        if last_loop_end is not None:
-            status["last_loop_end"] = last_loop_end
-        if last_observed_refresh is not None:
-            status["last_observed_refresh"] = last_observed_refresh
-        if last_exception is not None:
-            status["last_exception"] = last_exception
-        if last_finished_command is not None:
-            status["last_finished_command"] = last_finished_command
-
-        queue_obj = shared_data.get("control_command_queue")
-        try:
-            queue_depth = int(queue_obj.qsize()) if queue_obj is not None else 0
-        except Exception:
-            queue_depth = 0
-        status["queue_depth"] = max(0, queue_depth)
-
-        active_command_id = shared_data.get("control_command_active_id")
-        status["active_command_id"] = active_command_id
-
-        status_by_id = shared_data.get("control_command_status_by_id", {}) or {}
-        active_status = status_by_id.get(active_command_id) if active_command_id else None
-        status["active_command_kind"] = active_status.get("kind") if isinstance(active_status, dict) else None
-        status["active_command_started_at"] = active_status.get("started_at") if isinstance(active_status, dict) else None
-
-        queued_count = 0
-        running_count = 0
-        history_ids = list(shared_data.get("control_command_history_ids", []) or [])
-        failed_recent_count = 0
-        terminal_window_ids = history_ids[-CONTROL_ENGINE_FAILED_RECENT_WINDOW:]
-        for cmd_status in status_by_id.values():
-            if not isinstance(cmd_status, dict):
-                continue
-            state = str(cmd_status.get("state") or "")
-            if state == "queued":
-                queued_count += 1
-            elif state == "running":
-                running_count += 1
-        for cmd_id in terminal_window_ids:
-            cmd_status = status_by_id.get(cmd_id)
-            if not isinstance(cmd_status, dict):
-                continue
-            if str(cmd_status.get("state") or "") in {"failed", "rejected"}:
-                failed_recent_count += 1
-        status["queued_count"] = int(queued_count)
-        status["running_count"] = int(running_count)
-        status["failed_recent_count"] = int(failed_recent_count)
-        return dict(status)
+    extra_updates = {}
+    if last_observed_refresh is not None:
+        extra_updates["last_observed_refresh"] = last_observed_refresh
+    return update_engine_status(
+        shared_data,
+        status_key="control_engine_status",
+        queue_key="control_command_queue",
+        status_by_id_key="control_command_status_by_id",
+        history_ids_key="control_command_history_ids",
+        active_id_key="control_command_active_id",
+        failed_recent_window=CONTROL_ENGINE_FAILED_RECENT_WINDOW,
+        now_value=now_value,
+        set_alive=set_alive,
+        last_loop_start=last_loop_start,
+        last_loop_end=last_loop_end,
+        last_exception=last_exception,
+        last_finished_command=last_finished_command,
+        extra_updates=extra_updates or None,
+        include_last_observed_refresh=True,
+    )
 
 
 def _refresh_all_observed_state(

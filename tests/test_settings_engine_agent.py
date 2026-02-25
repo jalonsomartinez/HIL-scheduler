@@ -55,7 +55,13 @@ def _shared():
         "manual_schedule_df_by_plant": {"lib": pd.DataFrame(), "vrfb": pd.DataFrame()},
         "manual_series_runtime_state_by_key": {},
         "api_password": None,
-        "api_connection_runtime": {"state": "disconnected", "connected": False, "desired_state": "disconnected"},
+        "api_connection_runtime": {
+            "state": "disconnected",
+            "connected": False,
+            "desired_state": "disconnected",
+            "fetch_health": {"state": "disabled", "last_success": None, "last_error": None, "last_attempt": None},
+            "posting_health": {"state": "disabled", "last_success": None, "last_error": None, "last_attempt": None},
+        },
         "posting_runtime": {"state": "enabled", "policy_enabled": True, "desired_state": "enabled"},
         "measurement_posting_enabled": True,
         "data_fetcher_status": {"connected": False, "error": None},
@@ -131,6 +137,7 @@ class SettingsEngineAgentTests(unittest.TestCase):
         with shared["lock"]:
             self.assertEqual(shared["api_password"], "pw")
             self.assertEqual(shared["api_connection_runtime"]["state"], "connected")
+            self.assertEqual(shared["api_connection_runtime"]["fetch_health"]["state"], "ok")
         self.assertEqual(_FakeAPI.password_seen, "pw")
         self.assertEqual(_FakeAPI.login_calls, 1)
 
@@ -147,12 +154,19 @@ class SettingsEngineAgentTests(unittest.TestCase):
         self.assertEqual(result["message"], "missing_password")
         with shared["lock"]:
             self.assertEqual(shared["api_connection_runtime"]["state"], "error")
+            self.assertEqual(shared["api_connection_runtime"]["fetch_health"]["state"], "error")
 
     def test_api_disconnect_preserves_password(self):
         shared = _shared()
         cfg = _config()
         shared["api_password"] = "pw"
-        shared["api_connection_runtime"] = {"state": "connected", "connected": True, "desired_state": "connected"}
+        shared["api_connection_runtime"] = {
+            "state": "connected",
+            "connected": True,
+            "desired_state": "connected",
+            "fetch_health": {"state": "ok", "last_success": None, "last_error": None, "last_attempt": None},
+            "posting_health": {"state": "idle", "last_success": None, "last_error": None, "last_attempt": None},
+        }
         result = _execute_settings_command(
             cfg,
             shared,
@@ -163,6 +177,7 @@ class SettingsEngineAgentTests(unittest.TestCase):
         with shared["lock"]:
             self.assertEqual(shared["api_password"], "pw")
             self.assertEqual(shared["api_connection_runtime"]["state"], "disconnected")
+            self.assertEqual(shared["api_connection_runtime"]["fetch_health"]["state"], "disabled")
 
     def test_posting_enable_disable_updates_policy_runtime_and_compat_flag(self):
         shared = _shared()
@@ -181,6 +196,7 @@ class SettingsEngineAgentTests(unittest.TestCase):
             self.assertTrue(shared["posting_runtime"]["policy_enabled"])
             self.assertEqual(shared["posting_runtime"]["state"], "enabled")
             self.assertTrue(shared["measurement_posting_enabled"])
+            self.assertEqual(shared["api_connection_runtime"]["posting_health"]["state"], "idle")
 
     def test_single_cycle_publishes_settings_engine_status(self):
         shared = _shared()
@@ -211,4 +227,3 @@ class SettingsEngineAgentTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

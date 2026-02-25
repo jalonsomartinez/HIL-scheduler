@@ -4,6 +4,7 @@ from datetime import timedelta
 
 import pandas as pd
 
+from api_runtime_state import ensure_api_connection_runtime, publish_api_fetch_health
 from istentore_api import AuthenticationError, IstentoreAPI
 from schedule_runtime import crop_schedule_frame_to_window, merge_schedule_frames
 from shared_state import mutate_locked, snapshot_locked
@@ -128,6 +129,7 @@ def _extract_points_by_plant(schedule_df_by_plant, plant_ids):
 def data_fetcher_agent(config, shared_data):
     """Fetch API schedules for both logical plants and publish to shared state."""
     logging.info("Data fetcher agent started.")
+    ensure_api_connection_runtime(shared_data)
 
     plant_ids = tuple(config.get("PLANT_IDS", ("lib", "vrfb")))
     tomorrow_poll_start_time = config.get("ISTENTORE_TOMORROW_POLL_START_TIME", "17:30")
@@ -165,6 +167,7 @@ def data_fetcher_agent(config, shared_data):
             api_allowed = api_runtime_state in {"connected", "error"} or ("state" not in api_runtime)
 
             if not api_allowed:
+                publish_api_fetch_health(shared_data, state="disabled", now_value=now_tz(config))
                 if password_checked:
                     password_checked = False
                     api = None
@@ -174,6 +177,20 @@ def data_fetcher_agent(config, shared_data):
                 continue
 
             if not password:
+                desired_state = str(api_runtime.get("desired_state") or "disconnected")
+                if desired_state == "connected":
+                    publish_api_fetch_health(
+                        shared_data,
+                        state="error",
+                        now_value=now_tz(config),
+                        error={
+                            "timestamp": now_tz(config),
+                            "code": "client_init_failed",
+                            "message": "missing API password",
+                        },
+                    )
+                else:
+                    publish_api_fetch_health(shared_data, state="disabled", now_value=now_tz(config))
                 if password_checked:
                     password_checked = False
                     api = None
@@ -213,6 +230,7 @@ def data_fetcher_agent(config, shared_data):
 
             if not today_fetched:
                 try:
+                    publish_api_fetch_health(shared_data, now_value=now, last_attempt=now)
                     _log_fetch_attempt(
                         "today",
                         today_date,
@@ -265,6 +283,20 @@ def data_fetcher_agent(config, shared_data):
                         error=None if fetched_ok else incomplete_error,
                     )
                     if fetched_ok:
+                        publish_api_fetch_health(shared_data, state="ok", now_value=now, last_attempt=now, last_success=now)
+                    else:
+                        publish_api_fetch_health(
+                            shared_data,
+                            state="error",
+                            now_value=now,
+                            last_attempt=now,
+                            error={
+                                "timestamp": now,
+                                "code": "fetch_failed",
+                                "message": incomplete_error,
+                            },
+                        )
+                    if fetched_ok:
                         logging.info(
                             "Data fetcher: today schedules fetched complete (%s) LIB=%s VRFB=%s",
                             today_date,
@@ -280,11 +312,31 @@ def data_fetcher_agent(config, shared_data):
                         )
                 except AuthenticationError as exc:
                     _update_status(shared_data, connected=False, error=f"Authentication failed: {exc}")
+                    publish_api_fetch_health(
+                        shared_data,
+                        state="error",
+                        now_value=now_tz(config),
+                        error={
+                            "timestamp": now_tz(config),
+                            "code": "auth_failed",
+                            "message": f"Authentication failed: {exc}",
+                        },
+                    )
                     api = None
                     time.sleep(error_backoff_s)
                     continue
                 except Exception as exc:
                     _update_status(shared_data, error=str(exc))
+                    publish_api_fetch_health(
+                        shared_data,
+                        state="error",
+                        now_value=now_tz(config),
+                        error={
+                            "timestamp": now_tz(config),
+                            "code": "fetch_failed",
+                            "message": str(exc),
+                        },
+                    )
                     logging.error("Data fetcher: error fetching today's schedules: %s", exc)
 
             now_minutes = (int(now.hour) * 60) + int(now.minute)
@@ -313,6 +365,7 @@ def data_fetcher_agent(config, shared_data):
 
             if not tomorrow_fetched and tomorrow_gate_open:
                 try:
+                    publish_api_fetch_health(shared_data, now_value=now, last_attempt=now)
                     _log_fetch_attempt(
                         "tomorrow",
                         tomorrow_date,
@@ -367,6 +420,20 @@ def data_fetcher_agent(config, shared_data):
                         error=None if fetched_ok else incomplete_error,
                     )
                     if fetched_ok:
+                        publish_api_fetch_health(shared_data, state="ok", now_value=now, last_attempt=now, last_success=now)
+                    else:
+                        publish_api_fetch_health(
+                            shared_data,
+                            state="error",
+                            now_value=now,
+                            last_attempt=now,
+                            error={
+                                "timestamp": now,
+                                "code": "fetch_failed",
+                                "message": incomplete_error,
+                            },
+                        )
+                    if fetched_ok:
                         logging.info(
                             "Data fetcher: tomorrow schedules fetched complete (%s) LIB=%s VRFB=%s",
                             tomorrow_date,
@@ -382,11 +449,31 @@ def data_fetcher_agent(config, shared_data):
                         )
                 except AuthenticationError as exc:
                     _update_status(shared_data, connected=False, error=f"Authentication failed: {exc}")
+                    publish_api_fetch_health(
+                        shared_data,
+                        state="error",
+                        now_value=now_tz(config),
+                        error={
+                            "timestamp": now_tz(config),
+                            "code": "auth_failed",
+                            "message": f"Authentication failed: {exc}",
+                        },
+                    )
                     api = None
                     time.sleep(error_backoff_s)
                     continue
                 except Exception as exc:
                     _update_status(shared_data, error=str(exc))
+                    publish_api_fetch_health(
+                        shared_data,
+                        state="error",
+                        now_value=now_tz(config),
+                        error={
+                            "timestamp": now_tz(config),
+                            "code": "fetch_failed",
+                            "message": str(exc),
+                        },
+                    )
                     logging.error("Data fetcher: error fetching tomorrow schedules: %s", exc)
 
             _update_status(shared_data, last_attempt=now.isoformat())
@@ -394,6 +481,12 @@ def data_fetcher_agent(config, shared_data):
 
         except Exception as exc:
             logging.error("Data fetcher: unexpected error: %s", exc)
+            publish_api_fetch_health(
+                shared_data,
+                state="error",
+                now_value=now_tz(config),
+                error={"timestamp": now_tz(config), "code": "fetch_failed", "message": str(exc)},
+            )
             time.sleep(error_backoff_s)
 
     logging.info("Data fetcher agent stopped.")

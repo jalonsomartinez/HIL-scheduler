@@ -8,6 +8,7 @@ from datetime import timedelta
 
 import pandas as pd
 
+from api_runtime_state import ensure_api_connection_runtime, publish_api_posting_health
 from istentore_api import AuthenticationError, IstentoreAPI, IstentoreAPIError
 from measurement_posting import build_post_items
 from measurement_sampling import (
@@ -47,6 +48,7 @@ DEFAULT_COMPRESSION_TOLERANCES = {
 def measurement_agent(config, shared_data):
     """Measurement, recording, cache, and API posting for LIB/VRFB."""
     logging.info("Measurement agent started.")
+    ensure_api_connection_runtime(shared_data)
 
     plant_ids = tuple(config.get("PLANT_IDS", ("lib", "vrfb")))
     plants_cfg = config.get("PLANTS", {})
@@ -160,6 +162,16 @@ def measurement_agent(config, shared_data):
     def now_iso_local():
         return serialize_iso_with_tz(now_tz(config), tz=tz)
 
+    def publish_posting_health(state=None, *, error=None, last_attempt=None, last_success=None):
+        publish_api_posting_health(
+            shared_data,
+            state=state,
+            now_value=now_tz(config),
+            error=error,
+            last_attempt=last_attempt,
+            last_success=last_success,
+        )
+
     def update_post_status(plant_id, **fields):
         if plant_id not in plant_ids:
             return
@@ -172,6 +184,10 @@ def measurement_agent(config, shared_data):
             status_map = ensure_post_status_locked()
             for plant_id in plant_ids:
                 status_map[plant_id]["posting_enabled"] = bool(enabled)
+        if bool(enabled):
+            publish_posting_health("idle")
+        else:
+            publish_posting_health("disabled")
 
     def refresh_post_queue_status():
         now_mono = time.monotonic()
@@ -564,6 +580,7 @@ def measurement_agent(config, shared_data):
             attempt_no = int(item.get("attempt", 0)) + 1
             measurement_timestamp = item.get("timestamp")
             attempt_ts = now_iso_local()
+            attempt_dt = now_tz(config)
             update_post_status(
                 plant_id,
                 last_attempt={
@@ -578,10 +595,12 @@ def measurement_agent(config, shared_data):
                     "next_retry_seconds": None,
                 },
             )
+            publish_posting_health(last_attempt=attempt_dt)
             try:
                 poster.post_measurement(item["series_id"], item["value"], timestamp=item["timestamp"])
                 sent += 1
                 success_ts = now_iso_local()
+                success_dt = now_tz(config)
                 update_post_status(
                     plant_id,
                     last_success={
@@ -604,6 +623,7 @@ def measurement_agent(config, shared_data):
                     },
                     last_error=None,
                 )
+                publish_posting_health("ok", last_attempt=success_dt, last_success=success_dt)
             except (AuthenticationError, IstentoreAPIError, Exception) as exc:
                 item["attempt"] += 1
                 delay_s = min(post_retry_initial_s * (2 ** (item["attempt"] - 1)), post_retry_max_s)
@@ -611,6 +631,7 @@ def measurement_agent(config, shared_data):
                 api_post_queue.append(item)
                 error_text = str(exc)
                 failure_ts = now_iso_local()
+                failure_dt = now_tz(config)
                 update_post_status(
                     plant_id,
                     last_attempt={
@@ -625,6 +646,12 @@ def measurement_agent(config, shared_data):
                         "next_retry_seconds": round(float(delay_s), 1),
                     },
                     last_error={"timestamp": failure_ts, "message": error_text},
+                )
+                error_code = "auth_failed" if isinstance(exc, AuthenticationError) else "post_failed"
+                publish_posting_health(
+                    "error",
+                    last_attempt=failure_dt,
+                    error={"timestamp": failure_dt, "code": error_code, "message": error_text},
                 )
                 logging.warning(
                     "Measurement: API post failed series=%s attempt=%s retry_in=%.1fs error=%s",
@@ -730,6 +757,11 @@ def measurement_agent(config, shared_data):
                 api_post_queue.clear()
             ensure_api_poster(None)
         posting_mode_active = posting_mode_now
+
+        if not posting_mode_now:
+            publish_posting_health("disabled")
+        elif not api_post_queue:
+            publish_posting_health("idle")
 
         current_post_step = math.floor((time.monotonic() - post_anchor_mono) / measurement_post_period_s)
         if posting_mode_active and current_post_step >= 0 and current_post_step > last_executed_post_step:

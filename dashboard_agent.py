@@ -548,11 +548,9 @@ def dashboard_agent(config, shared_data):
             shared_data,
             lambda data: {
                 "api_connection_runtime": dict(data.get("api_connection_runtime", {}) or {}),
-                "data_fetcher_status": dict(data.get("data_fetcher_status", {}) or {}),
             },
         )
         api_runtime = snapshot["api_connection_runtime"]
-        fetcher_status = snapshot["data_fetcher_status"]
         feedback_state = resolve_command_click_feedback_state(
             positive_click_ts_ms=connect_click_ts_ms,
             negative_click_ts_ms=disconnect_click_ts_ms,
@@ -561,8 +559,7 @@ def dashboard_agent(config, shared_data):
             now_ts=now_tz(config),
             hold_seconds=ui_transition_feedback_hold_s,
         )
-        derived_error = bool(fetcher_status.get("error")) and str(api_runtime.get("desired_state", "")) == "connected"
-        display_state = api_connection_display_state(api_runtime.get("state"), feedback_state, derived_error=derived_error)
+        display_state = api_connection_display_state(api_runtime.get("state"), feedback_state)
         controls = api_connection_controls_state(display_state)
         return (
             controls["connect_label"],
@@ -1332,15 +1329,7 @@ def dashboard_agent(config, shared_data):
                 config.get("ISTENTORE_POST_MEASUREMENTS_IN_API_MODE", True),
             )
         )
-        has_posting_error = any(
-            isinstance((post_status_map.get(pid) or {}).get("last_error"), dict) for pid in plant_ids
-        )
-        derived_api_error = bool(status.get("error")) or (has_posting_error and str(api_connection_runtime.get("desired_state", "")) == "connected")
-        api_state_display = api_connection_display_state(
-            api_connection_runtime.get("state"),
-            None,
-            derived_error=derived_api_error,
-        )
+        api_state_display = api_connection_display_state(api_connection_runtime.get("state"), None)
         posting_policy_state = posting_display_state(posting_runtime.get("state"), None)
         api_intended_connected = str(api_connection_runtime.get("desired_state", "disconnected")) == "connected"
         posting_effective = bool(posting_policy_enabled and api_intended_connected and bool(api_password))
@@ -1356,14 +1345,9 @@ def dashboard_agent(config, shared_data):
             f"Tomorrow {status.get('tomorrow_date')}: LIB={points_tomorrow.get('lib', 0)} VRFB={points_tomorrow.get('vrfb', 0)}"
         )
         api_error_text = None
-        if derived_api_error:
-            api_error_text = status.get("error")
-            if not api_error_text:
-                for pid in plant_ids:
-                    last_error = (post_status_map.get(pid) or {}).get("last_error")
-                    if isinstance(last_error, dict) and last_error.get("message"):
-                        api_error_text = last_error.get("message")
-                        break
+        runtime_error = api_connection_runtime.get("last_error")
+        if isinstance(runtime_error, dict):
+            api_error_text = runtime_error.get("message")
         if api_error_text:
             status_text += f" | Error: {api_error_text}"
 

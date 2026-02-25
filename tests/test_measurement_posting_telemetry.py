@@ -29,6 +29,7 @@ class _FakePoster:
 
 
 def _build_shared_data(posting_enabled=True):
+    policy_state = "enabled" if posting_enabled else "disabled"
     return {
         "lock": threading.Lock(),
         "shutdown_event": threading.Event(),
@@ -36,6 +37,28 @@ def _build_shared_data(posting_enabled=True):
         "active_schedule_source": "api",
         "api_password": "pw",
         "measurement_posting_enabled": bool(posting_enabled),
+        "posting_runtime": {
+            "state": policy_state,
+            "policy_enabled": bool(posting_enabled),
+            "desired_state": policy_state,
+            "last_command_id": None,
+            "last_error": None,
+            "last_updated": None,
+            "last_success": None,
+        },
+        "api_connection_runtime": {
+            "state": "connected",
+            "connected": True,
+            "desired_state": "connected",
+            "last_command_id": None,
+            "last_error": None,
+            "last_updated": None,
+            "last_success": None,
+            "last_probe": None,
+            "disconnect_reason": None,
+            "fetch_health": {"state": "ok", "last_success": None, "last_error": None, "last_attempt": None},
+            "posting_health": {"state": "idle", "last_success": None, "last_error": None, "last_attempt": None},
+        },
         "measurements_filename_by_plant": {"lib": None, "vrfb": None},
         "current_file_path_by_plant": {"lib": None, "vrfb": None},
         "current_file_df_by_plant": {"lib": pd.DataFrame(), "vrfb": pd.DataFrame()},
@@ -136,11 +159,14 @@ class MeasurementPostingTelemetryTests(unittest.TestCase):
                     with shared_data["lock"]:
                         status = shared_data.get("measurement_post_status", {}).get("lib", {})
                         attempt = status.get("last_attempt") or {}
+                        api_runtime = dict(shared_data.get("api_connection_runtime", {}) or {})
                         return (
                             attempt.get("result") == "failed"
                             and status.get("last_error") is not None
                             and (status.get("pending_queue_count") or 0) >= 1
                             and attempt.get("next_retry_seconds") is not None
+                            and (api_runtime.get("posting_health", {}) or {}).get("state") == "error"
+                            and api_runtime.get("state") == "error"
                         )
 
                 self.assertTrue(_wait_for(failed_state_seen), "did not observe failed posting telemetry state")
@@ -152,10 +178,13 @@ class MeasurementPostingTelemetryTests(unittest.TestCase):
                         status = shared_data.get("measurement_post_status", {}).get("lib", {})
                         attempt = status.get("last_attempt") or {}
                         success = status.get("last_success")
+                        api_runtime = dict(shared_data.get("api_connection_runtime", {}) or {})
                         return (
                             attempt.get("result") == "success"
                             and success is not None
                             and status.get("last_error") is None
+                            and (api_runtime.get("posting_health", {}) or {}).get("state") == "ok"
+                            and api_runtime.get("state") == "connected"
                         )
 
                 self.assertTrue(_wait_for(success_state_seen), "did not observe posting recovery telemetry state")
@@ -186,10 +215,12 @@ class MeasurementPostingTelemetryTests(unittest.TestCase):
                 def posting_disabled_state_seen():
                     with shared_data["lock"]:
                         status = shared_data.get("measurement_post_status", {}).get("lib", {})
+                        api_runtime = dict(shared_data.get("api_connection_runtime", {}) or {})
                         return (
                             status.get("posting_enabled") is False
                             and int(status.get("pending_queue_count") or 0) == 0
                             and status.get("last_attempt") is None
+                            and (api_runtime.get("posting_health", {}) or {}).get("state") == "disabled"
                         )
 
                 self.assertTrue(_wait_for(posting_disabled_state_seen), "posting did not remain disabled with runtime toggle off")
@@ -200,6 +231,7 @@ class MeasurementPostingTelemetryTests(unittest.TestCase):
                     status = shared_data.get("measurement_post_status", {}).get("lib", {})
                     self.assertFalse(bool(status.get("posting_enabled")))
                     self.assertIsNone(status.get("last_attempt"))
+                    self.assertEqual(shared_data["api_connection_runtime"]["posting_health"]["state"], "disabled")
             finally:
                 shared_data["shutdown_event"].set()
                 thread.join(timeout=3)
@@ -258,6 +290,22 @@ class MeasurementPostingTelemetryTests(unittest.TestCase):
             "active_schedule_source": "api",
             "api_password": "pw",
             "measurement_posting_enabled": True,
+            "posting_runtime": {
+                "state": "enabled",
+                "policy_enabled": True,
+                "desired_state": "enabled",
+                "last_command_id": None,
+                "last_error": None,
+                "last_updated": None,
+                "last_success": None,
+            },
+            "api_connection_runtime": {
+                "state": "connected",
+                "connected": True,
+                "desired_state": "connected",
+                "fetch_health": {"state": "ok", "last_success": None, "last_error": None, "last_attempt": None},
+                "posting_health": {"state": "idle", "last_success": None, "last_error": None, "last_attempt": None},
+            },
             "measurements_filename_by_plant": {"lib": None},
             "current_file_path_by_plant": {"lib": None},
             "current_file_df_by_plant": {"lib": pd.DataFrame()},

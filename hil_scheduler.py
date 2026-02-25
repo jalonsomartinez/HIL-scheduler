@@ -5,6 +5,8 @@ import time
 
 import pandas as pd
 
+from api_runtime_state import default_api_connection_runtime
+from engine_status_runtime import default_engine_status
 import manual_schedule_manager as msm
 from config_loader import load_config
 from control_engine_agent import control_engine_agent
@@ -79,38 +81,11 @@ def _default_plant_observed_state_by_plant(plant_ids):
 
 
 def _default_control_engine_status():
-    return {
-        "alive": False,
-        "last_loop_start": None,
-        "last_loop_end": None,
-        "last_observed_refresh": None,
-        "last_exception": None,
-        "active_command_id": None,
-        "active_command_kind": None,
-        "active_command_started_at": None,
-        "last_finished_command": None,
-        "queue_depth": 0,
-        "queued_count": 0,
-        "running_count": 0,
-        "failed_recent_count": 0,
-    }
+    return default_engine_status(include_last_observed_refresh=True)
 
 
 def _default_settings_engine_status():
-    return {
-        "alive": False,
-        "last_loop_start": None,
-        "last_loop_end": None,
-        "last_exception": None,
-        "active_command_id": None,
-        "active_command_kind": None,
-        "active_command_started_at": None,
-        "last_finished_command": None,
-        "queue_depth": 0,
-        "queued_count": 0,
-        "running_count": 0,
-        "failed_recent_count": 0,
-    }
+    return default_engine_status(include_last_observed_refresh=False)
 
 
 def _default_manual_series_runtime_state_by_key():
@@ -133,17 +108,7 @@ def _default_manual_series_runtime_state_by_key():
 
 
 def _default_api_connection_runtime():
-    return {
-        "state": "disconnected",
-        "connected": False,
-        "desired_state": "disconnected",
-        "last_command_id": None,
-        "last_error": None,
-        "last_updated": None,
-        "last_success": None,
-        "last_probe": None,
-        "disconnect_reason": "startup",
-    }
+    return default_api_connection_runtime()
 
 
 def _default_posting_runtime(policy_enabled):
