@@ -13,6 +13,7 @@ from api_runtime_state import (
     publish_api_posting_health,
     set_api_connection_transition,
 )
+from engine_command_cycle_runtime import run_command_with_lifecycle
 from engine_status_runtime import default_engine_status, update_engine_status
 import manual_schedule_manager as msm
 from istentore_api import IstentoreAPI
@@ -401,51 +402,18 @@ def _run_single_settings_cycle(config, shared_data, *, tz):
         _update_settings_engine_status(shared_data, now_value=loop_now, set_alive=True, last_loop_end=now_tz(config))
         return None
 
-    command_id = str((command or {}).get("id", ""))
-    started_at = now_tz(config)
-    mark_command_running(shared_data, command_id, started_at=started_at)
-    try:
-        outcome = _execute_settings_command(config, shared_data, command, tz=tz)
-        terminal_state = str((outcome or {}).get("state", "failed"))
-        terminal_message = (outcome or {}).get("message")
-        terminal_result = (outcome or {}).get("result")
-    except Exception as exc:
-        logging.exception("SettingsEngine: command %s failed with exception.", command_id)
-        terminal_state = "failed"
-        terminal_message = str(exc)
-        terminal_result = None
-        _update_settings_engine_status(
-            shared_data,
-            now_value=now_tz(config),
-            set_alive=True,
-            last_exception={"timestamp": now_tz(config), "message": str(exc)},
-        )
-    finally:
-        final_status = mark_command_finished(
-            shared_data,
-            command_id,
-            state=terminal_state,
-            message=terminal_message,
-            result=terminal_result,
-            finished_at=now_tz(config),
-        )
-        _update_settings_engine_status(
-            shared_data,
-            now_value=now_tz(config),
-            set_alive=True,
-            last_finished_command={
-                "id": final_status.get("id"),
-                "kind": final_status.get("kind"),
-                "state": final_status.get("state"),
-                "finished_at": final_status.get("finished_at"),
-                "message": final_status.get("message"),
-            },
-            last_loop_end=now_tz(config),
-        )
-        try:
-            queue_obj.task_done()
-        except Exception:
-            pass
+    command_id = run_command_with_lifecycle(
+        shared_data,
+        queue_obj=queue_obj,
+        command=command,
+        now_fn=lambda: now_tz(config),
+        execute_command_fn=lambda queued_command: _execute_settings_command(config, shared_data, queued_command, tz=tz),
+        mark_command_running_fn=mark_command_running,
+        mark_command_finished_fn=mark_command_finished,
+        update_engine_status_fn=_update_settings_engine_status,
+        exception_log_prefix="SettingsEngine",
+        set_last_loop_end=True,
+    )
     return command_id
 
 

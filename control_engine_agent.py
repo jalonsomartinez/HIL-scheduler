@@ -21,6 +21,7 @@ from dashboard_modbus_io import (
     set_enable as set_enable_io,
     wait_until_battery_power_below_threshold as wait_until_battery_power_below_threshold_io,
 )
+from engine_command_cycle_runtime import run_command_with_lifecycle
 from engine_status_runtime import default_engine_status, update_engine_status
 from measurement_storage import find_latest_persisted_soc_for_plant
 from modbus_codec import read_point_internal
@@ -617,50 +618,25 @@ def _run_single_engine_cycle(config, shared_data, *, plant_ids, tz, deps=None, n
         _update_control_engine_status(shared_data, now_value=now_fn(config), set_alive=True, last_loop_end=now_fn(config))
         return None
 
-    command_id = str((command or {}).get("id", ""))
-    started_at = now_fn(config)
-    mark_command_running(shared_data, command_id, started_at=started_at)
-    try:
-        outcome = _execute_command(config, shared_data, command, plant_ids=plant_ids, tz=tz, now_fn=now_fn, deps=deps)
-        terminal_state = str((outcome or {}).get("state", "failed"))
-        terminal_message = (outcome or {}).get("message")
-        terminal_result = (outcome or {}).get("result")
-    except Exception as exc:
-        logging.exception("ControlEngine: command %s failed with exception.", command_id)
-        terminal_state = "failed"
-        terminal_message = str(exc)
-        terminal_result = None
-        _update_control_engine_status(
+    command_id = run_command_with_lifecycle(
+        shared_data,
+        queue_obj=queue_obj,
+        command=command,
+        now_fn=lambda: now_fn(config),
+        execute_command_fn=lambda queued_command: _execute_command(
+            config,
             shared_data,
-            now_value=now_fn(config),
-            set_alive=True,
-            last_exception={"timestamp": now_fn(config), "message": str(exc)},
-        )
-    finally:
-        final_status = mark_command_finished(
-            shared_data,
-            command_id,
-            state=terminal_state,
-            message=terminal_message,
-            result=terminal_result,
-            finished_at=now_fn(config),
-        )
-        _update_control_engine_status(
-            shared_data,
-            now_value=now_fn(config),
-            set_alive=True,
-            last_finished_command={
-                "id": final_status.get("id"),
-                "kind": final_status.get("kind"),
-                "state": final_status.get("state"),
-                "finished_at": final_status.get("finished_at"),
-                "message": final_status.get("message"),
-            },
-        )
-        try:
-            queue_obj.task_done()
-        except Exception:
-            pass
+            queued_command,
+            plant_ids=plant_ids,
+            tz=tz,
+            now_fn=now_fn,
+            deps=deps,
+        ),
+        mark_command_running_fn=mark_command_running,
+        mark_command_finished_fn=mark_command_finished,
+        update_engine_status_fn=_update_control_engine_status,
+        exception_log_prefix="ControlEngine",
+    )
 
     refresh_fn()
     _update_control_engine_status(
