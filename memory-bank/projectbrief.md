@@ -14,7 +14,8 @@ HIL Scheduler is a multi-agent Python application that executes active and react
 - Logical plants: `lib`, `vrfb`.
 - Global selectors:
   - `transport_mode`: `local` or `remote`.
-  - `measurement_posting_enabled`: runtime API-posting gate (`True`/`False`, session-scoped, default from config).
+  - `posting_runtime.policy_enabled`: runtime API-posting policy gate (`True`/`False`, session-scoped, default from config).
+  - `api_connection_runtime.state`: authoritative API connection state (`disconnected|connecting|connected|disconnecting|error`).
 - Manual override model:
   - authoritative manual series storage per key: `lib_p`, `lib_q`, `vrfb_p`, `vrfb_q`,
   - per-series active/inactive merge toggle controls whether that manual series overwrites the API base for dispatch.

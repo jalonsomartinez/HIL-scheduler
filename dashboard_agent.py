@@ -84,7 +84,7 @@ def dashboard_agent(config, shared_data):
             "initial_posting_enabled": bool(
                 (data.get("posting_runtime", {}) or {}).get(
                     "policy_enabled",
-                    data.get("measurement_posting_enabled", config.get("ISTENTORE_POST_MEASUREMENTS_IN_API_MODE", True)),
+                    config.get("ISTENTORE_POST_MEASUREMENTS_IN_API_MODE", True),
                 )
             ),
         },

@@ -63,7 +63,6 @@ def _shared():
             "posting_health": {"state": "disabled", "last_success": None, "last_error": None, "last_attempt": None},
         },
         "posting_runtime": {"state": "enabled", "policy_enabled": True, "desired_state": "enabled"},
-        "measurement_posting_enabled": True,
         "data_fetcher_status": {"connected": False, "error": None},
     }
 
@@ -179,12 +178,11 @@ class SettingsEngineAgentTests(unittest.TestCase):
             self.assertEqual(shared["api_connection_runtime"]["state"], "disconnected")
             self.assertEqual(shared["api_connection_runtime"]["fetch_health"]["state"], "disabled")
 
-    def test_posting_enable_disable_updates_policy_runtime_and_compat_flag(self):
+    def test_posting_enable_disable_updates_policy_runtime(self):
         shared = _shared()
         cfg = _config()
         shared["posting_runtime"]["state"] = "disabled"
         shared["posting_runtime"]["policy_enabled"] = False
-        shared["measurement_posting_enabled"] = False
         result = _execute_settings_command(
             cfg,
             shared,
@@ -195,7 +193,6 @@ class SettingsEngineAgentTests(unittest.TestCase):
         with shared["lock"]:
             self.assertTrue(shared["posting_runtime"]["policy_enabled"])
             self.assertEqual(shared["posting_runtime"]["state"], "enabled")
-            self.assertTrue(shared["measurement_posting_enabled"])
             self.assertEqual(shared["api_connection_runtime"]["posting_health"]["state"], "idle")
 
     def test_single_cycle_publishes_settings_engine_status(self):

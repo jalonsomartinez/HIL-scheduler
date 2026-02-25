@@ -34,9 +34,7 @@ def _build_shared_data(posting_enabled=True):
         "lock": threading.Lock(),
         "shutdown_event": threading.Event(),
         "transport_mode": "local",
-        "active_schedule_source": "api",
         "api_password": "pw",
-        "measurement_posting_enabled": bool(posting_enabled),
         "posting_runtime": {
             "state": policy_state,
             "policy_enabled": bool(posting_enabled),
@@ -236,13 +234,12 @@ class MeasurementPostingTelemetryTests(unittest.TestCase):
                 shared_data["shutdown_event"].set()
                 thread.join(timeout=3)
 
-    def test_posting_gate_no_longer_depends_on_active_schedule_source(self):
+    def test_posting_gate_depends_on_runtime_policy_only(self):
         _FakePoster.force_fail = False
         _FakePoster.calls = 0
 
         config = _build_config()
         shared_data = _build_shared_data(posting_enabled=True)
-        shared_data["active_schedule_source"] = "manual"
 
         with patch("measurement_agent.IstentoreAPI", _FakePoster), patch(
             "measurement_agent.sampling_get_transport_endpoint",
@@ -287,9 +284,7 @@ class MeasurementPostingTelemetryTests(unittest.TestCase):
             "lock": threading.Lock(),
             "shutdown_event": threading.Event(),
             "transport_mode": "local",
-            "active_schedule_source": "api",
             "api_password": "pw",
-            "measurement_posting_enabled": True,
             "posting_runtime": {
                 "state": "enabled",
                 "policy_enabled": True,

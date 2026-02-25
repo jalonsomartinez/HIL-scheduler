@@ -76,7 +76,7 @@
 8. Runtime shared-state initialization contract is centralized in `build_initial_shared_data(config)` with schema tests.
  - Shared-state contract now includes local emulator SoC seed request/result maps for dashboard->plant-agent local-start coordination.
  - Shared-state contract now also includes control command queue/lifecycle keys and `plant_observed_state_by_plant` cache for control-engine/dashboard coordination.
-9. Runtime posting gate now includes `measurement_posting_enabled` state seeded from config and adjustable from dashboard UI.
+9. Runtime posting gate is canonicalized through `posting_runtime.policy_enabled` (settings-command driven), with effective API posting behavior also gated by `api_connection_runtime`.
 
 ## In Progress
 1. Remote transport smoke coverage design (repeatable unattended checks).
@@ -91,7 +91,7 @@
 3. Add lightweight dashboard visual regression/smoke checklist.
 4. Expand README operator runbook/troubleshooting sections (including control engine + settings engine command/transition semantics and API connect vs password semantics).
 5. Decide whether to provide an optional offline recompression utility for historical dense CSV files.
-6. Consider removing deprecated compatibility-only `active_schedule_source` / `schedule_switching` shared-state keys after downstream checks.
+6. Continue lock-discipline cleanup in `measurement_agent.py` beyond the recently refactored aggregate/current-cache dataframe paths.
 7. Evaluate command cancellation/prioritization needs for long safe-stop/transport flows (if operator usage demands it).
 
 ## Known Issues / Gaps
@@ -100,7 +100,7 @@
 3. Manual schedule editor drafts are stored in shared runtime state (`manual_schedule_draft_series_df_by_key`), so concurrent dashboard sessions can conflict (single-operator assumption currently accepted; per-session isolation deferred).
 4. Operational runbook and incident handling guidance are still thin.
 5. UI styling changes are still validated manually; no screenshot/DOM snapshot checks in CI.
-6. `schedule_manager.py` remains in repository for legacy compatibility only and is intentionally deprecated.
+6. Measurement-agent lock discipline improved in aggregate/current-cache paths, but broader audit remains for lower-priority paths.
 7. Historical measurement files captured while compression was inactive remain dense by design (no automatic backfill).
 8. Historical `Plots` tab rescans/reads CSVs on demand and may need indexing/caching if `data/` grows large.
 

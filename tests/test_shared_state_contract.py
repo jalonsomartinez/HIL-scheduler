@@ -23,7 +23,6 @@ class SharedStateContractTests(unittest.TestCase):
             "manual_schedule_merge_enabled_by_key",
             "manual_series_runtime_state_by_key",
             "api_schedule_df_by_plant",
-            "active_schedule_source",
             "transport_mode",
             "scheduler_running_by_plant",
             "plant_transition_by_plant",
@@ -35,12 +34,10 @@ class SharedStateContractTests(unittest.TestCase):
             "measurement_post_status",
             "local_emulator_soc_seed_request_by_plant",
             "local_emulator_soc_seed_result_by_plant",
-            "measurement_posting_enabled",
             "posting_runtime",
             "api_password",
             "api_connection_runtime",
             "data_fetcher_status",
-            "schedule_switching",
             "transport_switching",
             "control_command_queue",
             "control_command_status_by_id",
@@ -146,7 +143,6 @@ class SharedStateContractTests(unittest.TestCase):
             "STARTUP_TRANSPORT_MODE": "bad-mode",
         }
         shared_data = build_initial_shared_data(config)
-        self.assertEqual(shared_data["active_schedule_source"], "manual")
         self.assertEqual(shared_data["transport_mode"], "local")
 
 

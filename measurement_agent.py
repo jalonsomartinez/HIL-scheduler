@@ -226,18 +226,24 @@ def measurement_agent(config, shared_data):
         return storage_build_daily_file_path(plant_name, fallback, timestamp, tz, now_tz(config))
 
     def refresh_aggregate_measurements_df():
+        # Snapshot under lock, build aggregate outside lock, then write back.
         with shared_data["lock"]:
-            dfs = []
-            for plant_id in plant_ids:
-                df = shared_data.get("current_file_df_by_plant", {}).get(plant_id, pd.DataFrame())
-                if df is not None and not df.empty:
-                    tagged = df.copy()
-                    tagged["plant_id"] = plant_id
-                    dfs.append(tagged)
-            if dfs:
-                shared_data["measurements_df"] = pd.concat(dfs, ignore_index=True)
-            else:
-                shared_data["measurements_df"] = pd.DataFrame()
+            df_snapshot_by_plant = {
+                plant_id: shared_data.get("current_file_df_by_plant", {}).get(plant_id, pd.DataFrame())
+                for plant_id in plant_ids
+            }
+
+        dfs = []
+        for plant_id in plant_ids:
+            df = df_snapshot_by_plant.get(plant_id)
+            if df is not None and not df.empty:
+                tagged = df.copy()
+                tagged["plant_id"] = plant_id
+                dfs.append(tagged)
+        aggregate_df = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
+
+        with shared_data["lock"]:
+            shared_data["measurements_df"] = aggregate_df
 
     def refresh_current_file_cache(plant_id, now_ts):
         file_path = build_daily_file_path(plant_id, now_ts)
@@ -261,18 +267,25 @@ def measurement_agent(config, shared_data):
         row_df = pd.DataFrame([row], columns=MEASUREMENT_COLUMNS)
         row_df["timestamp"] = normalize_datetime_series(row_df["timestamp"], tz)
 
+        # Snapshot under lock, update dataframe outside lock, then write back.
         with shared_data["lock"]:
             current_path = shared_data.get("current_file_path_by_plant", {}).get(plant_id)
             if current_path != file_path:
                 return
             current_df = shared_data.get("current_file_df_by_plant", {}).get(plant_id, pd.DataFrame())
-            if current_df is None or current_df.empty:
-                updated = row_df
-            elif replace_last:
-                updated = current_df.copy()
-                updated.iloc[-1] = row_df.iloc[0]
-            else:
-                updated = pd.concat([current_df, row_df], ignore_index=True)
+
+        if current_df is None or current_df.empty:
+            updated = row_df
+        elif replace_last:
+            updated = current_df.copy()
+            updated.iloc[-1] = row_df.iloc[0]
+        else:
+            updated = pd.concat([current_df, row_df], ignore_index=True)
+
+        with shared_data["lock"]:
+            current_path = shared_data.get("current_file_path_by_plant", {}).get(plant_id)
+            if current_path != file_path:
+                return
             shared_data["current_file_df_by_plant"][plant_id] = updated
 
         refresh_aggregate_measurements_df()
@@ -672,7 +685,6 @@ def measurement_agent(config, shared_data):
                 "transport_mode": data.get("transport_mode", "local"),
                 "requested_files": dict(data.get("measurements_filename_by_plant", {})),
                 "api_password": data.get("api_password"),
-                "posting_toggle_enabled": bool(data.get("measurement_posting_enabled", config_post_measurements_enabled)),
                 "posting_runtime": dict(data.get("posting_runtime", {}) or {}),
                 "api_connection_runtime": dict(data.get("api_connection_runtime", {}) or {}),
                 "current_paths": dict(data.get("current_file_path_by_plant", {})),
@@ -683,7 +695,7 @@ def measurement_agent(config, shared_data):
         api_password = snapshot["api_password"]
         posting_runtime = dict(snapshot.get("posting_runtime", {}) or {})
         api_connection_runtime = dict(snapshot.get("api_connection_runtime", {}) or {})
-        posting_toggle_enabled = bool(posting_runtime.get("policy_enabled", snapshot["posting_toggle_enabled"]))
+        posting_toggle_enabled = bool(posting_runtime.get("policy_enabled", config_post_measurements_enabled))
         api_connection_state = str(api_connection_runtime.get("state") or ("connected" if api_password else "disconnected"))
         current_paths = snapshot["current_paths"]
 

@@ -16,7 +16,7 @@
 3. Logging retention policy is undefined; date-routed files accumulate without automatic pruning.
 4. Operational validation gap remains for remote transport end-to-end flows.
 5. Legacy compatibility aliases in `config_loader.py` are now opt-in; removal timeline for the fallback flag remains open.
-6. Lock-discipline target is not fully met in measurement cache paths where dataframe operations still occur under lock.
+6. Lock-discipline target is improved but not complete; high-value measurement cache paths were refactored, and lower-priority measurement/cache paths still need audit.
 7. Historical dense measurement CSV files created while compression was inactive are intentionally not backfilled.
 8. Historical plots tab currently rescans and reloads CSV files on demand; performance may degrade with very large `data/` directories.
 9. Transition UX now combines immediate click-feedback overlay + server/runtime transition state + Modbus confirmation; hold-window tuning may need additional operator validation across remote latency conditions.
@@ -26,6 +26,11 @@
 ## Rolling Change Log (Compressed, 30-Day Window)
 
 ### 2026-02-25
+- Completed compatibility-contract cleanup and concurrency hygiene pass:
+  - retired compatibility-only shared-state keys `active_schedule_source`, `schedule_switching`, and `measurement_posting_enabled` from runtime init/consumers/tests,
+  - `posting_runtime.policy_enabled` is now the only canonical runtime posting-policy source,
+  - removed deprecated `schedule_manager.py` from the active repository after migration,
+  - reduced `measurement_agent.py` lock hold time in aggregate cache rebuild and current-file cache upsert by moving pandas-heavy work outside `shared_data["lock"]`.
 - Strengthened API runtime state authority and engine helper de-dup:
   - added `api_runtime_state.py` to centralize `api_connection_runtime` normalization/recompute and sub-health publication (`fetch_health`, `posting_health`),
   - `settings_engine_agent.py` now publishes connect/disconnect transitions and probe results through the shared API runtime helper,
@@ -233,7 +238,7 @@
 - Completed staged cleanup plan across Stage A/B/C:
   - Stage A shared helper extraction (`runtime_contracts.py`, `schedule_runtime.py`, `shared_state.py`).
   - Stage B concern split for dashboard and measurement helpers/modules.
-  - Stage C legacy-path deprecation: `schedule_manager.py` marked deprecated and legacy config aliases gated behind `HIL_ENABLE_LEGACY_CONFIG_ALIASES=1`.
+  - Stage C legacy-path cleanup progressed: `schedule_manager.py` removed after migration to `manual_schedule_manager.py` / `schedule_runtime.py`; legacy config aliases remain gated behind `HIL_ENABLE_LEGACY_CONFIG_ALIASES=1`.
 - Fixed Stage B regressions:
   - restored measurement recording start path (`sanitize_plant_name` import in `measurement_agent.py`),
   - fixed logs parsing in `dashboard_logs.py` regex.

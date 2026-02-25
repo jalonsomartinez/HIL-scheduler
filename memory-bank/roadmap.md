@@ -29,7 +29,7 @@ Increase reliability and operator confidence without changing the core dual-plan
 1. Expand README with architecture diagram, control semantics, and troubleshooting.
 2. Document recommended local/remote smoke workflow for dual-plant scenarios.
 3. Define a low-overhead visual regression guardrail (for example, deterministic screenshots of key dashboard tabs).
-4. Plan final removal of deprecated legacy compatibility paths (`schedule_manager.py`, alias fallback flag) after external dependency check.
+4. Evaluate removal of remaining legacy compatibility paths (for example the alias fallback flag) after external dependency check.
 5. Decide whether to ship an optional offline utility for historical CSV recompression.
 6. Evaluate queue topology evolution (global FIFO vs per-plant queues with global command barriers) after collecting operator observations from control-queue/health UI and new settings-queue behavior.
 7. Decide whether to move manual editor drafts from shared runtime state to per-session `dcc.Store` if multi-operator dashboard usage becomes a requirement.

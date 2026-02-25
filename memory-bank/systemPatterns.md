@@ -49,7 +49,6 @@ shared_data = {
     "manual_series_runtime_state_by_key": { ... },
     "api_schedule_df_by_plant": {"lib": pd.DataFrame(), "vrfb": pd.DataFrame()},
 
-    "active_schedule_source": "manual",  # compatibility only; dispatch no longer branches on source
     "transport_mode": "local",
 
     "scheduler_running_by_plant": {"lib": False, "vrfb": False},
@@ -86,7 +85,6 @@ shared_data = {
         "lib": {"request_id": None, "status": "idle", "soc_pu": None, "message": None},
         "vrfb": {"request_id": None, "status": "idle", "soc_pu": None, "message": None},
     },
-    "measurement_posting_enabled": True,
     "posting_runtime": { ... },
 
     "api_password": None,
@@ -105,7 +103,6 @@ shared_data = {
         "error": None,
     },
 
-    "schedule_switching": False,  # compatibility only; source-switch UI removed
     "transport_switching": False,
     "control_command_queue": queue.Queue(maxsize=128),
     "control_command_status_by_id": {},
@@ -229,7 +226,7 @@ shared_data = {
   - dashboard renders `api_connection_runtime` without deriving API `Error` from telemetry.
 - `measurement_agent.py` posting-effective gate now depends on:
   - stored password presence,
-  - posting policy (`posting_runtime.policy_enabled` / compat `measurement_posting_enabled`),
+  - posting policy (`posting_runtime.policy_enabled`),
   - API connection runtime state (connected/error vs intentionally disconnected).
 
 ### Local Plant Start SoC Restore
@@ -293,9 +290,9 @@ shared_data = {
 - Posting is owned by `measurement_agent.py` and is independent from sample/flush cadence.
 - Voltage posting uses measured `v_poi_kV * 1000` to send volts (no reconstruction from per-unit and model base voltage).
 - Gate conditions:
-  - runtime posting toggle `measurement_posting_enabled` is true,
+  - runtime posting policy `posting_runtime.policy_enabled` is true,
   - API password exists,
-  - config default `ISTENTORE_POST_MEASUREMENTS_IN_API_MODE` seeds startup toggle state.
+  - config default `ISTENTORE_POST_MEASUREMENTS_IN_API_MODE` seeds startup policy state.
 - Queue behavior:
   - bounded in-memory queue,
   - exponential retry backoff,
@@ -348,8 +345,10 @@ shared_data = {
   - hold `shared_data["lock"]` only for short reference reads/writes,
   - perform Modbus I/O, API I/O, file I/O, and dataframe-heavy transforms outside the lock,
   - keep dashboard callbacks responsive by avoiding long lock sections.
-- Current exception:
-  - measurement cache update paths in `measurement_agent.py` still include some lock-scoped dataframe operations; this is tracked as a follow-up cleanup item.
+- Recent cleanup:
+  - `measurement_agent.py` aggregate-cache rebuild and current-file cache upsert now use snapshot-under-lock / dataframe compute outside lock / write-back-under-lock.
+- Remaining follow-up:
+  - continue auditing less critical measurement/cache paths for the same lock-discipline pattern.
 - Runtime settings command channel:
   - FIFO `settings_command_queue` for UI-issued manual/API/posting intents.
   - command lifecycle tracking via `settings_command_status_by_id`, `settings_command_history_ids`, `settings_command_active_id`.

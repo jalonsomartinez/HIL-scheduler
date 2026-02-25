@@ -18,8 +18,6 @@ def _shared_data():
         "current_file_path_by_plant": {"lib": "data/file.csv", "vrfb": "data/file2.csv"},
         "current_file_df_by_plant": {"lib": pd.DataFrame([{"a": 1}]), "vrfb": pd.DataFrame([{"a": 2}])},
         "transport_mode": "local",
-        "active_schedule_source": "manual",
-        "schedule_switching": False,
         "transport_switching": False,
     }
 

@@ -350,7 +350,6 @@ def _apply_posting_policy(config, shared_data, command, *, enabled):
             }
         )
         shared_data["posting_runtime"] = runtime
-        shared_data["measurement_posting_enabled"] = bool(enabled)
     publish_api_posting_health(
         shared_data,
         state="idle" if enabled else "disabled",
@@ -456,7 +455,10 @@ def settings_engine_agent(config, shared_data):
     with shared_data["lock"]:
         _ensure_manual_runtime_state_map(shared_data)
         initial_posting_enabled = bool(
-            shared_data.get("measurement_posting_enabled", config.get("ISTENTORE_POST_MEASUREMENTS_IN_API_MODE", True))
+            (shared_data.get("posting_runtime", {}) or {}).get(
+                "policy_enabled",
+                config.get("ISTENTORE_POST_MEASUREMENTS_IN_API_MODE", True),
+            )
         )
         shared_data.setdefault(
             "posting_runtime",

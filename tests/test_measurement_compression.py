@@ -17,7 +17,6 @@ def _build_shared_data(recording_path):
         "lock": threading.Lock(),
         "shutdown_event": threading.Event(),
         "transport_mode": "local",
-        "active_schedule_source": "manual",
         "api_password": None,
         "measurements_filename_by_plant": {"lib": recording_path},
         "current_file_path_by_plant": {"lib": None},

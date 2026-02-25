@@ -18,7 +18,6 @@ def _build_shared_data(config):
     return {
         "manual_schedule_df_by_plant": _empty_df_by_plant(plant_ids),
         "api_schedule_df_by_plant": _empty_df_by_plant(plant_ids),
-        "active_schedule_source": "manual",
         "transport_mode": "local",
         "scheduler_running_by_plant": {plant_id: False for plant_id in plant_ids},
         "plant_transition_by_plant": {plant_id: "stopped" for plant_id in plant_ids},

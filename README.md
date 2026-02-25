@@ -64,6 +64,6 @@ python3 -m py_compile *.py
 ```
 
 ## Legacy Compatibility Notes
-- `schedule_manager.py` is deprecated and not part of the active runtime path.
+- `schedule_manager.py` was removed after runtime migration to `manual_schedule_manager.py` and `schedule_runtime.py`.
 - `config_loader.py` no longer emits legacy flat alias keys by default.
 - Temporary migration fallback: set `HIL_ENABLE_LEGACY_CONFIG_ALIASES=1` to re-enable legacy alias keys.

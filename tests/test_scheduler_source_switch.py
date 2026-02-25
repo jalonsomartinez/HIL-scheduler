@@ -77,7 +77,6 @@ def _shared_data():
         "lock": threading.Lock(),
         "shutdown_event": threading.Event(),
         "transport_mode": "local",
-        "active_schedule_source": "manual",
         "scheduler_running_by_plant": {"lib": True, "vrfb": False},
         "manual_schedule_df_by_plant": {"lib": pd.DataFrame(), "vrfb": pd.DataFrame()},
         "manual_schedule_series_df_by_key": {
