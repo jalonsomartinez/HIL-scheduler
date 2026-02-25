@@ -172,6 +172,52 @@ def dashboard_agent(config, shared_data):
                 return raw
         return raw
 
+    def _command_status_action_token(status):
+        return f"{status.get('kind')}:{status.get('id')}:{status.get('state')}"
+
+    def _enqueue_dashboard_control_intent(intent, *, trigger_id=None):
+        status = enqueue_control_command(
+            shared_data,
+            kind=intent["kind"],
+            payload=intent["payload"],
+            source="dashboard",
+            now_fn=lambda: now_tz(config),
+        )
+        if trigger_id is None:
+            logging.info(
+                "Dashboard: queued control command kind=%s id=%s state=%s",
+                status.get("kind"),
+                status.get("id"),
+                status.get("state"),
+            )
+        else:
+            logging.info(
+                "Dashboard: queued command trigger=%s kind=%s id=%s state=%s",
+                trigger_id,
+                status.get("kind"),
+                status.get("id"),
+                status.get("state"),
+            )
+        return status
+
+    def _enqueue_dashboard_settings_intent(intent, *, trigger_id, log_label="settings command"):
+        status = enqueue_settings_command(
+            shared_data,
+            kind=intent["kind"],
+            payload=intent["payload"],
+            source="dashboard",
+            now_fn=lambda: now_tz(config),
+        )
+        logging.info(
+            "Dashboard: queued %s trigger=%s kind=%s id=%s state=%s",
+            log_label,
+            trigger_id,
+            status.get("kind"),
+            status.get("id"),
+            status.get("state"),
+        )
+        return status
+
     def _manual_toggle_classes(enabled):
         if bool(enabled):
             return "toggle-option active", "toggle-option"
@@ -428,13 +474,7 @@ def dashboard_agent(config, shared_data):
         if trigger_id == "transport-switch-confirm":
             intent = transport_switch_intent_from_confirm(trigger_id, stored_mode=stored_mode)
             if intent:
-                status = enqueue_control_command(
-                    shared_data,
-                    kind=intent["kind"],
-                    payload=intent["payload"],
-                    source="dashboard",
-                    now_fn=lambda: now_tz(config),
-                )
+                status = _enqueue_dashboard_control_intent(intent)
                 logging.info(
                     "Dashboard: queued transport switch command %s state=%s mode=%s",
                     status.get("id"),
@@ -518,15 +558,8 @@ def dashboard_agent(config, shared_data):
         intent = posting_intent_from_trigger(trigger_id)
         if intent is None:
             raise PreventUpdate
-        status = enqueue_settings_command(
-            shared_data,
-            kind=intent["kind"],
-            payload=intent["payload"],
-            source="dashboard",
-            now_fn=lambda: now_tz(config),
-        )
-        logging.info("Dashboard: queued settings command trigger=%s kind=%s id=%s state=%s", trigger_id, status.get("kind"), status.get("id"), status.get("state"))
-        return f"{status['kind']}:{status['id']}:{status['state']}"
+        status = _enqueue_dashboard_settings_intent(intent, trigger_id=trigger_id)
+        return _command_status_action_token(status)
 
     @app.callback(
         [
@@ -582,15 +615,8 @@ def dashboard_agent(config, shared_data):
         intent = api_connection_intent_from_trigger(trigger_id, password_value=password_value)
         if intent is None:
             raise PreventUpdate
-        status = enqueue_settings_command(
-            shared_data,
-            kind=intent["kind"],
-            payload=intent["payload"],
-            source="dashboard",
-            now_fn=lambda: now_tz(config),
-        )
-        logging.info("Dashboard: queued settings command trigger=%s kind=%s id=%s state=%s", trigger_id, status.get("kind"), status.get("id"), status.get("state"))
-        return f"{status['kind']}:{status['id']}:{status['state']}"
+        status = _enqueue_dashboard_settings_intent(intent, trigger_id=trigger_id)
+        return _command_status_action_token(status)
 
     @app.callback(
         [
@@ -667,21 +693,8 @@ def dashboard_agent(config, shared_data):
         if intent is None:
             raise PreventUpdate
 
-        status = enqueue_control_command(
-            shared_data,
-            kind=intent["kind"],
-            payload=intent["payload"],
-            source="dashboard",
-            now_fn=lambda: now_tz(config),
-        )
-        logging.info(
-            "Dashboard: queued command trigger=%s kind=%s id=%s state=%s",
-            trigger_id,
-            status.get("kind"),
-            status.get("id"),
-            status.get("state"),
-        )
-        return f"{status['kind']}:{status['id']}:{status['state']}"
+        status = _enqueue_dashboard_control_intent(intent, trigger_id=trigger_id)
+        return _command_status_action_token(status)
 
     @app.callback(Output("manual-status-text", "children"), Input("manual-editor-status-store", "data"))
     def render_manual_status(status_text):
@@ -846,21 +859,8 @@ def dashboard_agent(config, shared_data):
         intent = manual_settings_intent_from_trigger(trigger_id, draft_series_by_key=draft_map, tz=tz)
         if intent is None:
             raise PreventUpdate
-        status = enqueue_settings_command(
-            shared_data,
-            kind=intent["kind"],
-            payload=intent["payload"],
-            source="dashboard",
-            now_fn=lambda: now_tz(config),
-        )
-        logging.info(
-            "Dashboard: queued manual settings command trigger=%s kind=%s id=%s state=%s",
-            trigger_id,
-            status.get("kind"),
-            status.get("id"),
-            status.get("state"),
-        )
-        return f"{status['kind']}:{status['id']}:{status['state']}"
+        status = _enqueue_dashboard_settings_intent(intent, trigger_id=trigger_id, log_label="manual settings command")
+        return _command_status_action_token(status)
 
     @app.callback(
         [

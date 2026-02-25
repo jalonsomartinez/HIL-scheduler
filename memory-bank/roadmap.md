@@ -8,14 +8,14 @@ Increase reliability and operator confidence without changing the core dual-plan
 ### P0 - Reliability and Regression Safety
 1. Add remote transport smoke coverage equivalent to local smoke checks.
 2. Keep compile + unittest checks green in CI on every PR/push.
-3. Add one integration test for dashboard callback->control wiring (ID stability + state mutation path), including new fleet-action and posting-toggle controls.
+3. Expand integration wiring coverage beyond the current control/settings happy-path engine-cycle tests (for example callback-level regressions, bulk actions, and rejection/error paths).
 4. Add safe-stop timeout-path regression test (`threshold_reached=False`, disable fallback).
 5. Keep measurement compression and config-loader schema regression coverage green to prevent config/runtime drift.
 6. Keep API schedule fetcher poll-gate/config regression coverage green (`tomorrow_poll_start_time` parsing, gate timing, partial-window status semantics).
 7. Add dashboard/manual-editor callback regressions for key manual override UX flows (series selector load, CSV upload, breakpoint add/delete, row validation).
 8. Add one regression covering control-engine command queue overflow visibility/behavior (`queue_full` rejection path surfaced to UI/log state).
 9. Add one UI-level regression (or helper-level regression if callback tests remain brittle) for Status-tab control-engine/queue/Modbus health text rendering.
-10. Add one integration regression covering settings-command wiring (manual activate/update/inactivate and API/posting command enqueue -> settings-engine state mutation path).
+10. Expand settings-command integration regressions beyond current happy paths (manual activate/update/inactivate and API/posting rejection/error-state paths).
 
 ### P1 - Operational Hardening
 1. Define log retention policy and implement cleanup automation.

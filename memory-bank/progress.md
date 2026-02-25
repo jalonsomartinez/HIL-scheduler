@@ -56,7 +56,7 @@
 - branded UI theme (tokenized CSS, local font assets, flatter visual treatment, minimal corner radius, menu-style tab strip, full-width tab content cards, white page background).
 6. Automated validation now includes:
 - module compile checks (`python3 -m py_compile *.py`),
-- unit/smoke regression suite (`python -m unittest discover -s tests -v`),
+- unit/smoke regression suite (`python -m unittest discover -s tests -v`, currently `140` tests),
 - CI execution via `.github/workflows/ci.yml`.
  - targeted historical-plots helper unit tests in `tests/test_dashboard_history.py` (environment-dependent on local pandas install).
  - `tests/test_dashboard_history.py` now explicitly covers stale-placeholder and fully out-of-domain slider-range defaulting semantics.
@@ -71,7 +71,10 @@
  - targeted scheduler merged-dispatch regressions (`tests/test_scheduler_source_switch.py`) covering manual override priority and stale API base fallback behavior.
 - targeted posting telemetry regression coverage confirming posting gate no longer depends on `active_schedule_source`.
 - targeted command-runtime/control-engine regressions (`tests/test_control_command_runtime.py`, `tests/test_control_engine_agent.py`) and dashboard intent/UI-state/control-health helper regressions (`tests/test_dashboard_command_intents.py`, `tests/test_dashboard_ui_state.py`, `tests/test_dashboard_control_health.py`).
+- generic command-runtime helper extraction (`command_runtime.py`) keeps control/settings command-runtime wrappers thin and aligned.
+- shared engine command-cycle bookkeeping (`engine_command_cycle_runtime.py`) now drives control/settings lifecycle status updates and exception publication.
 - targeted settings-command/settings-engine regressions (`tests/test_settings_command_runtime.py`, `tests/test_settings_engine_agent.py`) and dashboard settings intent/UI-state helper regressions (`tests/test_dashboard_settings_intents.py`, `tests/test_dashboard_settings_ui_state.py`).
+- targeted control/settings integration wiring regressions (`tests/test_dashboard_engine_wiring.py`) cover intent helper -> enqueue -> engine single-cycle -> shared-state mutation happy paths.
 7. Dashboard control flow is now separated into `dashboard_control.py` with dedicated tests for safe-stop and transport switch semantics (source-switch helper removed from active dashboard flow).
 8. Runtime shared-state initialization contract is centralized in `build_initial_shared_data(config)` with schema tests.
  - Shared-state contract now includes local emulator SoC seed request/result maps for dashboard->plant-agent local-start coordination.
@@ -91,7 +94,7 @@
 3. Add lightweight dashboard visual regression/smoke checklist.
 4. Expand README operator runbook/troubleshooting sections (including control engine + settings engine command/transition semantics and API connect vs password semantics).
 5. Decide whether to provide an optional offline recompression utility for historical dense CSV files.
-6. Continue lock-discipline cleanup in `measurement_agent.py` beyond the recently refactored aggregate/current-cache dataframe paths.
+6. Continue lock-discipline cleanup in `measurement_agent.py` beyond the recently refactored aggregate/current-cache/flush paths (only if contention justifies it).
 7. Evaluate command cancellation/prioritization needs for long safe-stop/transport flows (if operator usage demands it).
 
 ## Known Issues / Gaps
@@ -100,7 +103,7 @@
 3. Manual schedule editor drafts are stored in shared runtime state (`manual_schedule_draft_series_df_by_key`), so concurrent dashboard sessions can conflict (single-operator assumption currently accepted; per-session isolation deferred).
 4. Operational runbook and incident handling guidance are still thin.
 5. UI styling changes are still validated manually; no screenshot/DOM snapshot checks in CI.
-6. Measurement-agent lock discipline improved in aggregate/current-cache paths, but broader audit remains for lower-priority paths.
+6. Measurement-agent lock discipline improved in aggregate/current-cache/flush paths, but broader audit remains for lower-priority paths.
 7. Historical measurement files captured while compression was inactive remain dense by design (no automatic backfill).
 8. Historical `Plots` tab rescans/reads CSVs on demand and may need indexing/caching if `data/` grows large.
 

@@ -12,11 +12,13 @@
 ## Repository Runtime Modules
 - `hil_scheduler.py`: director, shared state initialization, thread startup/shutdown.
 - `control_engine_agent.py`: serial command execution engine for dashboard-issued control intents; owns control-path Modbus I/O and cached plant observed-state publication.
+- `command_runtime.py`: generic shared-state command queue/lifecycle bookkeeping helpers used by control/settings wrappers.
 - `control_command_runtime.py`: shared-state command queue/lifecycle bookkeeping helpers (ID allocation, queued/running/terminal status updates, bounded history).
 - `settings_engine_agent.py`: serial settings command execution engine for manual activation/update/inactivation, API connect/disconnect, and posting policy commands.
 - `settings_command_runtime.py`: settings-engine command queue/lifecycle bookkeeping wrappers (same shared helper pattern as control commands).
 - `api_runtime_state.py`: shared API connection runtime-state publisher/recompute helpers (connect intent/state + fetch/posting sub-health -> authoritative API state).
 - `engine_status_runtime.py`: shared engine queue/command-status summary publisher helpers reused by control and settings engines.
+- `engine_command_cycle_runtime.py`: shared command lifecycle execution bookkeeping helper (`running`/`finished`/exception->status publication) reused by control and settings engines.
 - `dashboard_command_intents.py`: pure dashboard trigger->command intent mapping helpers for UI callbacks.
 - `dashboard_settings_intents.py`: pure dashboard trigger->settings-command mapping helpers (manual/API/posting).
 - `dashboard_settings_ui_state.py`: pure UI transition/button-state helpers for manual/API/posting commanded resources.
@@ -149,6 +151,7 @@ Per-plant config includes:
 
 ## Operational Constraints
 - Threaded model requires short lock sections and external I/O outside locks.
+- `measurement_agent.py` lock-discipline cleanup now also covers `flush_pending_rows()` pending-row swap/process/merge flow (shorter lock sections during CSV flush prep).
 - Local SoC restore handshake is best-effort by design: control-engine start waits briefly for plant-agent ack and logs timeout, but still proceeds with plant enable/start sequence.
 - Control command execution is serialized through a bounded FIFO queue in shared state; high-latency stop/transport flows can delay later queued commands by design in this first pass.
 - Dashboard status controls now depend on control-engine observed-state cache freshness (`stale` marker) rather than direct Modbus reads; stale cache displays `Unknown` for Modbus enable.

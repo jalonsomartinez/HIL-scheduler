@@ -189,6 +189,7 @@ shared_data = {
   - `queued` -> `running` -> terminal (`succeeded` / `failed` / `rejected`).
 - Queue overflow is handled as a terminal rejected status (`message="queue_full"`), preserving UI responsiveness.
 - Command status history is bounded (recent IDs/statuses retained, oldest pruned).
+- Generic shared bookkeeping now lives in `command_runtime.py`; control/settings command runtime modules are thin wrappers over engine-specific shared-state keys.
 
 ### Plant Observed-State Cache and UI Transition Semantics
 - Control engine performs periodic best-effort Modbus reads for `enable`, `p_battery`, and `q_battery` and publishes `plant_observed_state_by_plant`.
@@ -347,8 +348,10 @@ shared_data = {
   - keep dashboard callbacks responsive by avoiding long lock sections.
 - Recent cleanup:
   - `measurement_agent.py` aggregate-cache rebuild and current-file cache upsert now use snapshot-under-lock / dataframe compute outside lock / write-back-under-lock.
+  - `measurement_agent.py` `flush_pending_rows()` now swaps pending rows under lock, prepares retained/flush snapshots outside lock, then merges retained/failed rows back under lock.
 - Remaining follow-up:
   - continue auditing less critical measurement/cache paths for the same lock-discipline pattern.
+- Engine command lifecycle bookkeeping is shared by `engine_command_cycle_runtime.py` (mark running, execute, exception->status, mark finished, publish `last_finished_command`, `task_done()`), while control/settings engine loops remain separate.
 - Runtime settings command channel:
   - FIFO `settings_command_queue` for UI-issued manual/API/posting intents.
   - command lifecycle tracking via `settings_command_status_by_id`, `settings_command_history_ids`, `settings_command_active_id`.

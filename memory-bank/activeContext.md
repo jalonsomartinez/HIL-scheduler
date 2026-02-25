@@ -26,6 +26,12 @@
 ## Rolling Change Log (Compressed, 30-Day Window)
 
 ### 2026-02-25
+- Continued internal refactor cleanup without behavior changes:
+  - extracted generic command lifecycle bookkeeping into `command_runtime.py` and reduced `control_command_runtime.py` / `settings_command_runtime.py` to thin wrappers,
+  - extracted shared engine command-cycle execution bookkeeping into `engine_command_cycle_runtime.py` and refactored control/settings engines to reuse it,
+  - refactored `measurement_agent.py` `flush_pending_rows()` to swap/process/merge pending rows with shorter lock hold times,
+  - added focused integration wiring regressions (`tests/test_dashboard_engine_wiring.py`) covering intent helper -> enqueue -> engine single-cycle -> shared-state mutation for both control and settings paths,
+  - reduced enqueue callback duplication in `dashboard_agent.py` by centralizing command enqueue/token/log helper logic.
 - Completed compatibility-contract cleanup and concurrency hygiene pass:
   - retired compatibility-only shared-state keys `active_schedule_source`, `schedule_switching`, and `measurement_posting_enabled` from runtime init/consumers/tests,
   - `posting_runtime.policy_enabled` is now the only canonical runtime posting-policy source,
@@ -62,6 +68,7 @@
   - `measurement_agent.py` posting-effective gate now considers `posting_runtime` and `api_connection_runtime` (with backward-compatible fallback),
   - `data_fetcher_agent.py` respects intentional API disconnect via `api_connection_runtime` (with backward-compatible fallback).
 - Added regression coverage for settings command runtime/engine and dashboard settings intent/UI helper behavior; full suite remains green (`125 tests`).
+ - Follow-up refactor/test additions increased full-suite coverage count to `140` tests while preserving green status.
 - Added Status-tab runtime health surfacing for operator visibility:
   - top-card control-engine summary (`alive`, active command, last finished command, last loop error),
   - top-card command queue summary (`queued`, `running`, recent failed/rejected count, backlog-high hint).
