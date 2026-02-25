@@ -10,6 +10,8 @@ This is a stateless utility module - all state is maintained in the dashboard.
 """
 
 import logging
+import csv
+import io
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Tuple
@@ -25,6 +27,258 @@ from time_utils import (
     normalize_timestamp_value,
     serialize_iso_with_tz,
 )
+
+
+MANUAL_SERIES_META = {
+    "lib_p": {"plant_id": "lib", "signal": "p", "column": "power_setpoint_kw", "unit": "kW", "label": "LIB Active Power"},
+    "lib_q": {
+        "plant_id": "lib",
+        "signal": "q",
+        "column": "reactive_power_setpoint_kvar",
+        "unit": "kvar",
+        "label": "LIB Reactive Power",
+    },
+    "vrfb_p": {"plant_id": "vrfb", "signal": "p", "column": "power_setpoint_kw", "unit": "kW", "label": "VRFB Active Power"},
+    "vrfb_q": {
+        "plant_id": "vrfb",
+        "signal": "q",
+        "column": "reactive_power_setpoint_kvar",
+        "unit": "kvar",
+        "label": "VRFB Reactive Power",
+    },
+}
+MANUAL_SERIES_KEYS = tuple(MANUAL_SERIES_META.keys())
+
+
+def _empty_manual_series_df():
+    return pd.DataFrame(columns=["setpoint"])
+
+
+def manual_series_key(plant_id: str, signal: str) -> str:
+    key = f"{str(plant_id).lower()}_{str(signal).lower()}"
+    if key not in MANUAL_SERIES_META:
+        raise KeyError(f"Unknown manual series key '{key}'")
+    return key
+
+
+def manual_series_keys_for_plant(plant_id: str):
+    plant = str(plant_id).lower()
+    return (manual_series_key(plant, "p"), manual_series_key(plant, "q"))
+
+
+def default_manual_series_map():
+    return {key: _empty_manual_series_df() for key in MANUAL_SERIES_KEYS}
+
+
+def default_manual_merge_enabled_map(default_enabled: bool = False):
+    return {key: bool(default_enabled) for key in MANUAL_SERIES_KEYS}
+
+
+def normalize_manual_series_df(series_df: pd.DataFrame, timezone_name: str = DEFAULT_TIMEZONE_NAME) -> pd.DataFrame:
+    tz = get_timezone(timezone_name)
+    if series_df is None or series_df.empty:
+        return _empty_manual_series_df()
+
+    df = series_df.copy()
+    if "setpoint" not in df.columns:
+        if len(df.columns) == 1:
+            df = df.rename(columns={df.columns[0]: "setpoint"})
+        else:
+            raise ValueError("Manual series dataframe must contain a 'setpoint' column")
+
+    if "datetime" in df.columns:
+        df["datetime"] = normalize_datetime_series(df["datetime"], tz)
+        df = df.dropna(subset=["datetime"]).set_index("datetime")
+
+    df = normalize_schedule_index(df, tz)
+    if df.empty:
+        return _empty_manual_series_df()
+
+    df = df[["setpoint"]].copy()
+    df["setpoint"] = pd.to_numeric(df["setpoint"], errors="coerce")
+    df = df.dropna(subset=["setpoint"])
+    if df.empty:
+        return _empty_manual_series_df()
+    return df.sort_index()
+
+
+def prune_manual_series_map_to_window(series_map, tz, window_start, window_end):
+    pruned = {}
+    for key in MANUAL_SERIES_KEYS:
+        df = normalize_manual_series_df(series_map.get(key), timezone_name=getattr(tz, "key", str(tz)))
+        if not df.empty:
+            if window_start is not None:
+                df = df.loc[df.index >= pd.Timestamp(window_start)]
+            if window_end is not None:
+                df = df.loc[df.index < pd.Timestamp(window_end)]
+        pruned[key] = df if not df.empty else _empty_manual_series_df()
+    return pruned
+
+
+def rebuild_manual_schedule_df_by_plant(series_map, timezone_name: str = DEFAULT_TIMEZONE_NAME):
+    tz = get_timezone(timezone_name)
+    result = {"lib": pd.DataFrame(), "vrfb": pd.DataFrame()}
+    for plant_id in result.keys():
+        p_key, q_key = manual_series_keys_for_plant(plant_id)
+        p_df = normalize_manual_series_df(series_map.get(p_key), timezone_name=timezone_name)
+        q_df = normalize_manual_series_df(series_map.get(q_key), timezone_name=timezone_name)
+
+        union_index = p_df.index.union(q_df.index).sort_values()
+        if len(union_index) == 0:
+            result[plant_id] = pd.DataFrame()
+            continue
+
+        combined = pd.DataFrame(index=union_index)
+        if not p_df.empty:
+            combined["power_setpoint_kw"] = p_df["setpoint"].reindex(union_index).ffill()
+        else:
+            combined["power_setpoint_kw"] = pd.Series(index=union_index, dtype=float)
+        if not q_df.empty:
+            combined["reactive_power_setpoint_kvar"] = q_df["setpoint"].reindex(union_index).ffill()
+        else:
+            combined["reactive_power_setpoint_kvar"] = pd.Series(index=union_index, dtype=float)
+        combined = normalize_schedule_index(combined, tz)
+        result[plant_id] = combined
+    return result
+
+
+def manual_series_df_to_editor_rows_and_start(
+    series_df: pd.DataFrame,
+    timezone_name: str = DEFAULT_TIMEZONE_NAME,
+):
+    tz = get_timezone(timezone_name)
+    df = normalize_manual_series_df(series_df, timezone_name=timezone_name)
+    if df.empty:
+        return None, []
+
+    start_ts = normalize_timestamp_value(df.index[0], tz)
+    rows = []
+    for ts, row in df.iterrows():
+        ts_norm = normalize_timestamp_value(ts, tz)
+        total_s = int(round((ts_norm - start_ts).total_seconds()))
+        hours = total_s // 3600
+        minutes = (total_s % 3600) // 60
+        seconds = total_s % 60
+        rows.append(
+            {
+                "hours": int(hours),
+                "minutes": int(minutes),
+                "seconds": int(seconds),
+                "setpoint": float(row.get("setpoint", 0.0)),
+            }
+        )
+
+    if rows:
+        rows[0]["hours"] = 0
+        rows[0]["minutes"] = 0
+        rows[0]["seconds"] = 0
+    return start_ts, rows
+
+
+def _normalize_editor_rows(rows):
+    normalized_rows = []
+    if rows is None:
+        return normalized_rows
+    for idx, row in enumerate(list(rows)):
+        if not isinstance(row, dict):
+            raise ValueError(f"Row {idx + 1}: invalid row format")
+        try:
+            hours = int(row.get("hours", 0))
+            minutes = int(row.get("minutes", 0))
+            seconds = int(row.get("seconds", 0))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Row {idx + 1}: time values must be integers") from exc
+        if hours < 0:
+            raise ValueError(f"Row {idx + 1}: hours must be >= 0")
+        if minutes < 0 or minutes > 59:
+            raise ValueError(f"Row {idx + 1}: minutes must be between 0 and 59")
+        if seconds < 0 or seconds > 59:
+            raise ValueError(f"Row {idx + 1}: seconds must be between 0 and 59")
+        try:
+            setpoint = float(row.get("setpoint"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Row {idx + 1}: setpoint must be numeric") from exc
+        normalized_rows.append(
+            {
+                "hours": hours,
+                "minutes": minutes,
+                "seconds": seconds,
+                "setpoint": setpoint,
+            }
+        )
+
+    if normalized_rows:
+        first = normalized_rows[0]
+        if (first["hours"], first["minutes"], first["seconds"]) != (0, 0, 0):
+            raise ValueError("First row must start at 00:00:00")
+        normalized_rows[0]["hours"] = 0
+        normalized_rows[0]["minutes"] = 0
+        normalized_rows[0]["seconds"] = 0
+
+    previous_offset = None
+    for idx, row in enumerate(normalized_rows):
+        offset_s = (row["hours"] * 3600) + (row["minutes"] * 60) + row["seconds"]
+        if previous_offset is not None and offset_s <= previous_offset:
+            raise ValueError(f"Row {idx + 1}: breakpoint time must be strictly increasing")
+        previous_offset = offset_s
+    return normalized_rows
+
+
+def manual_editor_rows_to_series_df(rows, start_time, timezone_name: str = DEFAULT_TIMEZONE_NAME) -> pd.DataFrame:
+    tz = get_timezone(timezone_name)
+    normalized_rows = _normalize_editor_rows(rows)
+    if not normalized_rows:
+        return _empty_manual_series_df()
+
+    if start_time is None:
+        raise ValueError("Start datetime is required when rows are not empty")
+    start_ts = normalize_timestamp_value(start_time, tz)
+    if pd.isna(start_ts):
+        raise ValueError("Invalid start datetime")
+
+    data = []
+    for row in normalized_rows:
+        offset_s = (row["hours"] * 3600) + (row["minutes"] * 60) + row["seconds"]
+        data.append(
+            {
+                "datetime": start_ts + pd.Timedelta(seconds=offset_s),
+                "setpoint": float(row["setpoint"]),
+            }
+        )
+    df = pd.DataFrame(data).set_index("datetime")
+    return normalize_manual_series_df(df, timezone_name=timezone_name)
+
+
+def manual_editor_rows_to_relative_csv_text(rows) -> str:
+    normalized_rows = _normalize_editor_rows(rows)
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(["hours", "minutes", "seconds", "setpoint"])
+    for row in normalized_rows:
+        writer.writerow([row["hours"], row["minutes"], row["seconds"], row["setpoint"]])
+    return buffer.getvalue()
+
+
+def load_manual_editor_rows_from_relative_csv_text(csv_text: str):
+    try:
+        df = pd.read_csv(io.StringIO(csv_text))
+    except Exception as exc:
+        raise ValueError(f"Could not read CSV: {exc}") from exc
+
+    # Accept harmless header variations (case/whitespace/BOM), validate by structure.
+    normalized_name_map = {}
+    for column in df.columns:
+        normalized = str(column).replace("\ufeff", "").strip().lower()
+        normalized_name_map[normalized] = column
+
+    required = ["hours", "minutes", "seconds", "setpoint"]
+    missing = [col for col in required if col not in normalized_name_map]
+    if missing:
+        raise ValueError(f"CSV missing required columns: {', '.join(missing)}")
+    rows = df[[normalized_name_map[col] for col in required]].copy()
+    rows.columns = required
+    rows = rows.to_dict("records")
+    return _normalize_editor_rows(rows)
 
 
 def generate_random_schedule(

@@ -204,6 +204,38 @@ class MeasurementPostingTelemetryTests(unittest.TestCase):
                 shared_data["shutdown_event"].set()
                 thread.join(timeout=3)
 
+    def test_posting_gate_no_longer_depends_on_active_schedule_source(self):
+        _FakePoster.force_fail = False
+        _FakePoster.calls = 0
+
+        config = _build_config()
+        shared_data = _build_shared_data(posting_enabled=True)
+        shared_data["active_schedule_source"] = "manual"
+
+        with patch("measurement_agent.IstentoreAPI", _FakePoster), patch(
+            "measurement_agent.sampling_get_transport_endpoint",
+            side_effect=_fake_endpoint,
+        ), patch(
+            "measurement_agent.sampling_ensure_client",
+            return_value=object(),
+        ), patch(
+            "measurement_agent.sampling_take_measurement",
+            side_effect=_fake_row,
+        ):
+            thread = threading.Thread(target=measurement_agent, args=(config, shared_data), daemon=True)
+            thread.start()
+            try:
+                def posting_enabled_seen():
+                    with shared_data["lock"]:
+                        status = shared_data.get("measurement_post_status", {}).get("lib", {})
+                        return status.get("posting_enabled") is True
+
+                self.assertTrue(_wait_for(posting_enabled_seen), "posting gate remained disabled when source was manual")
+                self.assertTrue(_wait_for(lambda: _FakePoster.calls > 0), "expected measurement posting attempts")
+            finally:
+                shared_data["shutdown_event"].set()
+                thread.join(timeout=3)
+
     def test_post_queue_respects_configured_maxlen(self):
         _FakePoster.force_fail = True
         _FakePoster.calls = 0

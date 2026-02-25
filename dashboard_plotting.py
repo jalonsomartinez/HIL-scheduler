@@ -3,7 +3,7 @@
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from time_utils import normalize_datetime_series
+from time_utils import normalize_datetime_series, normalize_schedule_index
 
 
 DEFAULT_PLOT_THEME = {
@@ -219,4 +219,68 @@ def create_plant_figure(
     fig.update_yaxes(title_text="pu", row=2, col=1)
     fig.update_yaxes(title_text="kvar", row=3, col=1)
     fig.update_xaxes(title_text="Time", row=3, col=1)
+    return fig
+
+
+def create_manual_series_figure(
+    *,
+    title,
+    unit_label,
+    series_df,
+    enabled,
+    tz,
+    plot_theme,
+    line_color,
+    x_window_start=None,
+    x_window_end=None,
+    uirevision_key="manual-series",
+):
+    fig = go.Figure()
+    plot_df = normalize_schedule_index(series_df, tz) if series_df is not None else None
+    if plot_df is not None and not plot_df.empty:
+        if x_window_start is not None:
+            plot_df = plot_df.loc[plot_df.index >= x_window_start]
+        if x_window_end is not None:
+            plot_df = plot_df.loc[plot_df.index < x_window_end]
+
+    if plot_df is None or plot_df.empty or "setpoint" not in plot_df.columns:
+        fig.add_annotation(text="No manual schedule.", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
+    else:
+        fig.add_trace(
+            go.Scatter(
+                x=plot_df.index,
+                y=plot_df["setpoint"],
+                mode="lines",
+                line_shape="hv",
+                name="Manual Override",
+                line=dict(
+                    color=line_color if enabled else plot_theme["muted"],
+                    width=2,
+                    dash="solid" if enabled else "dot",
+                ),
+            )
+        )
+        if not enabled:
+            fig.add_annotation(
+                text="Inactive override (not merged)",
+                xref="paper",
+                yref="paper",
+                x=0.99,
+                y=0.98,
+                xanchor="right",
+                yanchor="top",
+                showarrow=False,
+                font=dict(color=plot_theme["muted"], size=11, family=plot_theme["font_family"]),
+            )
+
+    apply_figure_theme(
+        fig,
+        plot_theme,
+        height=260,
+        margin=dict(l=45, r=20, t=45, b=28),
+        uirevision=uirevision_key,
+    )
+    fig.update_layout(title=dict(text=title, x=0.02, xanchor="left", y=0.96))
+    fig.update_yaxes(title_text=unit_label)
+    fig.update_xaxes(title_text="Time")
     return fig

@@ -644,7 +644,6 @@ def measurement_agent(config, shared_data):
             lambda data: {
                 "transport_mode": data.get("transport_mode", "local"),
                 "requested_files": dict(data.get("measurements_filename_by_plant", {})),
-                "active_schedule_source": data.get("active_schedule_source", "manual"),
                 "api_password": data.get("api_password"),
                 "posting_toggle_enabled": bool(data.get("measurement_posting_enabled", config_post_measurements_enabled)),
                 "current_paths": dict(data.get("current_file_path_by_plant", {})),
@@ -652,7 +651,6 @@ def measurement_agent(config, shared_data):
         )
         transport_mode = snapshot["transport_mode"]
         requested_files = snapshot["requested_files"]
-        active_schedule_source = snapshot["active_schedule_source"]
         api_password = snapshot["api_password"]
         posting_toggle_enabled = bool(snapshot["posting_toggle_enabled"])
         current_paths = snapshot["current_paths"]
@@ -718,9 +716,7 @@ def measurement_agent(config, shared_data):
                 state["session_tail_ts"] = measurement_ts
                 state["session_tail_is_null"] = False
 
-        posting_mode_now = (
-            posting_toggle_enabled and active_schedule_source == "api" and bool(api_password)
-        )
+        posting_mode_now = posting_toggle_enabled and bool(api_password)
         set_posting_enabled(posting_mode_now)
 
         if not posting_mode_now and posting_mode_active:

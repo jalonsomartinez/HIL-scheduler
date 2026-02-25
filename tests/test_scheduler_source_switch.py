@@ -80,6 +80,18 @@ def _shared_data():
         "active_schedule_source": "manual",
         "scheduler_running_by_plant": {"lib": True, "vrfb": False},
         "manual_schedule_df_by_plant": {"lib": pd.DataFrame(), "vrfb": pd.DataFrame()},
+        "manual_schedule_series_df_by_key": {
+            "lib_p": pd.DataFrame(columns=["setpoint"]),
+            "lib_q": pd.DataFrame(columns=["setpoint"]),
+            "vrfb_p": pd.DataFrame(columns=["setpoint"]),
+            "vrfb_q": pd.DataFrame(columns=["setpoint"]),
+        },
+        "manual_schedule_merge_enabled_by_key": {
+            "lib_p": False,
+            "lib_q": False,
+            "vrfb_p": False,
+            "vrfb_q": False,
+        },
         "api_schedule_df_by_plant": {"lib": pd.DataFrame(), "vrfb": pd.DataFrame()},
     }
 
@@ -90,7 +102,7 @@ def _read_kw_from_register(data_bank, register):
 
 
 class SchedulerSourceSwitchTests(unittest.TestCase):
-    def test_manual_to_api_stale_switch_dispatches_zero(self):
+    def test_manual_p_override_has_priority_over_api_base(self):
         _FakeServerRegistry.clear()
         config = load_config("config.yaml")
         config["SCHEDULER_PERIOD_S"] = 0.1
@@ -110,44 +122,81 @@ class SchedulerSourceSwitchTests(unittest.TestCase):
         _FakeServerRegistry.register("127.0.0.1", 5021, vrfb_bank)
 
         now = now_tz(config)
-        manual_df = pd.DataFrame(
+        api_df = pd.DataFrame(
             {
-                "power_setpoint_kw": [123.4, 123.4],
-                "reactive_power_setpoint_kvar": [5.0, 5.0],
+                "power_setpoint_kw": [200.0, 200.0],
+                "reactive_power_setpoint_kvar": [12.0, 12.0],
             },
-            index=pd.DatetimeIndex([now - pd.Timedelta(minutes=1), now + pd.Timedelta(minutes=5)]),
+            index=pd.DatetimeIndex([now - pd.Timedelta(minutes=2), now + pd.Timedelta(minutes=5)]),
         )
-        stale_api_df = pd.DataFrame(
-            {
-                "power_setpoint_kw": [777.0],
-                "reactive_power_setpoint_kvar": [55.0],
-            },
-            index=pd.DatetimeIndex([now - pd.Timedelta(hours=2)]),
+        manual_p_df = pd.DataFrame(
+            {"setpoint": [123.4, 123.4]},
+            index=pd.DatetimeIndex([now - pd.Timedelta(minutes=1), now + pd.Timedelta(minutes=5)]),
         )
 
         shared_data = _shared_data()
         with shared_data["lock"]:
-            shared_data["manual_schedule_df_by_plant"]["lib"] = manual_df
-            shared_data["api_schedule_df_by_plant"]["lib"] = stale_api_df
+            shared_data["api_schedule_df_by_plant"]["lib"] = api_df
+            shared_data["manual_schedule_series_df_by_key"]["lib_p"] = manual_p_df
+            shared_data["manual_schedule_merge_enabled_by_key"]["lib_p"] = True
 
         with patch("scheduler_agent.ModbusClient", _FakeModbusClient):
             thread = threading.Thread(target=scheduler_agent, args=(config, shared_data), daemon=True)
             thread.start()
             try:
                 time.sleep(0.45)
-                manual_p = _read_kw_from_register(lib_bank, lib_p_reg)
-                manual_q = _read_kw_from_register(lib_bank, lib_q_reg)
-                self.assertAlmostEqual(manual_p, 123.4, places=1)
-                self.assertAlmostEqual(manual_q, 5.0, places=1)
+                p_val = _read_kw_from_register(lib_bank, lib_p_reg)
+                q_val = _read_kw_from_register(lib_bank, lib_q_reg)
+                self.assertAlmostEqual(p_val, 123.4, places=1)
+                self.assertAlmostEqual(q_val, 12.0, places=1)
+            finally:
+                shared_data["shutdown_event"].set()
+                thread.join(timeout=3)
 
-                with shared_data["lock"]:
-                    shared_data["active_schedule_source"] = "api"
+    def test_api_stale_base_with_manual_p_override_dispatches_manual_p_and_zero_q(self):
+        _FakeServerRegistry.clear()
+        config = load_config("config.yaml")
+        config["SCHEDULER_PERIOD_S"] = 0.1
+        config["ISTENTORE_SCHEDULE_PERIOD_MINUTES"] = 15
+        config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["lib"]["modbus"]["local"]["port"] = 5020
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["port"] = 5021
 
+        lib_points = config["PLANTS"]["lib"]["modbus"]["local"]["points"]
+        lib_p_reg = int(lib_points["p_setpoint"]["address"])
+        lib_q_reg = int(lib_points["q_setpoint"]["address"])
+
+        lib_bank = _FakeDataBank()
+        vrfb_bank = _FakeDataBank()
+        _FakeServerRegistry.register("127.0.0.1", 5020, lib_bank)
+        _FakeServerRegistry.register("127.0.0.1", 5021, vrfb_bank)
+
+        now = now_tz(config)
+        stale_api_df = pd.DataFrame(
+            {"power_setpoint_kw": [777.0], "reactive_power_setpoint_kvar": [55.0]},
+            index=pd.DatetimeIndex([now - pd.Timedelta(hours=2)]),
+        )
+        manual_p_df = pd.DataFrame(
+            {"setpoint": [88.8]},
+            index=pd.DatetimeIndex([now - pd.Timedelta(minutes=1)]),
+        )
+
+        shared_data = _shared_data()
+        with shared_data["lock"]:
+            shared_data["api_schedule_df_by_plant"]["lib"] = stale_api_df
+            shared_data["manual_schedule_series_df_by_key"]["lib_p"] = manual_p_df
+            shared_data["manual_schedule_merge_enabled_by_key"]["lib_p"] = True
+
+        with patch("scheduler_agent.ModbusClient", _FakeModbusClient):
+            thread = threading.Thread(target=scheduler_agent, args=(config, shared_data), daemon=True)
+            thread.start()
+            try:
                 time.sleep(0.45)
-                api_p = _read_kw_from_register(lib_bank, lib_p_reg)
-                api_q = _read_kw_from_register(lib_bank, lib_q_reg)
-                self.assertAlmostEqual(api_p, 0.0, places=1)
-                self.assertAlmostEqual(api_q, 0.0, places=1)
+                p_val = _read_kw_from_register(lib_bank, lib_p_reg)
+                q_val = _read_kw_from_register(lib_bank, lib_q_reg)
+                self.assertAlmostEqual(p_val, 88.8, places=1)
+                self.assertAlmostEqual(q_val, 0.0, places=1)
             finally:
                 shared_data["shutdown_event"].set()
                 thread.join(timeout=3)

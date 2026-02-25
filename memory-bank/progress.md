@@ -1,11 +1,12 @@
 # Progress: HIL Scheduler
 
 ## Working Now
-1. Dual logical plants (`lib`, `vrfb`) run under a shared global source/transport model with per-plant dispatch and recording gates.
-2. Scheduler dispatches per plant from manual or API maps and applies API stale-setpoint guardrails.
+1. Dual logical plants (`lib`, `vrfb`) run under a shared transport model with merged schedule dispatch (API base + manual overrides), plus per-plant dispatch and recording gates.
+2. Scheduler dispatches per plant from a merged effective schedule (API base + enabled manual per-signal overrides) and applies API stale-setpoint guardrails to the API base.
  - Normalized plant Modbus endpoints now expose required connection ordering (`byte_order`, `word_order`) plus structured holding-register `points` metadata (address/format/access/unit/scale).
  - Scheduler/measurement/dashboard/local-emulation Modbus I/O uses shared codec helpers (`modbus_codec.py`) instead of ad-hoc scaling/bit conversions.
  - API schedule runtime maps are now pruned to local `current day + next day` retention in the fetcher to prevent unbounded growth across day rollovers.
+ - Manual override runtime series are stored as four independent series (`lib_p`, `lib_q`, `vrfb_p`, `vrfb_q`) with per-series merge toggles and are pruned to the same local two-day window.
 3. Local emulation runs both plant Modbus servers concurrently with SoC and power-limit behavior.
  - Local emulation startup SoC is configured once via `startup.initial_soc_pu` and applied to both plants.
  - On local plant start, dashboard now attempts to seed emulator SoC from the latest persisted on-disk measurement (`soc_pu`) for that plant, with fallback to `startup.initial_soc_pu`.
@@ -24,15 +25,18 @@
 5. Dashboard provides:
 - per-plant Start/Stop + Record/Stop controls,
 - top-card `Start All` / `Stop All` controls with confirmation modal for high-impact actions,
-- global source/transport switching with confirmation and safe-stop,
+- transport switching with confirmation and safe-stop,
 - `Status` tab (formerly `Status & Plots`) live status + control plots,
 - `Plots` tab historical measurement browsing from `data/*.csv` with full-range timeline + range slider,
 - `Plots` tab range slider now defaults to the full detected history span when the current value is a stale/placeholder out-of-domain range (avoids first-load collapsed selection),
 - compacted `Plots` tab availability timeline (`LIB`/`VRFB`) to reduce vertical whitespace while preserving the top-range overview,
 - per-plant historical exports (cropped CSV and client-side PNG),
 - API-tab runtime posting toggle (`Enabled`/`Disabled`) for read-only tests,
+- Manual Schedule tab redesign with four always-visible manual override plots and a compact breakpoint editor for one selected series at a time,
+- per-series manual override active/inactive toggles controlling merged dispatch participation,
+- relative-row manual override CSV save/load (`hours, minutes, seconds, setpoint`) with first-row `00:00:00` validation,
 - API status and posting health, including inline today/tomorrow per-plant fetch counts in Status tab,
-- Status-tab plots intentionally show only local current-day + next-day schedule/measurement data (immediate context); historical inspection stays on `Plots`,
+- Status-tab plots intentionally show only local current-day + next-day schedule/measurement data (immediate context) and now render the merged effective schedule; historical inspection stays on `Plots`,
 - logs tab with live `Today` (current date file tail) and selectable historical files,
 - branded UI theme (tokenized CSS, local font assets, flatter visual treatment, minimal corner radius, menu-style tab strip, full-width tab content cards, white page background).
 6. Automated validation now includes:
@@ -48,8 +52,10 @@
  - targeted data fetcher regression coverage for API schedule pruning/retention and bounded tomorrow merges.
  - targeted plot-helper regression coverage for status-window x-range cropping in `tests/test_dashboard_plotting.py` (environment-dependent on local pandas install).
  - compression-gap config-loader regression now validates schema/typing (not a fixed `max_kept_gap_s` value) so config tuning does not cause CI failures.
- - targeted measurement-storage SoC lookup regressions (`tests/test_measurement_storage_latest_soc.py`) and plant-agent local SoC seed request regressions (`tests/test_plant_agent_soc_seed_requests.py`).
-7. Dashboard control flow is now separated into `dashboard_control.py` with dedicated tests for safe-stop and global switch semantics.
+- targeted measurement-storage SoC lookup regressions (`tests/test_measurement_storage_latest_soc.py`) and plant-agent local SoC seed request regressions (`tests/test_plant_agent_soc_seed_requests.py`).
+ - targeted scheduler merged-dispatch regressions (`tests/test_scheduler_source_switch.py`) covering manual override priority and stale API base fallback behavior.
+ - targeted posting telemetry regression coverage confirming posting gate no longer depends on `active_schedule_source`.
+7. Dashboard control flow is now separated into `dashboard_control.py` with dedicated tests for safe-stop and transport switch semantics (source-switch helper removed from active dashboard flow).
 8. Runtime shared-state initialization contract is centralized in `build_initial_shared_data(config)` with schema tests.
  - Shared-state contract now includes local emulator SoC seed request/result maps for dashboard->plant-agent local-start coordination.
 9. Runtime posting gate now includes `measurement_posting_enabled` state seeded from config and adjustable from dashboard UI.
@@ -59,6 +65,7 @@
 2. Remote transport smoke coverage design (repeatable unattended checks).
 3. Log retention policy definition and implementation scope.
 4. Manual validation pass for new historical `Plots` tab behavior on larger data directories.
+5. Manual Schedule editor UX polish / layout tuning validation on different viewport widths.
 
 ## Next
 1. Add repeatable remote transport smoke checks.
@@ -66,6 +73,7 @@
 3. Add lightweight dashboard visual regression/smoke checklist.
 4. Expand README operator runbook/troubleshooting sections.
 5. Decide whether to provide an optional offline recompression utility for historical dense CSV files.
+6. Consider removing deprecated compatibility-only `active_schedule_source` / `schedule_switching` shared-state keys after downstream checks.
 
 ## Known Issues / Gaps
 1. No persistent store for API posting retry queue across process restarts.

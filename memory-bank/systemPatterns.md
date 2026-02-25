@@ -5,8 +5,11 @@
 ### Plant and Selector Model
 - Logical plant IDs are fixed: `lib`, `vrfb`.
 - Global runtime selectors:
-  - `active_schedule_source` in `{manual, api}`.
   - `transport_mode` in `{local, remote}`.
+- Manual schedule override model:
+  - API schedule is the dispatch base.
+  - Manual schedules are stored as four independent series (`lib_p`, `lib_q`, `vrfb_p`, `vrfb_q`).
+  - Per-series booleans control whether each manual series overwrites the corresponding API signal in dispatch.
 - Per-plant runtime gates:
   - `scheduler_running_by_plant[plant_id]`.
   - `measurements_filename_by_plant[plant_id]` (`None` means recording off).
@@ -24,10 +27,17 @@ shared_data = {
     "session_logs": [],
     "log_lock": threading.Lock(),
 
-    "manual_schedule_df_by_plant": {"lib": pd.DataFrame(), "vrfb": pd.DataFrame()},
+    "manual_schedule_df_by_plant": {"lib": pd.DataFrame(), "vrfb": pd.DataFrame()},  # derived compatibility/display cache
+    "manual_schedule_series_df_by_key": {
+        "lib_p": pd.DataFrame(), "lib_q": pd.DataFrame(),
+        "vrfb_p": pd.DataFrame(), "vrfb_q": pd.DataFrame(),
+    },
+    "manual_schedule_merge_enabled_by_key": {
+        "lib_p": False, "lib_q": False, "vrfb_p": False, "vrfb_q": False,
+    },
     "api_schedule_df_by_plant": {"lib": pd.DataFrame(), "vrfb": pd.DataFrame()},
 
-    "active_schedule_source": "manual",
+    "active_schedule_source": "manual",  # compatibility only; dispatch no longer branches on source
     "transport_mode": "local",
 
     "scheduler_running_by_plant": {"lib": False, "vrfb": False},
@@ -81,7 +91,7 @@ shared_data = {
         "error": None,
     },
 
-    "schedule_switching": False,
+    "schedule_switching": False,  # compatibility only; source-switch UI removed
     "transport_switching": False,
 
     "lock": threading.Lock(),
@@ -92,12 +102,12 @@ shared_data = {
 
 ## Agent Responsibilities
 - `data_fetcher_agent.py`: fetches day-ahead schedules and updates per-plant API maps + status.
-- `scheduler_agent.py`: dispatches P/Q setpoints per plant based on active source and per-plant gate.
+- `scheduler_agent.py`: dispatches P/Q setpoints per plant from merged effective schedule (API base + enabled manual overrides) and per-plant gate.
 - `plant_agent.py`: local emulation server for each logical plant with SoC and power limit behavior.
 - `measurement_agent.py`: measurement sampling, recording, cache updates, API posting queue/telemetry.
-- `dashboard_agent.py`: user controls, safe-stop flows, source/transport switch modals, plots, logs.
+- `dashboard_agent.py`: user controls, safe-stop flows, transport switch modal, manual override editor/plots, status plots, logs.
 - `dashboard_history.py`: helper functions for dashboard historical measurement scan/index, range clamping, file loading/cropping, and CSV serialization.
-- `dashboard_control.py`: shared safe-stop + global switch control-flow helpers used by dashboard callbacks.
+- `dashboard_control.py`: shared safe-stop + transport-switch control-flow helpers used by dashboard callbacks.
 
 ## Operational Patterns
 
@@ -111,12 +121,12 @@ shared_data = {
 - Return payload:
   - `{ "threshold_reached": bool, "disable_ok": bool }`.
 
-### Source and Transport Switching
-- Both switches are modal-confirmed and safety-gated.
+### Transport Switching
+- Transport switch is modal-confirmed and safety-gated.
 - Confirm path:
-  1. Set switching flag.
+  1. Set transport switching flag.
   2. Safe-stop both plants.
-  3. Apply selector update.
+  3. Apply transport selector update.
   4. Clear switching flag.
 
 ### Fleet Start/Stop Actions
@@ -140,10 +150,22 @@ shared_data = {
 - Seed requests are rejected/skipped while the plant is enabled to avoid mid-run SoC resets.
 
 ### Scheduler Dispatch Selection
-- Scheduler chooses map by `active_schedule_source`.
-- Manual source reads `manual_schedule_df_by_plant`.
-- API source reads `api_schedule_df_by_plant`.
-- API source applies stale-row cutoff via `ISTENTORE_SCHEDULE_PERIOD_MINUTES`; stale rows dispatch zero setpoints.
+- Scheduler always resolves dispatch from a merged effective schedule per plant:
+  - API schedule (`api_schedule_df_by_plant[plant_id]`) is the base.
+  - API staleness cutoff still applies via `ISTENTORE_SCHEDULE_PERIOD_MINUTES` and can zero stale API base values.
+  - Manual overrides are resolved per signal using the manual series maps (`*_p`, `*_q`) and as-of lookup.
+  - If `manual_schedule_merge_enabled_by_key[series_key]` is `True` and a manual as-of value exists, it overwrites the corresponding API signal (`P` or `Q`) only.
+- Per-plant dispatch gate behavior and Modbus write deduping are unchanged.
+
+### Manual Override Schedule Sanitization and Editor Pattern
+- Manual overrides are stored as four independent absolute-time series (`setpoint` column, datetime index).
+- Dashboard Manual tab editor presents relative breakpoints (`HH:MM:SS` + setpoint) for one selected series at a time.
+- Editor CSV format is relative-time only (`hours, minutes, seconds, setpoint`) and must start at `00:00:00`.
+- First breakpoint row is always `00:00:00` for non-empty schedules.
+- Manual series are sanitized to local `[today 00:00, day+2 00:00)`:
+  - immediately after editor/CSV mutations,
+  - on scheduler day rollover.
+- `manual_schedule_df_by_plant` is rebuilt from the four manual series as a derived compatibility/display cache.
 
 ### API Schedule Fetching and Day Rollover
 - `data_fetcher_agent.py` always attempts `today` day-ahead fetch when `data_fetcher_status.today_fetched` is false (no time-of-day gate).
@@ -178,7 +200,6 @@ shared_data = {
 - Voltage posting uses measured `v_poi_kV * 1000` to send volts (no reconstruction from per-unit and model base voltage).
 - Gate conditions:
   - runtime posting toggle `measurement_posting_enabled` is true,
-  - global source is API,
   - API password exists,
   - config default `ISTENTORE_POST_MEASUREMENTS_IN_API_MODE` seeds startup toggle state.
 - Queue behavior:
@@ -208,7 +229,7 @@ shared_data = {
 ### Dashboard Status Summary Pattern
 - Status tab inline API summary shows connectivity plus per-plant fetched-point counts for both `today` and `tomorrow` windows.
 - This status line is intended as quick fetch-health visibility without requiring navigation to API tab.
-- Status tab plots are display-cropped to local `current day + next day` for both `manual` and `api` sources; this is a UI-only crop for manual schedules (manual future rows remain available for later dispatch).
+- Status tab plots are display-cropped to local `current day + next day` and render the merged effective schedule (API base + enabled manual overrides).
 
 ### Dashboard Historical Plots Pattern
 - `Plots` tab scans `data/*.csv` on a slower dedicated interval (separate from the main 1s UI refresh interval).

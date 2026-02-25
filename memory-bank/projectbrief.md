@@ -6,16 +6,18 @@ HIL Scheduler is a multi-agent Python application that executes active and react
 ## Core Goals
 1. Execute schedule setpoints at the configured scheduler cadence.
 2. Maintain safe SoC-constrained battery behavior in local emulation.
-3. Support manual and API schedule sources with controlled switching.
+3. Dispatch from an API base schedule with optional per-signal manual overrides (`P`/`Q` for `lib` and `vrfb`).
 4. Record measurement sessions per plant/day with boundary-preserving compression for traceability.
 5. Surface operational and API posting health in the dashboard.
 
 ## Runtime Model
 - Logical plants: `lib`, `vrfb`.
 - Global selectors:
-  - `active_schedule_source`: `manual` or `api`.
   - `transport_mode`: `local` or `remote`.
   - `measurement_posting_enabled`: runtime API-posting gate (`True`/`False`, session-scoped, default from config).
+- Manual override model:
+  - authoritative manual series storage per key: `lib_p`, `lib_q`, `vrfb_p`, `vrfb_q`,
+  - per-series active/inactive merge toggle controls whether that manual series overwrites the API base for dispatch.
 - Per-plant controls:
   - dispatch gate via `scheduler_running_by_plant[plant_id]`.
   - recording gate via `measurements_filename_by_plant[plant_id]`.
@@ -40,7 +42,7 @@ HIL Scheduler is a multi-agent Python application that executes active and react
 - Timestamps are timezone-aware in configured timezone (`time.timezone`).
 
 ## Success Criteria
-1. Correct per-plant dispatch from selected schedule source.
+1. Correct per-plant dispatch from merged effective schedule (API base + enabled manual overrides).
 2. Safe start/stop flows with explicit transition states.
 3. Reliable per-plant recording files (`data/YYYYMMDD_<plant>.csv`).
 4. Accurate API status (today/tomorrow windows, stale cutoff behavior).

@@ -10,21 +10,22 @@ The system closes the operational gap between market/control schedules and plant
 ## Core User Outcomes
 1. Start and stop dispatch safely per plant.
 2. Record clean per-plant measurement sessions without mixed datasets.
-3. Switch schedule source or transport mode with guarded transitions.
+3. Adjust manual overrides without disrupting API base schedule ingestion; switch transport mode with guarded transitions.
 4. See real-time status for schedule freshness and API posting health.
 5. Trigger high-impact fleet-wide start/stop actions with explicit confirmation.
-6. Run API-mode read-only tests by disabling measurement posting at runtime.
+6. Run API-connected read-only tests by disabling measurement posting at runtime.
 7. Browse historical recorded measurements across days and export cropped data/plots for analysis.
 
 ## Product Behavior
 ### Scheduling
-- Manual schedules are prepared per plant from random generation or CSV upload.
-- API schedules are fetched per plant from one market response.
-- A global source selector chooses whether scheduler dispatch reads manual or API maps.
+- API schedules are fetched per plant from one market response and form the dispatch base.
+- Manual schedules are managed as four independent override series (`LIB P`, `LIB Q`, `VRFB P`, `VRFB Q`) with per-series active/inactive merge toggles.
+- Enabled manual override series overwrite the corresponding API signal in the effective dispatch schedule.
 
 ### Dispatch
 - Dispatch enable is per plant through `scheduler_running_by_plant`.
 - Start enables plant and applies immediate setpoint selection.
+- Immediate setpoint selection uses the merged effective schedule (API base + enabled manual overrides).
 - Stop executes safe-stop flow (gate off, zero setpoints, decay wait, disable).
 
 ### Recording
@@ -35,6 +36,7 @@ The system closes the operational gap between market/control schedules and plant
 ### Observability
 - API tab shows fetch status (today/tomorrow) plus measurement posting telemetry.
 - API tab includes a runtime posting toggle (`Enabled`/`Disabled`) for session-scoped read-only testing.
+- API measurement posting toggle gates posting of actual measurements regardless of manual override usage.
 - Status tab (renamed from `Status & Plots`) keeps inline API summary with today/tomorrow fetched-point counts for both plants.
 - Status tab live plots are intentionally limited to immediate context (local current day + next day) for both schedule and measurements.
 - Plots tab provides historical measurement browsing from `data/*.csv` with a full-range timeline, range slider, and per-plant CSV/PNG exports.
@@ -43,7 +45,7 @@ The system closes the operational gap between market/control schedules and plant
 ## UX Intent
 1. Clear separation between dispatch control and recording control.
 2. Explicit transition states (`starting`, `running`, `stopping`, `stopped`, `unknown`).
-3. Safe confirmation flows before global source/transport changes.
+3. Safe confirmation flows before transport changes and fleet actions; manual override edits should be direct and low-friction.
 4. Stable plot interactions during periodic refresh.
 5. Historical browsing controls should preserve context (range selection) while new files appear.
 6. Status-tab plots should avoid long-running-session clutter and present only the immediate past/future operating window.
@@ -60,10 +62,17 @@ The system closes the operational gap between market/control schedules and plant
 2. Dashboard executes safe-stop helper.
 3. Helper returns `{threshold_reached, disable_ok}` and transition resolves accordingly.
 
-### Switch Global Source or Transport
+### Edit Manual Override Schedule
+1. User selects one of the four manual override series in the Manual Schedule editor.
+2. User edits breakpoints (relative `HH:MM:SS` + setpoint) and/or loads a CSV with the same relative-row structure.
+3. Dashboard validates rows and writes the selected series to shared state using the current start datetime.
+4. Manual series is sanitized to local `current day + next day`; corresponding plot updates.
+5. User toggles the series active/inactive to include/exclude it from merged dispatch.
+
+### Switch Transport
 1. User confirms switch in modal.
 2. Dashboard safely stops both plants.
-3. Dashboard updates global selector and clears switching flag.
+3. Dashboard updates transport selector and clears switching flag.
 
 ### Record Session
 1. User sets recording on for one plant.

@@ -91,22 +91,3 @@ def perform_transport_switch(shared_data, plant_ids, requested_mode, safe_stop_a
         logging.error("Dashboard: transport switch failed: %s", exc)
         with shared_data["lock"]:
             shared_data["transport_switching"] = False
-
-
-def perform_source_switch(shared_data, requested_source, safe_stop_all_plants_fn):
-    """Perform guarded global schedule-source switch with safe-stop."""
-    try:
-        logging.info("Dashboard: schedule source switch requested -> %s", requested_source)
-        with shared_data["lock"]:
-            shared_data["schedule_switching"] = True
-
-        safe_stop_all_plants_fn()
-
-        with shared_data["lock"]:
-            shared_data["active_schedule_source"] = requested_source
-            shared_data["schedule_switching"] = False
-        logging.info("Dashboard: active schedule source switched to %s", requested_source)
-    except Exception as exc:
-        logging.error("Dashboard: schedule source switch failed: %s", exc)
-        with shared_data["lock"]:
-            shared_data["schedule_switching"] = False

@@ -9,7 +9,6 @@ def build_dashboard_layout(
     plant_name_fn,
     brand_logo_src,
     initial_transport,
-    initial_source,
     initial_posting_enabled,
     now_value,
 ):
@@ -55,19 +54,6 @@ def build_dashboard_layout(
                                             html.Div(
                                                 className="control-section",
                                                 children=[
-                                                    html.Span("Schedule Source", className="toggle-label"),
-                                                    html.Div(
-                                                        className="compact-toggle",
-                                                        children=[
-                                                            html.Button("Manual", id="source-manual-btn", className="toggle-option active", n_clicks=0),
-                                                            html.Button("API", id="source-api-btn", className="toggle-option", n_clicks=0),
-                                                        ],
-                                                    ),
-                                                ],
-                                            ),
-                                            html.Div(
-                                                className="control-section",
-                                                children=[
                                                     html.Span("Transport", className="toggle-label"),
                                                     html.Div(
                                                         className="compact-toggle",
@@ -94,26 +80,6 @@ def build_dashboard_layout(
                                         ],
                                     ),
                                     html.Div(id="api-status-inline", className="status-text"),
-                                ],
-                            ),
-                            html.Div(
-                                id="schedule-switch-modal",
-                                className="modal-overlay hidden",
-                                children=[
-                                    html.Div(
-                                        className="modal-card",
-                                        children=[
-                                            html.H3("Confirm Schedule Source Switch", className="modal-title"),
-                                            html.P("Switching schedule source will safe-stop both plants. Recording will remain active. Continue?"),
-                                            html.Div(
-                                                className="modal-actions",
-                                                children=[
-                                                    html.Button("Cancel", id="schedule-switch-cancel", className="btn btn-secondary"),
-                                                    html.Button("Confirm", id="schedule-switch-confirm", className="btn btn-primary"),
-                                                ],
-                                            ),
-                                        ],
-                                    )
                                 ],
                             ),
                             html.Div(
@@ -313,114 +279,190 @@ def build_dashboard_layout(
                                 className="card",
                                 children=[
                                     html.Div(
-                                        className="form-row",
+                                        style={"display": "flex", "gap": "16px", "flexWrap": "wrap", "alignItems": "flex-start"},
                                         children=[
                                             html.Div(
-                                                className="form-group",
+                                                style={"flex": "2 1 680px", "minWidth": "320px"},
                                                 children=[
-                                                    html.Label("Plant"),
-                                                    dcc.Dropdown(
-                                                        id="manual-plant-selector",
-                                                        options=[{"label": plant_name_fn(pid), "value": pid} for pid in plant_ids],
-                                                        value="lib",
-                                                        clearable=False,
+                                                    html.Div(
+                                                        className="manual-override-grid",
+                                                        children=[
+                                                            html.Div(
+                                                                className="manual-override-card",
+                                                                children=[
+                                                                    html.Div(
+                                                                        className="form-row",
+                                                                        children=[
+                                                                            html.Div("LIB Active Power", className="toggle-label"),
+                                                                            html.Div(
+                                                                                className="compact-toggle",
+                                                                                children=[
+                                                                                    html.Button("Active", id="manual-toggle-lib-p-enable-btn", className="toggle-option", n_clicks=0),
+                                                                                    html.Button("Inactive", id="manual-toggle-lib-p-disable-btn", className="toggle-option active", n_clicks=0),
+                                                                                ],
+                                                                            ),
+                                                                        ],
+                                                                    ),
+                                                                    dcc.Graph(id="manual-graph-lib-p", className="plot-graph"),
+                                                                ],
+                                                            ),
+                                                            html.Div(
+                                                                className="manual-override-card",
+                                                                children=[
+                                                                    html.Div(
+                                                                        className="form-row",
+                                                                        children=[
+                                                                            html.Div("LIB Reactive Power", className="toggle-label"),
+                                                                            html.Div(
+                                                                                className="compact-toggle",
+                                                                                children=[
+                                                                                    html.Button("Active", id="manual-toggle-lib-q-enable-btn", className="toggle-option", n_clicks=0),
+                                                                                    html.Button("Inactive", id="manual-toggle-lib-q-disable-btn", className="toggle-option active", n_clicks=0),
+                                                                                ],
+                                                                            ),
+                                                                        ],
+                                                                    ),
+                                                                    dcc.Graph(id="manual-graph-lib-q", className="plot-graph"),
+                                                                ],
+                                                            ),
+                                                            html.Div(
+                                                                className="manual-override-card",
+                                                                children=[
+                                                                    html.Div(
+                                                                        className="form-row",
+                                                                        children=[
+                                                                            html.Div("VRFB Active Power", className="toggle-label"),
+                                                                            html.Div(
+                                                                                className="compact-toggle",
+                                                                                children=[
+                                                                                    html.Button("Active", id="manual-toggle-vrfb-p-enable-btn", className="toggle-option", n_clicks=0),
+                                                                                    html.Button("Inactive", id="manual-toggle-vrfb-p-disable-btn", className="toggle-option active", n_clicks=0),
+                                                                                ],
+                                                                            ),
+                                                                        ],
+                                                                    ),
+                                                                    dcc.Graph(id="manual-graph-vrfb-p", className="plot-graph"),
+                                                                ],
+                                                            ),
+                                                            html.Div(
+                                                                className="manual-override-card",
+                                                                children=[
+                                                                    html.Div(
+                                                                        className="form-row",
+                                                                        children=[
+                                                                            html.Div("VRFB Reactive Power", className="toggle-label"),
+                                                                            html.Div(
+                                                                                className="compact-toggle",
+                                                                                children=[
+                                                                                    html.Button("Active", id="manual-toggle-vrfb-q-enable-btn", className="toggle-option", n_clicks=0),
+                                                                                    html.Button("Inactive", id="manual-toggle-vrfb-q-disable-btn", className="toggle-option active", n_clicks=0),
+                                                                                ],
+                                                                            ),
+                                                                        ],
+                                                                    ),
+                                                                    dcc.Graph(id="manual-graph-vrfb-q", className="plot-graph"),
+                                                                ],
+                                                            ),
+                                                        ],
                                                     ),
                                                 ],
                                             ),
                                             html.Div(
-                                                className="form-group",
+                                                style={"flex": "0 1 350px", "minWidth": "320px", "maxWidth": "390px"},
                                                 children=[
-                                                    html.Label("Start Hour"),
-                                                    dcc.Dropdown(
-                                                        id="manual-start-hour",
-                                                        options=[{"label": f"{h:02d}", "value": h} for h in range(24)],
-                                                        value=now_value.hour,
-                                                        clearable=False,
+                                                    html.H4(
+                                                        "Manual Schedule Editor",
+                                                        className="card-title",
+                                                        style={"marginBottom": "10px"},
+                                                    ),
+                                                    html.Div(
+                                                        style={"display": "flex", "gap": "6px", "flexWrap": "wrap", "alignItems": "center"},
+                                                        children=[
+                                                            html.Div(
+                                                                style={"width": "128px", "minWidth": "128px", "flex": "0 0 128px"},
+                                                                children=[
+                                                                    dcc.Dropdown(
+                                                                        id="manual-editor-series-selector",
+                                                                        className="manual-editor-series-select",
+                                                                        style={"width": "128px"},
+                                                                        clearable=False,
+                                                                        value="lib_p",
+                                                                        options=[
+                                                                            {"label": "LIB - P", "value": "lib_p"},
+                                                                            {"label": "LIB - Q", "value": "lib_q"},
+                                                                            {"label": "VRFB - P", "value": "vrfb_p"},
+                                                                            {"label": "VRFB - Q", "value": "vrfb_q"},
+                                                                        ],
+                                                                    ),
+                                                                ],
+                                                            ),
+                                                            html.Button(
+                                                                "Clear",
+                                                                id="manual-editor-clear-btn",
+                                                                className="btn btn-danger",
+                                                                n_clicks=0,
+                                                                style={"padding": "4px 10px", "fontSize": "0.75rem", "minHeight": "30px"},
+                                                            ),
+                                                            dcc.Upload(
+                                                                id="manual-editor-csv-upload",
+                                                                children=html.Button(
+                                                                    "Load",
+                                                                    className="btn btn-secondary",
+                                                                    n_clicks=0,
+                                                                    style={"padding": "4px 10px", "fontSize": "0.75rem", "minHeight": "30px"},
+                                                                ),
+                                                                multiple=False,
+                                                                style={"display": "inline-flex", "border": "none", "padding": "0", "background": "transparent"},
+                                                            ),
+                                                            html.Button(
+                                                                "Save",
+                                                                id="manual-editor-save-csv-btn",
+                                                                className="btn btn-primary",
+                                                                n_clicks=0,
+                                                                style={"padding": "4px 10px", "fontSize": "0.75rem", "minHeight": "30px"},
+                                                            ),
+                                                        ],
+                                                    ),
+                                                    html.Div(
+                                                        style={"height": "8px"},
+                                                    ),
+                                                    html.Div(
+                                                        style={"display": "flex", "gap": "4px", "alignItems": "center", "flexWrap": "wrap"},
+                                                        children=[
+                                                            html.Div("Start", style={"fontWeight": "600", "minWidth": "40px"}),
+                                                            dcc.DatePickerSingle(
+                                                                id="manual-editor-start-date",
+                                                                date=now_value.date(),
+                                                                className="date-picker manual-editor-start-date-picker",
+                                                                style={"width": "108px", "minWidth": "108px"},
+                                                            ),
+                                                            html.Div(style={"width": "2px"}),
+                                                            dcc.Input(id="manual-editor-start-hour", className="form-control", type="number", min=0, max=23, step=1, value=now_value.hour, style={"width": "44px", "minWidth": "44px", "padding": "2px 3px", "height": "28px"}),
+                                                            dcc.Input(id="manual-editor-start-minute", className="form-control", type="number", min=0, max=59, step=1, value=now_value.minute, style={"width": "44px", "minWidth": "44px", "padding": "2px 3px", "height": "28px"}),
+                                                            dcc.Input(id="manual-editor-start-second", className="form-control", type="number", min=0, max=59, step=1, value=0, style={"width": "44px", "minWidth": "44px", "padding": "2px 3px", "height": "28px"}),
+                                                        ],
+                                                    ),
+                                                    html.Div(style={"height": "8px"}),
+                                                    html.Div(
+                                                        id="manual-editor-add-row-container",
+                                                        children=[
+                                                            html.Button(
+                                                                "Add Breakpoint",
+                                                                id="manual-editor-add-first-row-btn",
+                                                                className="btn btn-primary",
+                                                                n_clicks=0,
+                                                                style={"padding": "5px 12px", "fontSize": "0.78rem", "minHeight": "32px"},
+                                                            ),
+                                                        ],
+                                                    ),
+                                                    html.Div(
+                                                        id="manual-breakpoint-rows-container",
+                                                        children=[html.Div(id="manual-breakpoint-rows")],
                                                     ),
                                                 ],
                                             ),
-                                            html.Div(
-                                                className="form-group",
-                                                children=[
-                                                    html.Label("End Hour"),
-                                                    dcc.Dropdown(
-                                                        id="manual-end-hour",
-                                                        options=[{"label": f"{h:02d}", "value": h} for h in range(24)],
-                                                        value=(now_value.hour + 1) % 24,
-                                                        clearable=False,
-                                                    ),
-                                                ],
-                                            ),
-                                            html.Div(
-                                                className="form-group",
-                                                children=[
-                                                    html.Label("Step (min)"),
-                                                    dcc.Dropdown(
-                                                        id="manual-step",
-                                                        options=[{"label": str(v), "value": v} for v in [5, 10, 15, 30, 60]],
-                                                        value=5,
-                                                        clearable=False,
-                                                    ),
-                                                ],
-                                            ),
-                                            html.Div(className="form-group", children=[html.Label("Min kW"), dcc.Input(id="manual-min-power", className="form-control", type="number", value=-1000)]),
-                                            html.Div(className="form-group", children=[html.Label("Max kW"), dcc.Input(id="manual-max-power", className="form-control", type="number", value=1000)]),
                                         ],
                                     ),
-                                    html.Div(
-                                        className="form-row",
-                                        children=[
-                                            html.Button("Generate Random", id="manual-generate", className="btn btn-primary", n_clicks=0),
-                                            html.Button("Clear Plant Schedule", id="manual-clear", className="btn btn-danger", n_clicks=0),
-                                        ],
-                                    ),
-                                    html.Div(
-                                        className="form-row",
-                                        children=[
-                                            html.Div(
-                                                className="form-group",
-                                                children=[
-                                                    html.Label("CSV Upload"),
-                                                    dcc.Upload(
-                                                        id="manual-csv-upload",
-                                                        className="file-upload",
-                                                        children=html.Div(["Drag/drop or ", html.A("select CSV")]),
-                                                        multiple=False,
-                                                    ),
-                                                ],
-                                            ),
-                                            html.Div(
-                                                className="form-group",
-                                                children=[html.Label("CSV Start Date"), dcc.DatePickerSingle(id="manual-csv-date", date=now_value.date(), className="date-picker")],
-                                            ),
-                                            html.Div(
-                                                className="form-group",
-                                                children=[
-                                                    html.Label("CSV Start Hour"),
-                                                    dcc.Dropdown(
-                                                        id="manual-csv-hour",
-                                                        options=[{"label": f"{h:02d}", "value": h} for h in range(24)],
-                                                        value=now_value.hour,
-                                                        clearable=False,
-                                                    ),
-                                                ],
-                                            ),
-                                            html.Div(
-                                                className="form-group",
-                                                children=[
-                                                    html.Label("CSV Start Min"),
-                                                    dcc.Dropdown(
-                                                        id="manual-csv-minute",
-                                                        options=[{"label": f"{m:02d}", "value": m} for m in range(0, 60, 5)],
-                                                        value=0,
-                                                        clearable=False,
-                                                    ),
-                                                ],
-                                            ),
-                                        ],
-                                    ),
-                                    html.Div(id="manual-status-text", className="status-text"),
-                                    dcc.Graph(id="manual-preview-graph", className="plot-graph"),
                                 ],
                             )
                         ],
@@ -515,10 +557,15 @@ def build_dashboard_layout(
             dcc.Store(id="control-action", data="idle"),
             dcc.Store(id="bulk-control-request", data=None),
             dcc.Store(id="transport-mode-selector", data=initial_transport),
-            dcc.Store(id="active-source-selector", data=initial_source),
             dcc.Store(id="api-posting-toggle-store", data=bool(initial_posting_enabled)),
+            dcc.Store(id="manual-editor-rows-store", data=[]),
+            dcc.Store(id="manual-editor-status-store", data=""),
+            dcc.Store(id="manual-editor-delete-index-store", data=None),
             dcc.Store(id="plots-index-store", data={"has_data": False, "files_by_plant": {"lib": [], "vrfb": []}}),
             dcc.Store(id="plots-range-meta-store", data=None),
+            dcc.Download(id="manual-editor-download"),
+            dcc.ConfirmDialog(id="manual-editor-clear-confirm", message="Clear selected manual schedule?"),
+            dcc.ConfirmDialog(id="manual-editor-delete-confirm", message="Delete this breakpoint?"),
             dcc.Interval(id="interval-component", interval=int(float(config.get("MEASUREMENT_PERIOD_S", 1)) * 1000), n_intervals=0),
             dcc.Interval(id="plots-refresh-interval", interval=30000, n_intervals=0),
         ],

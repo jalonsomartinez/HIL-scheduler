@@ -13,9 +13,10 @@
 - `hil_scheduler.py`: director, shared state initialization, thread startup/shutdown.
 - `config_loader.py`: validates/normalizes YAML into runtime dict.
 - `dashboard_agent.py`: UI layout, callbacks, safe-stop controls, switch modals, fleet start/stop actions, and API posting toggle handling.
+- `manual_schedule_manager.py`: manual override series metadata, editor breakpoint row conversions/validation, relative CSV load/save parsing, and manual-series rebuild/sanitization helpers.
 - `dashboard_history.py`: historical plots helper utilities (file scan/index, slider range helpers, CSV crop/export serialization).
 - `dashboard_plotting.py`: shared Plotly figure/theme helpers for status and historical plant plots, including optional x-window cropping used by Status-tab immediate-context plots.
-- `dashboard_control.py`: safe-stop/source-switch/transport-switch control-flow helpers for dashboard callbacks.
+- `dashboard_control.py`: safe-stop/transport-switch control-flow helpers for dashboard callbacks.
 - `assets/custom.css`: dashboard design tokens, responsive rules, control/tab/modal/log styling.
 - `assets/brand/fonts/*`: locally served dashboard fonts (DM Sans files + OFL license).
 - `data_fetcher_agent.py`: day-ahead API polling and status updates.
@@ -40,6 +41,7 @@
 
 Notes:
 - `schedule.*` is parsed by `config_loader.py`; active scheduler dispatch uses in-memory per-plant schedule maps and does not consume these keys directly.
+- `startup.schedule_source` is still parsed for compatibility, but dispatch no longer uses source switching (merged API base + manual overrides is always active).
 - `istentore_api.tomorrow_poll_start_time` is the canonical next-day polling gate key for API day-ahead fetches; legacy `istentore_api.poll_start_time` is intentionally rejected (breaking rename, no alias).
 - `recording.compression.*` is parsed and applied by `measurement_agent.py` for tolerance-based in-memory row compaction, configurable keep-gap retention (`max_kept_gap_s`), and periodic flush tail retention.
 - Legacy flat alias keys from `config_loader.py` are disabled by default and are only emitted when `HIL_ENABLE_LEGACY_CONFIG_ALIASES=1`.
@@ -57,6 +59,7 @@ Per-plant config includes:
 - `PLANTS[*].modbus.*` exposes endpoint `host`, `port`, `byte_order`, `word_order`, and normalized `points`.
 - `PLANT_IDS`: `("lib", "vrfb")`.
 - `STARTUP_SCHEDULE_SOURCE`, `STARTUP_TRANSPORT_MODE`.
+- `STARTUP_SCHEDULE_SOURCE` remains compatibility metadata (dispatch no longer branches on it).
 - Timing/posting/settings flattened for agents (for example `SCHEDULER_PERIOD_S`, `ISTENTORE_*`).
 - API fetcher next-day poll gate is exposed as normalized `ISTENTORE_TOMORROW_POLL_START_TIME` (`HH:MM`).
 - Recording compression settings are flattened for agents, including `MEASUREMENT_COMPRESSION_ENABLED`, `MEASUREMENT_COMPRESSION_TOLERANCES`, and `MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S`.
@@ -99,6 +102,7 @@ Per-plant config includes:
 - Session logs are bounded to latest 1000 entries.
 - `data_fetcher_agent.py` logs explicit API fetch intent (`today` vs `tomorrow`), local request windows, and next-day gate state transitions (`waiting` / `eligible`) to reduce ambiguity around missing schedules.
 - `data_fetcher_agent.py` now also prunes `api_schedule_df_by_plant` to the local current-day + next-day retention window so long-running sessions do not accumulate stale API schedule rows indefinitely.
+- `scheduler_agent.py` also prunes manual override series to the local current-day + next-day window on day rollover; dashboard manual editor paths prune after each write/load.
 - Dashboard logs tab behavior:
   - default selector is `today`,
   - `today` reads tail of current date file for live refresh,
@@ -110,6 +114,7 @@ Per-plant config includes:
 - Plot styling in `dashboard_agent.py` uses shared figure-theme helpers for consistent axes/grid/legend presentation without altering control callbacks.
 - Historical `Plots` tab reuses the same figure helper/theme as Status plots for visual consistency; PNG downloads use client-side Plotly export (`window.Plotly.downloadImage`) and do not require `kaleido`.
 - Status-tab figures call the same helper with an explicit local `today..day+2` x-window so live plots remain focused on immediate context while preserving historical browsing in `Plots`.
+- Manual Schedule tab now uses a responsive split layout (plots + compact editor), with dense operator-focused controls and compact breakpoint-row inputs.
 - Historical `Plots` tab range selection is resilient to stale/default slider values: helper clamping treats fully out-of-domain selections (including the layout placeholder `[0, 1]`) as invalid and restores full discovered history span.
 - Historical `Plots` tab availability timeline (`LIB`/`VRFB`) is intentionally compacted (reduced figure height/margins, lower legend placement) to minimize vertical whitespace.
 - Current operator-requested theme constraints:
@@ -133,6 +138,6 @@ Per-plant config includes:
 - Measurement posting queue is in-memory only; it does not persist across restarts.
 - Measurement compression applies only to new runtime writes; no automatic backfill is performed for historical dense CSV files.
 - Historical plots tab reads `data/*.csv` directly on demand; large datasets may increase dashboard callback latency because there is no persistent history index/cache yet.
-- API schedule runtime retention growth is now bounded by a fixed two-day local window; manual schedule maps may still contain longer operator-loaded horizons by design.
+- API schedule runtime retention and manual override runtime retention are both bounded to a local two-day window (`current day + next day`) during active runtime.
 - The dashboard assumes both logical plants are always present in runtime state.
 - API auth renewal is reactive (on `401`/`403`) with one retry per request path; no proactive token TTL refresh exists.

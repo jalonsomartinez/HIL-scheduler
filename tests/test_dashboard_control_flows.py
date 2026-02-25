@@ -4,7 +4,6 @@ import unittest
 import pandas as pd
 
 from dashboard_control import (
-    perform_source_switch,
     perform_transport_switch,
     safe_stop_plant,
 )
@@ -58,20 +57,6 @@ class DashboardControlFlowTests(unittest.TestCase):
         self.assertEqual(calls[0], ("setpoints", "lib", 0.0, 0.0))
         self.assertEqual(calls[1], ("wait", "lib", 2.0, 5))
         self.assertEqual(calls[2], ("enable", "lib", 0))
-
-    def test_perform_source_switch_sets_source_and_clears_switching_flag(self):
-        shared_data = _shared_data()
-        safe_stop_calls = []
-
-        def _safe_stop_all():
-            safe_stop_calls.append("called")
-            return {"lib": {"disable_ok": True}, "vrfb": {"disable_ok": True}}
-
-        perform_source_switch(shared_data, "api", _safe_stop_all)
-
-        self.assertEqual(shared_data["active_schedule_source"], "api")
-        self.assertFalse(shared_data["schedule_switching"])
-        self.assertEqual(len(safe_stop_calls), 1)
 
     def test_perform_transport_switch_resets_per_plant_runtime_state(self):
         shared_data = _shared_data()

@@ -4,9 +4,10 @@ import time
 import pandas as pd
 from pyModbusTCP.client import ModbusClient
 
+import manual_schedule_manager as msm
 from modbus_codec import write_point_internal
 from runtime_contracts import resolve_modbus_endpoint
-from schedule_runtime import resolve_schedule_setpoint
+from schedule_runtime import resolve_schedule_setpoint, resolve_series_setpoint_asof
 from shared_state import snapshot_locked
 from time_utils import get_config_tz, now_tz
 
@@ -36,6 +37,7 @@ def scheduler_agent(config, shared_data):
     previous_p = {plant_id: None for plant_id in plant_ids}
     previous_q = {plant_id: None for plant_id in plant_ids}
     previous_api_stale = {plant_id: None for plant_id in plant_ids}
+    last_manual_prune_day = None
 
     def ensure_client(plant_id, transport_mode):
         endpoint = resolve_modbus_endpoint(config, plant_id, transport_mode)
@@ -63,22 +65,39 @@ def scheduler_agent(config, shared_data):
 
     while not shared_data["shutdown_event"].is_set():
         loop_start = time.time()
+        loop_now = now_tz(config)
+
+        current_day = loop_now.date()
+        if current_day != last_manual_prune_day:
+            window_start = loop_now.replace(hour=0, minute=0, second=0, microsecond=0)
+            window_end = window_start + pd.Timedelta(days=2)
+            with shared_data["lock"]:
+                raw_series_map = dict(shared_data.get("manual_schedule_series_df_by_key", {}))
+                for key in msm.MANUAL_SERIES_KEYS:
+                    raw_series_map.setdefault(key, pd.DataFrame(columns=["setpoint"]))
+                pruned_series_map = msm.prune_manual_series_map_to_window(raw_series_map, tz, window_start, window_end)
+                shared_data["manual_schedule_series_df_by_key"] = pruned_series_map
+                shared_data["manual_schedule_df_by_plant"] = msm.rebuild_manual_schedule_df_by_plant(
+                    pruned_series_map,
+                    timezone_name=config.get("TIMEZONE_NAME"),
+                )
+            last_manual_prune_day = current_day
 
         snapshot = snapshot_locked(
             shared_data,
             lambda data: {
                 "transport_mode": data.get("transport_mode", "local"),
-                "active_source": data.get("active_schedule_source", "manual"),
                 "scheduler_running": dict(data.get("scheduler_running_by_plant", {})),
-                "manual_map": dict(data.get("manual_schedule_df_by_plant", {})),
                 "api_map": dict(data.get("api_schedule_df_by_plant", {})),
+                "manual_series_map": dict(data.get("manual_schedule_series_df_by_key", {})),
+                "manual_merge_enabled": dict(data.get("manual_schedule_merge_enabled_by_key", {})),
             },
         )
         transport_mode = snapshot["transport_mode"]
-        active_source = snapshot["active_source"]
         scheduler_running = snapshot["scheduler_running"]
-        manual_map = snapshot["manual_map"]
         api_map = snapshot["api_map"]
+        manual_series_map = snapshot["manual_series_map"]
+        manual_merge_enabled = snapshot["manual_merge_enabled"]
 
         for plant_id in plant_ids:
             try:
@@ -98,28 +117,32 @@ def scheduler_agent(config, shared_data):
                     previous_api_stale[plant_id] = None
                     continue
 
-                schedule_df = api_map.get(plant_id) if active_source == "api" else manual_map.get(plant_id)
-
+                api_schedule_df = api_map.get(plant_id)
                 p_setpoint, q_setpoint, is_stale = resolve_schedule_setpoint(
-                    schedule_df,
-                    now_tz(config),
+                    api_schedule_df,
+                    loop_now,
                     tz,
-                    source=active_source,
+                    source="api",
                     api_validity_window=api_validity_window,
                 )
-
-                if active_source == "api":
-                    if previous_api_stale[plant_id] != bool(is_stale):
-                        if is_stale:
-                            if schedule_df is None or schedule_df.empty:
-                                logging.warning("Scheduler: %s API schedule unavailable -> zero dispatch.", plant_id.upper())
-                            else:
-                                logging.warning("Scheduler: %s API setpoint stale -> zero dispatch.", plant_id.upper())
+                if previous_api_stale[plant_id] != bool(is_stale):
+                    if is_stale:
+                        if api_schedule_df is None or api_schedule_df.empty:
+                            logging.warning("Scheduler: %s API schedule unavailable -> base dispatch zero.", plant_id.upper())
                         else:
-                            logging.info("Scheduler: %s API setpoint fresh again.", plant_id.upper())
-                    previous_api_stale[plant_id] = bool(is_stale)
-                else:
-                    previous_api_stale[plant_id] = None
+                            logging.warning("Scheduler: %s API setpoint stale -> base dispatch zero.", plant_id.upper())
+                    else:
+                        logging.info("Scheduler: %s API setpoint fresh again.", plant_id.upper())
+                previous_api_stale[plant_id] = bool(is_stale)
+
+                p_key, q_key = msm.manual_series_keys_for_plant(plant_id)
+                manual_p_value, manual_p_has = resolve_series_setpoint_asof(manual_series_map.get(p_key), loop_now, tz)
+                manual_q_value, manual_q_has = resolve_series_setpoint_asof(manual_series_map.get(q_key), loop_now, tz)
+
+                if bool(manual_merge_enabled.get(p_key, False)) and manual_p_has:
+                    p_setpoint = manual_p_value
+                if bool(manual_merge_enabled.get(q_key, False)) and manual_q_has:
+                    q_setpoint = manual_q_value
 
                 if previous_p[plant_id] != p_setpoint:
                     write_point_internal(client, endpoint, "p_setpoint", p_setpoint)

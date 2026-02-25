@@ -29,6 +29,84 @@ def crop_schedule_frame_to_window(schedule_df, tz, start_ts, end_ts):
     return normalized_df
 
 
+def resolve_series_setpoint_asof(series_df, now_value, tz):
+    """Resolve a single-column manual override series as-of value."""
+    if series_df is None or series_df.empty:
+        return 0.0, False
+
+    normalized_df = normalize_schedule_index(series_df, tz)
+    if normalized_df.empty:
+        return 0.0, False
+
+    if "setpoint" not in normalized_df.columns:
+        return 0.0, False
+
+    row = normalized_df.asof(now_value)
+    row_ts = normalized_df.index.asof(now_value)
+    if row is None or pd.isna(row_ts):
+        return 0.0, False
+
+    try:
+        value = float(row.get("setpoint", 0.0))
+    except (TypeError, ValueError):
+        return 0.0, False
+    if pd.isna(value):
+        return 0.0, False
+    return value, True
+
+
+def _ffill_column_on_union(df, union_index, column_name):
+    if df is None or df.empty or column_name not in df.columns:
+        return pd.Series(index=union_index, dtype=float)
+    series = pd.to_numeric(df[column_name], errors="coerce")
+    return series.reindex(union_index).ffill()
+
+
+def build_effective_schedule_frame(
+    api_df,
+    manual_p_df,
+    manual_q_df,
+    *,
+    manual_p_enabled,
+    manual_q_enabled,
+    tz,
+):
+    """
+    Build an effective per-plant schedule frame from API base plus manual per-signal overrides.
+
+    Output columns: `power_setpoint_kw`, `reactive_power_setpoint_kvar`.
+    """
+    api_norm = normalize_schedule_index(api_df, tz)
+    p_norm = normalize_schedule_index(manual_p_df, tz)
+    q_norm = normalize_schedule_index(manual_q_df, tz)
+
+    union_index = pd.DatetimeIndex([])
+    for df in (api_norm, p_norm, q_norm):
+        if df is not None and not df.empty:
+            union_index = union_index.union(df.index)
+    union_index = union_index.sort_values()
+    if len(union_index) == 0:
+        return pd.DataFrame()
+
+    effective = pd.DataFrame(index=union_index)
+    effective["power_setpoint_kw"] = _ffill_column_on_union(api_norm, union_index, "power_setpoint_kw")
+    effective["reactive_power_setpoint_kvar"] = _ffill_column_on_union(api_norm, union_index, "reactive_power_setpoint_kvar")
+
+    if manual_p_enabled and p_norm is not None and not p_norm.empty and "setpoint" in p_norm.columns:
+        p_override = pd.to_numeric(p_norm["setpoint"], errors="coerce").reindex(union_index).ffill()
+        effective.loc[p_override.notna(), "power_setpoint_kw"] = p_override[p_override.notna()]
+
+    if manual_q_enabled and q_norm is not None and not q_norm.empty and "setpoint" in q_norm.columns:
+        q_override = pd.to_numeric(q_norm["setpoint"], errors="coerce").reindex(union_index).ffill()
+        effective.loc[q_override.notna(), "reactive_power_setpoint_kvar"] = q_override[q_override.notna()]
+
+    effective["power_setpoint_kw"] = pd.to_numeric(effective["power_setpoint_kw"], errors="coerce").fillna(0.0)
+    effective["reactive_power_setpoint_kvar"] = (
+        pd.to_numeric(effective["reactive_power_setpoint_kvar"], errors="coerce").fillna(0.0)
+    )
+    return effective.sort_index()
+
+
 def resolve_schedule_setpoint(
     schedule_df,
     now_value,

@@ -12,6 +12,7 @@ Increase reliability and operator confidence without changing the core dual-plan
 4. Add safe-stop timeout-path regression test (`threshold_reached=False`, disable fallback).
 5. Keep measurement compression and config-loader schema regression coverage green to prevent config/runtime drift.
 6. Keep API schedule fetcher poll-gate/config regression coverage green (`tomorrow_poll_start_time` parsing, gate timing, partial-window status semantics).
+7. Add dashboard/manual-editor callback regressions for key manual override UX flows (series selector load, CSV upload, breakpoint add/delete, row validation).
 
 ### P1 - Operational Hardening
 1. Define log retention policy and implement cleanup automation.
@@ -19,6 +20,7 @@ Increase reliability and operator confidence without changing the core dual-plan
 3. Add structured health checks for API connectivity and posting backlog age.
 4. Add explicit operator alerts for sustained posting failures or stale schedule windows.
 5. Add an operator UI validation checklist for critical control/readability states after styling updates, including logs-tab `Today` live refresh, historical-file selection behavior, bulk-action confirmation states, and small-screen control-row behavior.
+6. Validate and refine the new Manual Schedule split-layout/editor ergonomics across desktop/tablet breakpoints.
 
 ### P2 - Developer Experience
 1. Expand README with architecture diagram, control semantics, and troubleshooting.
@@ -28,7 +30,7 @@ Increase reliability and operator confidence without changing the core dual-plan
 5. Decide whether to ship an optional offline utility for historical CSV recompression.
 
 ### P3 - Product Enhancements
-1. Improve manual schedule validation and preview diagnostics.
+1. Expand manual override editor validation feedback/diagnostics (without reintroducing UI clutter).
 2. Expand the new historical `Plots` tab beyond baseline browsing/exports (for example: file filters, derived stats, multi-range compare).
 3. Evaluate persistence options for measurement posting queue durability.
 

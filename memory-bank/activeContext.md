@@ -2,12 +2,13 @@
 
 ## Current Focus (Now)
 1. Keep memory bank and audit artifacts aligned with the current dual-plant runtime and refactor outcomes.
-2. Maintain robust plant control safety (per-plant transitions, guarded global switches, and confirmation-gated fleet actions).
+2. Maintain robust plant control safety (per-plant transitions, guarded transport switching, and confirmation-gated fleet actions).
 3. Stabilize and validate dashboard time-window semantics:
  - Status tab should show only immediate context (current day + next day),
  - Plots tab remains the path for historical inspection.
-4. Keep reliability guardrails green via automated regression tests and CI enforcement, including measurement compression, posting-gate semantics, and schedule-window pruning behavior.
-5. Prepare follow-up hardening for remaining high-risk paths (dashboard synchronous Modbus polling, posting durability, remote smoke coverage).
+4. Stabilize the new merged schedule dispatch model (API base + per-signal manual overrides) and the redesigned Manual Schedule editor UX.
+5. Keep reliability guardrails green via automated regression tests and CI enforcement, including measurement compression, posting-gate semantics, and schedule-window pruning behavior.
+6. Prepare follow-up hardening for remaining high-risk paths (dashboard synchronous Modbus polling, posting durability, remote smoke coverage).
 
 ## Open Decisions and Risks
 1. Dashboard interval callbacks still perform synchronous Modbus reads; remote endpoint slowness can degrade responsiveness.
@@ -20,6 +21,38 @@
 8. Historical plots tab currently rescans and reloads CSV files on demand; performance may degrade with very large `data/` directories.
 
 ## Rolling Change Log (Compressed, 30-Day Window)
+
+### 2026-02-25
+- Replaced runtime manual/API source switching dispatch behavior with merged dispatch:
+  - API schedules are now the base,
+  - manual overrides are stored as four independent series (`lib_p`, `lib_q`, `vrfb_p`, `vrfb_q`),
+  - per-series active/inactive toggles control overwrite participation for `P`/`Q`.
+- Added shared-state contract keys for manual override series and merge-enable flags:
+  - `manual_schedule_series_df_by_key`,
+  - `manual_schedule_merge_enabled_by_key`.
+- Kept `manual_schedule_df_by_plant` as a derived compatibility/display cache rebuilt from manual series.
+- Updated scheduler runtime semantics:
+  - API staleness still zeros the API base values,
+  - enabled manual overrides can still supply `P` and/or `Q` during API staleness,
+  - manual override series are pruned on day rollover to local `current day + next day`.
+- Removed dashboard schedule-source switch UI/callback flow (transport switch unchanged).
+- Updated Status-tab schedule overlays to render the merged effective schedule instead of branching on source.
+- Rebuilt Manual Schedule tab:
+  - four always-visible manual override plots (`LIB/VRFB` x `P/Q`) with active/inactive toggles,
+  - compact right-side breakpoint editor (responsive stacked on small screens),
+  - relative breakpoint CSV save/load (`hours, minutes, seconds, setpoint`) for the selected series,
+  - row-level add/delete controls and first-row `00:00:00` enforcement,
+  - runtime/manual-series sanitization to local `current day + next day`.
+- Removed random manual schedule generator from the active Manual tab workflow.
+- Updated API measurement posting gate semantics:
+  - runtime posting toggle + API password now control posting eligibility,
+  - manual override usage no longer suppresses measurement posting.
+- Added/updated targeted regression coverage for:
+  - scheduler merged dispatch priority and stale-base/manual-override behavior,
+  - shared-state contract keys,
+  - measurement posting gate independent of `active_schedule_source`,
+  - dashboard control test cleanup after source-switch helper removal.
+- Performed iterative Manual editor UI refinements (compact selector/date/time/breakpoint rows, button-only CSV load control, responsive plots/editor balance, dropdown menu fixes, reduced visual clutter).
 
 ### 2026-02-24
 - Fixed historical `Plots` tab range-slider default behavior:

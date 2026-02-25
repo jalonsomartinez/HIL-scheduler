@@ -1,5 +1,6 @@
 import base64
 import io
+import json
 import logging
 import os
 import threading
@@ -9,11 +10,10 @@ from datetime import datetime, timedelta
 import dash
 import pandas as pd
 import plotly.graph_objects as go
-from dash import Dash, Input, Output, State, callback_context, dcc, html
+from dash import ALL, Dash, Input, Output, State, callback_context, dcc, html
 from dash.exceptions import PreventUpdate
 
 from dashboard_control import (
-    perform_source_switch as perform_source_switch_flow,
     perform_transport_switch as perform_transport_switch_flow,
     safe_stop_all_plants as safe_stop_all_plants_flow,
     safe_stop_plant as safe_stop_plant_flow,
@@ -38,12 +38,13 @@ from dashboard_plotting import (
     DEFAULT_TRACE_COLORS,
     apply_figure_theme,
     create_plant_figure,
+    create_manual_series_figure,
 )
 from dashboard_ui_state import get_plant_control_labels_and_disabled, resolve_runtime_transition_state
 import manual_schedule_manager as msm
 from measurement_storage import MEASUREMENT_COLUMNS, find_latest_persisted_soc_for_plant
 from runtime_contracts import resolve_modbus_endpoint, sanitize_plant_name
-from schedule_runtime import resolve_schedule_setpoint
+from schedule_runtime import build_effective_schedule_frame, resolve_schedule_setpoint
 from shared_state import snapshot_locked
 from time_utils import get_config_tz, normalize_datetime_series, normalize_schedule_index, normalize_timestamp_value, now_tz
 
@@ -73,14 +74,12 @@ def dashboard_agent(config, shared_data):
     initial_snapshot = snapshot_locked(
         shared_data,
         lambda data: {
-            "initial_source": data.get("active_schedule_source", "manual"),
             "initial_transport": data.get("transport_mode", "local"),
             "initial_posting_enabled": bool(
                 data.get("measurement_posting_enabled", config.get("ISTENTORE_POST_MEASUREMENTS_IN_API_MODE", True))
             ),
         },
     )
-    initial_source = initial_snapshot["initial_source"]
     initial_transport = initial_snapshot["initial_transport"]
     initial_posting_enabled = bool(initial_snapshot["initial_posting_enabled"])
 
@@ -139,22 +138,100 @@ def dashboard_agent(config, shared_data):
         source_snapshot = snapshot_locked(
             shared_data,
             lambda data: {
-                "source": data.get("active_schedule_source", "manual"),
-                "schedule_df": (
-                    data.get("api_schedule_df_by_plant", {}).get(plant_id)
-                    if data.get("active_schedule_source", "manual") == "api"
-                    else data.get("manual_schedule_df_by_plant", {}).get(plant_id)
-                ),
+                "api_df": data.get("api_schedule_df_by_plant", {}).get(plant_id),
+                "manual_series_map": dict(data.get("manual_schedule_series_df_by_key", {})),
+                "manual_merge_enabled": dict(data.get("manual_schedule_merge_enabled_by_key", {})),
             },
         )
+        p_key, q_key = msm.manual_series_keys_for_plant(plant_id)
+        effective_df = build_effective_schedule_frame(
+            source_snapshot["api_df"],
+            source_snapshot["manual_series_map"].get(p_key),
+            source_snapshot["manual_series_map"].get(q_key),
+            manual_p_enabled=bool(source_snapshot["manual_merge_enabled"].get(p_key, False)),
+            manual_q_enabled=bool(source_snapshot["manual_merge_enabled"].get(q_key, False)),
+            tz=tz,
+        )
         p_kw, q_kvar, _ = resolve_schedule_setpoint(
-            source_snapshot["schedule_df"],
+            effective_df,
             now_tz(config),
             tz,
-            source=source_snapshot["source"],
-            api_validity_window=api_validity_window,
+            source="manual",
         )
         return p_kw, q_kvar
+
+    def _manual_window_bounds(now_value=None):
+        now_value = normalize_timestamp_value(now_value or now_tz(config), tz)
+        start = now_value.replace(hour=0, minute=0, second=0, microsecond=0)
+        end = start + pd.Timedelta(days=2)
+        return start, end
+
+    def _sync_manual_schedule_shared_state_locked(data, *, now_value=None):
+        manual_series_map = dict(data.get("manual_schedule_series_df_by_key", {}))
+        for key in msm.MANUAL_SERIES_KEYS:
+            manual_series_map.setdefault(key, pd.DataFrame(columns=["setpoint"]))
+        window_start, window_end = _manual_window_bounds(now_value=now_value)
+        pruned_series_map = msm.prune_manual_series_map_to_window(manual_series_map, tz, window_start, window_end)
+        data["manual_schedule_series_df_by_key"] = pruned_series_map
+        data["manual_schedule_df_by_plant"] = msm.rebuild_manual_schedule_df_by_plant(
+            pruned_series_map,
+            timezone_name=config.get("TIMEZONE_NAME"),
+        )
+        merge_map = dict(data.get("manual_schedule_merge_enabled_by_key", {}))
+        for key in msm.MANUAL_SERIES_KEYS:
+            merge_map[key] = bool(merge_map.get(key, False))
+        data["manual_schedule_merge_enabled_by_key"] = merge_map
+
+    def _set_manual_series_from_editor(series_key, rows, start_dt):
+        if series_key not in msm.MANUAL_SERIES_KEYS:
+            raise ValueError("Invalid manual schedule selector")
+        series_df = msm.manual_editor_rows_to_series_df(rows, start_dt, timezone_name=config.get("TIMEZONE_NAME"))
+        with shared_data["lock"]:
+            _sync_manual_schedule_shared_state_locked(shared_data)
+            series_map = dict(shared_data.get("manual_schedule_series_df_by_key", {}))
+            series_map[series_key] = series_df
+            shared_data["manual_schedule_series_df_by_key"] = series_map
+            _sync_manual_schedule_shared_state_locked(shared_data)
+        return series_df
+
+    def _get_manual_series_snapshot():
+        return snapshot_locked(
+            shared_data,
+            lambda data: {
+                "series_map": dict(data.get("manual_schedule_series_df_by_key", {})),
+                "merge_enabled": dict(data.get("manual_schedule_merge_enabled_by_key", {})),
+            },
+        )
+
+    def _editor_start_to_datetime(date_value, hour_value, minute_value, second_value):
+        if not date_value:
+            raise ValueError("Start date is required")
+        try:
+            hour = int(hour_value or 0)
+            minute = int(minute_value or 0)
+            second = int(second_value or 0)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Start time fields must be integers") from exc
+        if hour < 0 or hour > 23 or minute < 0 or minute > 59 or second < 0 or second > 59:
+            raise ValueError("Start time is out of range")
+        start_dt = pd.Timestamp(date_value).replace(hour=hour, minute=minute, second=second, microsecond=0)
+        return normalize_timestamp_value(start_dt, tz)
+
+    def _parse_trigger_id(prop_id):
+        if not prop_id:
+            return None
+        raw = str(prop_id).split(".")[0]
+        if raw.startswith("{") and raw.endswith("}"):
+            try:
+                return json.loads(raw)
+            except Exception:
+                return raw
+        return raw
+
+    def _manual_toggle_classes(enabled):
+        if bool(enabled):
+            return "toggle-option active", "toggle-option"
+        return "toggle-option", "toggle-option active"
 
     def get_daily_recording_file_path(plant_id):
         safe_name = sanitize_plant_name(plant_name(plant_id), plant_id)
@@ -399,13 +476,15 @@ def dashboard_agent(config, shared_data):
                 shared_data["plant_transition_by_plant"][plant_id] = resolved
         return resolved
 
+    with shared_data["lock"]:
+        _sync_manual_schedule_shared_state_locked(shared_data)
+
     app.layout = build_dashboard_layout(
         config,
         plant_ids,
         plant_name,
         brand_logo_src,
         initial_transport,
-        initial_source,
         initial_posting_enabled,
         now_tz(config),
     )
@@ -527,74 +606,6 @@ def dashboard_agent(config, shared_data):
         if stored_mode == "remote":
             return "remote", "toggle-option", "toggle-option active", hidden_class
         return "local", "toggle-option active", "toggle-option", hidden_class
-
-    @app.callback(
-        [
-            Output("active-source-selector", "data"),
-            Output("source-manual-btn", "className"),
-            Output("source-api-btn", "className"),
-            Output("schedule-switch-modal", "className"),
-        ],
-        [
-            Input("source-manual-btn", "n_clicks"),
-            Input("source-api-btn", "n_clicks"),
-            Input("schedule-switch-cancel", "n_clicks"),
-            Input("schedule-switch-confirm", "n_clicks"),
-        ],
-        [State("active-source-selector", "data")],
-        prevent_initial_call=False,
-    )
-    def select_source(manual_clicks, api_clicks, cancel_clicks, confirm_clicks, current_source):
-        ctx = callback_context
-        with shared_data["lock"]:
-            stored_source = shared_data.get("active_schedule_source", "manual")
-        hidden_class = "modal-overlay hidden"
-        open_class = "modal-overlay"
-
-        if current_source not in {"manual", "api"}:
-            current_source = stored_source
-
-        def classes_for(source_value):
-            if source_value == "api":
-                return "toggle-option", "toggle-option active"
-            return "toggle-option active", "toggle-option"
-
-        if not ctx.triggered:
-            manual_class, api_class = classes_for(stored_source)
-            return stored_source, manual_class, api_class, hidden_class
-
-        trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
-
-        if trigger_id == "schedule-switch-cancel":
-            manual_class, api_class = classes_for(stored_source)
-            return stored_source, manual_class, api_class, hidden_class
-
-        if trigger_id == "schedule-switch-confirm":
-            requested_source = "api" if current_source == "manual" else "manual"
-
-            def perform_source_switch():
-                perform_source_switch_flow(
-                    shared_data,
-                    requested_source,
-                    safe_stop_all_plants,
-                )
-
-            threading.Thread(target=perform_source_switch, daemon=True).start()
-            manual_class, api_class = classes_for(requested_source)
-            return requested_source, manual_class, api_class, hidden_class
-
-        if trigger_id == "source-api-btn" and current_source != "api":
-            logging.info("Dashboard: source switch requested from %s to API (awaiting confirmation).", current_source.upper())
-            manual_class, api_class = classes_for(current_source)
-            return current_source, manual_class, api_class, open_class
-
-        if trigger_id == "source-manual-btn" and current_source != "manual":
-            logging.info("Dashboard: source switch requested from %s to MANUAL (awaiting confirmation).", current_source.upper())
-            manual_class, api_class = classes_for(current_source)
-            return current_source, manual_class, api_class, open_class
-
-        manual_class, api_class = classes_for(stored_source)
-        return stored_source, manual_class, api_class, hidden_class
 
     @app.callback(
         [
@@ -836,146 +847,504 @@ def dashboard_agent(config, shared_data):
 
         return f"{trigger_id}:{now_tz(config).strftime('%H%M%S')}"
 
+    @app.callback(Output("manual-status-text", "children"), Input("manual-editor-status-store", "data"))
+    def render_manual_status(status_text):
+        return str(status_text or "")
+
     @app.callback(
-        Output("manual-status-text", "children"),
-        [Input("manual-generate", "n_clicks"), Input("manual-clear", "n_clicks"), Input("manual-csv-upload", "contents")],
         [
-            State("manual-plant-selector", "value"),
-            State("manual-start-hour", "value"),
-            State("manual-end-hour", "value"),
-            State("manual-step", "value"),
-            State("manual-min-power", "value"),
-            State("manual-max-power", "value"),
-            State("manual-csv-upload", "filename"),
-            State("manual-csv-date", "date"),
-            State("manual-csv-hour", "value"),
-            State("manual-csv-minute", "value"),
+            Output("manual-toggle-lib-p-enable-btn", "className"),
+            Output("manual-toggle-lib-p-disable-btn", "className"),
+            Output("manual-toggle-lib-q-enable-btn", "className"),
+            Output("manual-toggle-lib-q-disable-btn", "className"),
+            Output("manual-toggle-vrfb-p-enable-btn", "className"),
+            Output("manual-toggle-vrfb-p-disable-btn", "className"),
+            Output("manual-toggle-vrfb-q-enable-btn", "className"),
+            Output("manual-toggle-vrfb-q-disable-btn", "className"),
+        ],
+        [
+            Input("manual-toggle-lib-p-enable-btn", "n_clicks"),
+            Input("manual-toggle-lib-p-disable-btn", "n_clicks"),
+            Input("manual-toggle-lib-q-enable-btn", "n_clicks"),
+            Input("manual-toggle-lib-q-disable-btn", "n_clicks"),
+            Input("manual-toggle-vrfb-p-enable-btn", "n_clicks"),
+            Input("manual-toggle-vrfb-p-disable-btn", "n_clicks"),
+            Input("manual-toggle-vrfb-q-enable-btn", "n_clicks"),
+            Input("manual-toggle-vrfb-q-disable-btn", "n_clicks"),
+        ],
+        prevent_initial_call=False,
+    )
+    def handle_manual_merge_toggles(*_clicks):
+        ctx = callback_context
+        mapping = {
+            "manual-toggle-lib-p-enable-btn": ("lib_p", True),
+            "manual-toggle-lib-p-disable-btn": ("lib_p", False),
+            "manual-toggle-lib-q-enable-btn": ("lib_q", True),
+            "manual-toggle-lib-q-disable-btn": ("lib_q", False),
+            "manual-toggle-vrfb-p-enable-btn": ("vrfb_p", True),
+            "manual-toggle-vrfb-p-disable-btn": ("vrfb_p", False),
+            "manual-toggle-vrfb-q-enable-btn": ("vrfb_q", True),
+            "manual-toggle-vrfb-q-disable-btn": ("vrfb_q", False),
+        }
+        if ctx.triggered:
+            trigger_id = _parse_trigger_id(ctx.triggered[0]["prop_id"])
+            if trigger_id in mapping:
+                key, enabled = mapping[trigger_id]
+                with shared_data["lock"]:
+                    merge_map = dict(shared_data.get("manual_schedule_merge_enabled_by_key", {}))
+                    for series_key in msm.MANUAL_SERIES_KEYS:
+                        merge_map[series_key] = bool(merge_map.get(series_key, False))
+                    merge_map[key] = bool(enabled)
+                    shared_data["manual_schedule_merge_enabled_by_key"] = merge_map
+
+        merge_enabled = snapshot_locked(
+            shared_data,
+            lambda data: dict(data.get("manual_schedule_merge_enabled_by_key", {})),
+        )
+        outputs = []
+        for key in ("lib_p", "lib_q", "vrfb_p", "vrfb_q"):
+            active_cls, inactive_cls = _manual_toggle_classes(bool(merge_enabled.get(key, False)))
+            outputs.extend([active_cls, inactive_cls])
+        return tuple(outputs)
+
+    @app.callback(
+        [
+            Output("manual-graph-lib-p", "figure"),
+            Output("manual-graph-lib-q", "figure"),
+            Output("manual-graph-vrfb-p", "figure"),
+            Output("manual-graph-vrfb-q", "figure"),
+        ],
+        [
+            Input("interval-component", "n_intervals"),
+            Input("manual-editor-rows-store", "data"),
+            Input("manual-editor-status-store", "data"),
+            Input("manual-toggle-lib-p-enable-btn", "n_clicks"),
+            Input("manual-toggle-lib-p-disable-btn", "n_clicks"),
+            Input("manual-toggle-lib-q-enable-btn", "n_clicks"),
+            Input("manual-toggle-lib-q-disable-btn", "n_clicks"),
+            Input("manual-toggle-vrfb-p-enable-btn", "n_clicks"),
+            Input("manual-toggle-vrfb-p-disable-btn", "n_clicks"),
+            Input("manual-toggle-vrfb-q-enable-btn", "n_clicks"),
+            Input("manual-toggle-vrfb-q-disable-btn", "n_clicks"),
+        ],
+        prevent_initial_call=False,
+    )
+    def update_manual_override_plots(*_):
+        snapshot = _get_manual_series_snapshot()
+        series_map = snapshot["series_map"]
+        merge_enabled = snapshot["merge_enabled"]
+        window_start, window_end = _manual_window_bounds()
+
+        def fig_for(series_key):
+            meta = msm.MANUAL_SERIES_META[series_key]
+            is_p = meta["signal"] == "p"
+            return create_manual_series_figure(
+                title=f"{meta['label']} (Manual Override)",
+                unit_label=meta["unit"],
+                series_df=series_map.get(series_key, pd.DataFrame()),
+                enabled=bool(merge_enabled.get(series_key, False)),
+                tz=tz,
+                plot_theme=plot_theme,
+                line_color=trace_colors["p_setpoint"] if is_p else trace_colors["q_setpoint"],
+                x_window_start=window_start,
+                x_window_end=window_end,
+                uirevision_key=f"manual-{series_key}",
+            )
+
+        return (
+            fig_for("lib_p"),
+            fig_for("lib_q"),
+            fig_for("vrfb_p"),
+            fig_for("vrfb_q"),
+        )
+
+    @app.callback(
+        [
+            Output("manual-editor-rows-store", "data"),
+            Output("manual-editor-start-date", "date"),
+            Output("manual-editor-start-hour", "value"),
+            Output("manual-editor-start-minute", "value"),
+            Output("manual-editor-start-second", "value"),
+        ],
+        Input("manual-editor-series-selector", "value"),
+        prevent_initial_call=False,
+    )
+    def load_manual_editor_for_selected_series(series_key):
+        if series_key not in msm.MANUAL_SERIES_KEYS:
+            series_key = "lib_p"
+        with shared_data["lock"]:
+            _sync_manual_schedule_shared_state_locked(shared_data)
+            series_df = dict(shared_data.get("manual_schedule_series_df_by_key", {})).get(series_key, pd.DataFrame())
+        start_ts, rows = msm.manual_series_df_to_editor_rows_and_start(series_df, timezone_name=config.get("TIMEZONE_NAME"))
+        if start_ts is None or pd.isna(start_ts):
+            start_ts = normalize_timestamp_value(now_tz(config), tz)
+        return (
+            rows,
+            start_ts.date(),
+            int(start_ts.hour),
+            int(start_ts.minute),
+            int(start_ts.second),
+        )
+
+    @app.callback(
+        Output("manual-editor-clear-confirm", "displayed"),
+        Input("manual-editor-clear-btn", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def prompt_manual_clear(_n_clicks):
+        return True
+
+    @app.callback(
+        [
+            Output("manual-editor-delete-confirm", "displayed"),
+            Output("manual-editor-delete-index-store", "data"),
+        ],
+        Input({"type": "manual-row-del", "index": ALL}, "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def prompt_manual_delete(_delete_clicks):
+        ctx = callback_context
+        if not ctx.triggered:
+            raise PreventUpdate
+        triggered_value = ctx.triggered[0].get("value")
+        if not isinstance(triggered_value, (int, float)) or int(triggered_value) <= 0:
+            raise PreventUpdate
+        trigger_id = _parse_trigger_id(ctx.triggered[0]["prop_id"])
+        if not isinstance(trigger_id, dict):
+            raise PreventUpdate
+        return True, int(trigger_id.get("index", -1))
+
+    @app.callback(
+        [
+            Output("manual-editor-rows-store", "data", allow_duplicate=True),
+            Output("manual-editor-delete-index-store", "data", allow_duplicate=True),
+            Output("manual-editor-status-store", "data", allow_duplicate=True),
+        ],
+        [
+            Input("manual-editor-add-first-row-btn", "n_clicks"),
+            Input({"type": "manual-row-add", "index": ALL}, "n_clicks"),
+            Input({"type": "manual-row-hours", "index": ALL}, "value"),
+            Input({"type": "manual-row-minutes", "index": ALL}, "value"),
+            Input({"type": "manual-row-seconds", "index": ALL}, "value"),
+            Input({"type": "manual-row-setpoint", "index": ALL}, "value"),
+            Input("manual-editor-clear-confirm", "submit_n_clicks"),
+            Input("manual-editor-delete-confirm", "submit_n_clicks"),
+            Input("manual-editor-csv-upload", "contents"),
+            Input("manual-editor-csv-upload", "last_modified"),
+        ],
+        [
+            State("manual-editor-rows-store", "data"),
+            State("manual-editor-delete-index-store", "data"),
+            State("manual-editor-csv-upload", "contents"),
+            State("manual-editor-csv-upload", "filename"),
         ],
         prevent_initial_call=True,
     )
-    def handle_manual_schedule(
-        generate_clicks,
-        clear_clicks,
+    def mutate_manual_editor_rows(
+        add_first_clicks,
+        row_add_clicks,
+        row_hours,
+        row_minutes,
+        row_seconds,
+        row_setpoints,
+        clear_submit,
+        delete_submit,
         upload_contents,
-        plant_id,
-        start_hour,
-        end_hour,
-        step_minutes,
-        min_power,
-        max_power,
-        upload_filename,
-        csv_date,
-        csv_hour,
-        csv_minute,
+        upload_last_modified,
+        current_rows,
+        pending_delete_index,
+        upload_contents_state,
+        upload_filename_state,
     ):
         ctx = callback_context
         if not ctx.triggered:
             raise PreventUpdate
 
-        trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
+        current_rows = list(current_rows or [])
+        raw_trigger_prop = str(ctx.triggered[0]["prop_id"])
+        trigger_id = _parse_trigger_id(raw_trigger_prop)
 
-        if plant_id not in plant_ids:
-            return "Select a valid plant first."
+        def _normalize_rows_list(rows):
+            normalized = []
+            for idx, row in enumerate(list(rows or [])):
+                item = dict(row or {})
+                item["hours"] = int(item.get("hours", 0) or 0)
+                item["minutes"] = int(item.get("minutes", 0) or 0)
+                item["seconds"] = int(item.get("seconds", 0) or 0)
+                try:
+                    item["setpoint"] = float(item.get("setpoint", 0.0) or 0.0)
+                except (TypeError, ValueError):
+                    item["setpoint"] = 0.0
+                if idx == 0:
+                    item["hours"] = 0
+                    item["minutes"] = 0
+                    item["seconds"] = 0
+                normalized.append(item)
+            return normalized
 
-        if trigger_id == "manual-generate":
-            now_value = now_tz(config)
-            start_ts = now_value.replace(hour=int(start_hour), minute=0, second=0, microsecond=0)
-            end_ts = now_value.replace(hour=int(end_hour), minute=0, second=0, microsecond=0)
-            if end_ts <= start_ts:
-                end_ts += timedelta(days=1)
+        rows = _normalize_rows_list(current_rows)
 
-            df = msm.generate_random_schedule(
-                start_time=start_ts,
-                end_time=end_ts,
-                step_minutes=int(step_minutes),
-                min_power_kw=float(min_power),
-                max_power_kw=float(max_power),
-                timezone_name=config.get("TIMEZONE_NAME"),
-            )
-            with shared_data["lock"]:
-                shared_data["manual_schedule_df_by_plant"][plant_id] = df
-            return f"Random schedule generated for {plant_name(plant_id)} ({len(df)} points)."
-
-        if trigger_id == "manual-clear":
-            with shared_data["lock"]:
-                shared_data["manual_schedule_df_by_plant"][plant_id] = pd.DataFrame()
-            return f"Manual schedule cleared for {plant_name(plant_id)}."
-
-        if trigger_id == "manual-csv-upload" and upload_contents:
+        if trigger_id == "manual-editor-csv-upload":
+            if raw_trigger_prop.endswith(".last_modified"):
+                # Wait for the actual contents event; processing on last_modified can read stale contents.
+                raise PreventUpdate
+            effective_upload_contents = upload_contents if upload_contents is not None else upload_contents_state
+            if not effective_upload_contents:
+                raise PreventUpdate
             try:
-                content_type, content_string = upload_contents.split(",")
-                decoded = base64.b64decode(content_string)
-                csv_text = decoded.decode("utf-8")
-                df_input = pd.read_csv(io.StringIO(csv_text))
-
-                if "datetime" not in df_input.columns or "power_setpoint_kw" not in df_input.columns:
-                    return "CSV must include 'datetime' and 'power_setpoint_kw' columns."
-
-                if "reactive_power_setpoint_kvar" not in df_input.columns:
-                    df_input["reactive_power_setpoint_kvar"] = 0.0
-
-                df_input["datetime"] = pd.to_datetime(df_input["datetime"], errors="coerce")
-                df_input = df_input.dropna(subset=["datetime"]).copy()
-
-                if csv_date:
-                    start_dt = pd.Timestamp(csv_date).replace(
-                        hour=int(csv_hour or 0), minute=int(csv_minute or 0), second=0, microsecond=0
-                    )
-                    first_dt = df_input["datetime"].iloc[0]
-                    offset = start_dt - first_dt
-                    df_input["datetime"] = df_input["datetime"] + offset
-
-                schedule_df = df_input.set_index("datetime")
-                schedule_df = normalize_schedule_index(schedule_df, tz)
-
-                with shared_data["lock"]:
-                    shared_data["manual_schedule_df_by_plant"][plant_id] = schedule_df
-
-                return f"CSV '{upload_filename}' loaded for {plant_name(plant_id)} ({len(schedule_df)} points)."
+                _, content_string = effective_upload_contents.split(",", 1)
+                csv_text = base64.b64decode(content_string).decode("utf-8")
+                loaded_rows = msm.load_manual_editor_rows_from_relative_csv_text(csv_text)
+                display_name = upload_filename_state or "uploaded file"
+                return loaded_rows, None, f"Loaded CSV '{display_name}' into editor."
             except Exception as exc:
-                return f"CSV load failed: {exc}"
+                return dash.no_update, dash.no_update, f"CSV load failed: {exc}"
+
+        if trigger_id == "manual-editor-clear-confirm":
+            return [], None, "Cleared selected manual schedule editor rows."
+
+        if trigger_id == "manual-editor-delete-confirm":
+            try:
+                delete_idx = int(pending_delete_index)
+            except (TypeError, ValueError):
+                return dash.no_update, None, "Delete request ignored: no row selected."
+            if delete_idx < 0 or delete_idx >= len(rows):
+                return dash.no_update, None, "Delete request ignored: invalid row."
+            if delete_idx == 0 and len(rows) == 1:
+                return dash.no_update, None, "Delete request ignored: first row cannot be removed when it is the only row."
+            rows.pop(delete_idx)
+            if rows:
+                rows[0]["hours"] = 0
+                rows[0]["minutes"] = 0
+                rows[0]["seconds"] = 0
+            return rows, None, f"Deleted breakpoint row {delete_idx + 1}."
+
+        if trigger_id == "manual-editor-add-first-row-btn":
+            if not rows:
+                return [{"hours": 0, "minutes": 0, "seconds": 0, "setpoint": 0.0}], None, dash.no_update
+            last = dict(rows[-1])
+            rows.append(last)
+            return rows, None, dash.no_update
+
+        if isinstance(trigger_id, dict) and trigger_id.get("type") == "manual-row-add":
+            try:
+                idx = int(trigger_id.get("index", -1))
+            except (TypeError, ValueError):
+                idx = -1
+            if idx < 0 or idx >= len(rows):
+                raise PreventUpdate
+            new_row = dict(rows[idx])
+            rows.insert(idx + 1, new_row)
+            if rows:
+                rows[0]["hours"] = 0
+                rows[0]["minutes"] = 0
+                rows[0]["seconds"] = 0
+            return rows, None, dash.no_update
+
+        if isinstance(trigger_id, dict) and str(trigger_id.get("type", "")).startswith("manual-row-"):
+            row_count = max(
+                len(row_hours or []),
+                len(row_minutes or []),
+                len(row_seconds or []),
+                len(row_setpoints or []),
+                len(rows),
+            )
+            new_rows = []
+            for idx in range(row_count):
+                prev = rows[idx] if idx < len(rows) else {}
+                new_rows.append(
+                    {
+                        "hours": 0 if idx == 0 else int((row_hours or [])[idx] if idx < len(row_hours or []) and (row_hours or [])[idx] is not None else prev.get("hours", 0) or 0),
+                        "minutes": 0 if idx == 0 else int((row_minutes or [])[idx] if idx < len(row_minutes or []) and (row_minutes or [])[idx] is not None else prev.get("minutes", 0) or 0),
+                        "seconds": 0 if idx == 0 else int((row_seconds or [])[idx] if idx < len(row_seconds or []) and (row_seconds or [])[idx] is not None else prev.get("seconds", 0) or 0),
+                        "setpoint": (
+                            float((row_setpoints or [])[idx])
+                            if idx < len(row_setpoints or []) and (row_setpoints or [])[idx] is not None
+                            else float(prev.get("setpoint", 0.0) or 0.0)
+                        ),
+                    }
+                )
+            if new_rows:
+                new_rows[0]["hours"] = 0
+                new_rows[0]["minutes"] = 0
+                new_rows[0]["seconds"] = 0
+            return new_rows, dash.no_update, dash.no_update
 
         raise PreventUpdate
 
     @app.callback(
-        Output("manual-preview-graph", "figure"),
-        [Input("manual-plant-selector", "value"), Input("interval-component", "n_intervals")],
+        Output("manual-breakpoint-rows", "children"),
+        Input("manual-editor-rows-store", "data"),
     )
-    def update_manual_preview(plant_id, n_intervals):
-        with shared_data["lock"]:
-            schedule_df = shared_data.get("manual_schedule_df_by_plant", {}).get(plant_id, pd.DataFrame()).copy()
+    def render_manual_breakpoint_rows(rows):
+        rows = list(rows or [])
+        if not rows:
+            return []
 
-        schedule_df = normalize_schedule_index(schedule_df, tz)
-        fig = go.Figure()
-        if schedule_df.empty:
-            fig.add_annotation(
-                text="No manual schedule for selected plant.",
-                xref="paper",
-                yref="paper",
-                x=0.5,
-                y=0.5,
-                showarrow=False,
-            )
-        else:
-            fig.add_trace(
-                go.Scatter(
-                    x=schedule_df.index,
-                    y=schedule_df.get("power_setpoint_kw", []),
-                    mode="lines",
-                    line_shape="hv",
-                    name=f"{plant_name(plant_id)} P Setpoint",
-                    line=dict(color=trace_colors["p_setpoint"], width=2),
+        compact_time_style = {"width": "44px", "minWidth": "44px", "padding": "2px 3px", "height": "28px"}
+        compact_setpoint_style = {"width": "86px", "minWidth": "86px", "padding": "2px 6px", "height": "28px"}
+        row_action_btn_style = {
+            "padding": "3px 0",
+            "width": "28px",
+            "minWidth": "28px",
+            "height": "28px",
+            "fontSize": "1.05rem",
+            "lineHeight": "1",
+            "fontWeight": "800",
+        }
+        row_style = {
+            "display": "flex",
+            "alignItems": "center",
+            "gap": "2px",
+            "flexWrap": "nowrap",
+            "overflowX": "auto",
+            "padding": "4px 0",
+        }
+        time_group_style = {
+            "display": "flex",
+            "alignItems": "center",
+            "gap": "6px",
+            "flexWrap": "nowrap",
+            "minWidth": "174px",
+        }
+        action_group_style = {"display": "flex", "gap": "4px", "flexWrap": "nowrap", "marginLeft": "4px"}
+
+        header = html.Div(
+            style=row_style,
+            children=[
+                html.Div("Time (HH MM SS)", style={"minWidth": "174px", "fontWeight": "600"}),
+                html.Div("Setpoint", style={"minWidth": "86px", "fontWeight": "600"}),
+                html.Div("Actions", style={"minWidth": "60px", "fontWeight": "600"}),
+            ],
+        )
+        row_children = [header]
+        for idx, row in enumerate(rows):
+            row_children.append(
+                html.Div(
+                    style=row_style,
+                    children=[
+                        html.Div(
+                            style=time_group_style,
+                            children=[
+                                dcc.Input(
+                                    id={"type": "manual-row-hours", "index": idx},
+                                    type="number",
+                                    className="form-control",
+                                    min=0,
+                                    step=1,
+                                    value=int(row.get("hours", 0) or 0),
+                                    disabled=(idx == 0),
+                                    style=compact_time_style,
+                                ),
+                                dcc.Input(
+                                    id={"type": "manual-row-minutes", "index": idx},
+                                    type="number",
+                                    className="form-control",
+                                    min=0,
+                                    max=59,
+                                    step=1,
+                                    value=int(row.get("minutes", 0) or 0),
+                                    disabled=(idx == 0),
+                                    style=compact_time_style,
+                                ),
+                                dcc.Input(
+                                    id={"type": "manual-row-seconds", "index": idx},
+                                    type="number",
+                                    className="form-control",
+                                    min=0,
+                                    max=59,
+                                    step=1,
+                                    value=int(row.get("seconds", 0) or 0),
+                                    disabled=(idx == 0),
+                                    style=compact_time_style,
+                                ),
+                            ],
+                        ),
+                        dcc.Input(
+                            id={"type": "manual-row-setpoint", "index": idx},
+                            type="number",
+                            className="form-control",
+                            step="any",
+                            value=row.get("setpoint", 0.0),
+                            style=compact_setpoint_style,
+                        ),
+                        html.Div(
+                            style=action_group_style,
+                            children=[
+                                html.Button(
+                                    "+",
+                                    id={"type": "manual-row-add", "index": idx},
+                                    className="btn btn-primary",
+                                    n_clicks=0,
+                                    title="Add row after",
+                                    style=row_action_btn_style,
+                                ),
+                                html.Button(
+                                    "-",
+                                    id={"type": "manual-row-del", "index": idx},
+                                    className="btn btn-danger",
+                                    n_clicks=0,
+                                    title="Delete row",
+                                    style=row_action_btn_style,
+                                ),
+                            ],
+                        ),
+                    ],
                 )
             )
-        apply_figure_theme(
-            fig,
-            plot_theme,
-            height=320,
-            margin=dict(l=40, r=20, t=40, b=30),
-            uirevision=f"manual-preview:{plant_id}",
-        )
-        fig.update_yaxes(title_text="kW")
-        return fig
+        return row_children
+
+    @app.callback(
+        [
+            Output("manual-editor-add-row-container", "style"),
+            Output("manual-breakpoint-rows-container", "style"),
+        ],
+        Input("manual-editor-rows-store", "data"),
+        prevent_initial_call=False,
+    )
+    def toggle_manual_editor_add_or_list(rows):
+        has_rows = bool(list(rows or []))
+        if has_rows:
+            return {"display": "none"}, {"display": "block"}
+        return {"display": "block"}, {"display": "none"}
+
+    @app.callback(
+        Output("manual-editor-download", "data"),
+        Input("manual-editor-save-csv-btn", "n_clicks"),
+        [State("manual-editor-rows-store", "data"), State("manual-editor-series-selector", "value")],
+        prevent_initial_call=True,
+    )
+    def download_manual_editor_csv(n_clicks, rows, series_key):
+        if not n_clicks:
+            raise PreventUpdate
+        csv_text = msm.manual_editor_rows_to_relative_csv_text(rows or [])
+        filename = f"manual_{series_key or 'schedule'}.csv"
+        return dcc.send_string(csv_text, filename)
+
+    @app.callback(
+        Output("manual-editor-status-store", "data"),
+        [
+            Input("manual-editor-rows-store", "data"),
+            Input("manual-editor-start-date", "date"),
+            Input("manual-editor-start-hour", "value"),
+            Input("manual-editor-start-minute", "value"),
+            Input("manual-editor-start-second", "value"),
+        ],
+        State("manual-editor-series-selector", "value"),
+        prevent_initial_call=True,
+    )
+    def persist_manual_editor_to_shared(rows, start_date, start_hour, start_minute, start_second, series_key):
+        try:
+            start_dt = None
+            if list(rows or []):
+                start_dt = _editor_start_to_datetime(start_date, start_hour, start_minute, start_second)
+            _set_manual_series_from_editor(series_key, rows or [], start_dt)
+            count = len(list(rows or []))
+            meta = msm.MANUAL_SERIES_META.get(series_key or "", {})
+            label = meta.get("label", str(series_key or "schedule"))
+            return f"{label}: applied {count} breakpoint(s)."
+        except Exception as exc:
+            return f"Manual editor validation failed: {exc}"
 
     @app.callback(
         [
@@ -1175,23 +1544,17 @@ def dashboard_agent(config, shared_data):
     )
     def update_status_and_graphs(n_intervals, control_action):
         with shared_data["lock"]:
-            source = shared_data.get("active_schedule_source", "manual")
             transport_mode = shared_data.get("transport_mode", "local")
-            schedule_switching = bool(shared_data.get("schedule_switching", False))
             scheduler_running = dict(shared_data.get("scheduler_running_by_plant", {}))
             transition_by_plant = dict(shared_data.get("plant_transition_by_plant", {}))
             recording_files = dict(shared_data.get("measurements_filename_by_plant", {}))
             status = shared_data.get("data_fetcher_status", {}).copy()
-            if source == "api":
-                schedule_map = {
-                    plant_id: shared_data.get("api_schedule_df_by_plant", {}).get(plant_id, pd.DataFrame()).copy()
-                    for plant_id in plant_ids
-                }
-            else:
-                schedule_map = {
-                    plant_id: shared_data.get("manual_schedule_df_by_plant", {}).get(plant_id, pd.DataFrame()).copy()
-                    for plant_id in plant_ids
-                }
+            api_schedule_map = {
+                plant_id: shared_data.get("api_schedule_df_by_plant", {}).get(plant_id, pd.DataFrame()).copy()
+                for plant_id in plant_ids
+            }
+            manual_series_map = dict(shared_data.get("manual_schedule_series_df_by_key", {}))
+            manual_merge_enabled = dict(shared_data.get("manual_schedule_merge_enabled_by_key", {}))
             measurements_map = {
                 plant_id: shared_data.get("current_file_df_by_plant", {}).get(plant_id, pd.DataFrame()).copy()
                 for plant_id in plant_ids
@@ -1214,8 +1577,6 @@ def dashboard_agent(config, shared_data):
             f"Tomorrow {status.get('tomorrow_date')}: LIB={status.get('tomorrow_points_by_plant', {}).get('lib', 0)} "
             f"VRFB={status.get('tomorrow_points_by_plant', {}).get('vrfb', 0)}"
         )
-        if schedule_switching:
-            api_inline += " | Source switching..."
         if status.get("error"):
             api_inline += f" | Error: {status.get('error')}"
 
@@ -1235,14 +1596,26 @@ def dashboard_agent(config, shared_data):
                 f"Scheduler gate: {running} | Modbus enable: {modbus_text} | {rec_text}"
             )
 
-        lib_schedule = normalize_schedule_index(schedule_map.get("lib", pd.DataFrame()), tz)
-        vrfb_schedule = normalize_schedule_index(schedule_map.get("vrfb", pd.DataFrame()), tz)
+        effective_schedule_map = {}
+        for plant_id in plant_ids:
+            p_key, q_key = msm.manual_series_keys_for_plant(plant_id)
+            effective_schedule_map[plant_id] = build_effective_schedule_frame(
+                api_schedule_map.get(plant_id, pd.DataFrame()),
+                manual_series_map.get(p_key, pd.DataFrame()),
+                manual_series_map.get(q_key, pd.DataFrame()),
+                manual_p_enabled=bool(manual_merge_enabled.get(p_key, False)),
+                manual_q_enabled=bool(manual_merge_enabled.get(q_key, False)),
+                tz=tz,
+            )
+
+        lib_schedule = normalize_schedule_index(effective_schedule_map.get("lib", pd.DataFrame()), tz)
+        vrfb_schedule = normalize_schedule_index(effective_schedule_map.get("vrfb", pd.DataFrame()), tz)
         lib_fig = create_plant_figure(
             "lib",
             plant_name,
             lib_schedule,
             measurements_map.get("lib", pd.DataFrame()),
-            uirevision_key=f"lib:{source}:{transport_mode}",
+            uirevision_key=f"lib:merged:{transport_mode}",
             tz=tz,
             plot_theme=plot_theme,
             trace_colors=trace_colors,
@@ -1254,7 +1627,7 @@ def dashboard_agent(config, shared_data):
             plant_name,
             vrfb_schedule,
             measurements_map.get("vrfb", pd.DataFrame()),
-            uirevision_key=f"vrfb:{source}:{transport_mode}",
+            uirevision_key=f"vrfb:merged:{transport_mode}",
             tz=tz,
             plot_theme=plot_theme,
             trace_colors=trace_colors,

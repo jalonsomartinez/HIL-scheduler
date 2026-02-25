@@ -17,6 +17,8 @@ class SharedStateContractTests(unittest.TestCase):
             "session_logs",
             "log_lock",
             "manual_schedule_df_by_plant",
+            "manual_schedule_series_df_by_key",
+            "manual_schedule_merge_enabled_by_key",
             "api_schedule_df_by_plant",
             "active_schedule_source",
             "transport_mode",
@@ -44,6 +46,8 @@ class SharedStateContractTests(unittest.TestCase):
         self.assertIsInstance(shared_data["lock"], type(threading.Lock()))
         self.assertIsInstance(shared_data["shutdown_event"], threading.Event)
         self.assertEqual(set(shared_data["manual_schedule_df_by_plant"].keys()), set(plant_ids))
+        self.assertEqual(set(shared_data["manual_schedule_series_df_by_key"].keys()), {"lib_p", "lib_q", "vrfb_p", "vrfb_q"})
+        self.assertEqual(set(shared_data["manual_schedule_merge_enabled_by_key"].keys()), {"lib_p", "lib_q", "vrfb_p", "vrfb_q"})
         self.assertEqual(set(shared_data["api_schedule_df_by_plant"].keys()), set(plant_ids))
         self.assertEqual(set(shared_data["scheduler_running_by_plant"].keys()), set(plant_ids))
         self.assertEqual(set(shared_data["measurement_post_status"].keys()), set(plant_ids))

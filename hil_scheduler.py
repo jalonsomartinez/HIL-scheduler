@@ -4,6 +4,7 @@ import time
 
 import pandas as pd
 
+import manual_schedule_manager as msm
 from config_loader import load_config
 from dashboard_agent import dashboard_agent
 from data_fetcher_agent import data_fetcher_agent
@@ -15,6 +16,14 @@ from scheduler_agent import scheduler_agent
 
 def _empty_df_by_plant(plant_ids):
     return {plant_id: pd.DataFrame() for plant_id in plant_ids}
+
+
+def _empty_manual_series_df_by_key():
+    return msm.default_manual_series_map()
+
+
+def _default_manual_merge_enabled_by_key():
+    return msm.default_manual_merge_enabled_map(default_enabled=False)
 
 
 def _default_measurement_post_status_by_plant(plant_ids):
@@ -66,6 +75,8 @@ def build_initial_shared_data(config):
         "session_logs": [],
         "log_lock": threading.Lock(),
         "manual_schedule_df_by_plant": _empty_df_by_plant(plant_ids),
+        "manual_schedule_series_df_by_key": _empty_manual_series_df_by_key(),
+        "manual_schedule_merge_enabled_by_key": _default_manual_merge_enabled_by_key(),
         "api_schedule_df_by_plant": _empty_df_by_plant(plant_ids),
         "active_schedule_source": startup_schedule_source,
         "transport_mode": startup_transport_mode,

@@ -484,6 +484,50 @@ input[type="number"]:focus,
     width: 100%;
 }
 
+.manual-editor-series-select .Select-control {
+    min-height: 28px;
+}
+
+.manual-editor-series-select .Select-placeholder,
+.manual-editor-series-select .Select-value-label,
+.manual-editor-series-select .Select-input > input {
+    font-size: 0.78rem !important;
+}
+
+.manual-editor-series-select .Select-option {
+    font-size: 0.72rem;
+    padding-top: 6px;
+    padding-bottom: 6px;
+}
+
+/* Dash react-select commonly renders menu rows with VirtualizedSelectOption */
+.manual-editor-series-select .VirtualizedSelectOption {
+    font-size: 0.72rem;
+    line-height: 1.2;
+    padding-top: 6px;
+    padding-bottom: 6px;
+}
+
+.manual-editor-series-select .Select-menu-outer {
+    z-index: 1200;
+}
+
+#manual-editor-start-date .DateInput,
+#manual-editor-start-date .DateInput_input {
+    height: 28px;
+}
+
+#manual-editor-start-date .DateInput {
+    width: 108px;
+}
+
+#manual-editor-start-date .DateInput_input {
+    width: 108px;
+    padding: 2px 6px;
+    font-size: 0.74rem;
+    border-radius: 10px;
+}
+
 .file-upload {
     border: 2px dashed #abd6c2;
     border-radius: 12px;
