@@ -362,25 +362,38 @@ def measurement_agent(config, shared_data):
                 if state.get("recording_active") and path:
                     active_recording_paths.add(path)
 
+        # Swap pending rows under lock, process copies outside lock, then merge retained/failed rows back.
         with shared_data["lock"]:
             pending = shared_data.get("pending_rows_by_file", {})
             if not pending:
                 return
+            pending_swapped = pending
+            shared_data["pending_rows_by_file"] = {}
 
-            pending_snapshot = {}
-            retained_rows = {}
-            for path, rows in pending.items():
-                if not rows:
-                    continue
-                keep_tail = compression_enabled and (not force) and path in active_recording_paths
-                if keep_tail:
-                    retained_rows[path] = [rows[-1]]
-                    if len(rows) > 1:
-                        pending_snapshot[path] = rows[:-1]
-                else:
-                    pending_snapshot[path] = rows[:]
+        pending_snapshot = {}
+        retained_rows = {}
+        for path, rows in pending_swapped.items():
+            if not rows:
+                continue
+            keep_tail = compression_enabled and (not force) and path in active_recording_paths
+            if keep_tail:
+                retained_rows[path] = [rows[-1]]
+                if len(rows) > 1:
+                    pending_snapshot[path] = rows[:-1]
+            else:
+                pending_snapshot[path] = rows[:]
 
-            shared_data["pending_rows_by_file"] = retained_rows
+        if retained_rows:
+            with shared_data["lock"]:
+                live_pending = shared_data.setdefault("pending_rows_by_file", {})
+                for path, rows in retained_rows.items():
+                    if not rows:
+                        continue
+                    existing = live_pending.get(path)
+                    if existing:
+                        live_pending[path] = rows + existing
+                    else:
+                        live_pending[path] = rows
 
         if not pending_snapshot:
             last_write_time = time.time()
