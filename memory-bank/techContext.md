@@ -14,8 +14,10 @@
 - `control_engine_agent.py`: serial command execution engine for dashboard-issued control intents; owns control-path Modbus I/O and cached plant observed-state publication.
 - `control_command_runtime.py`: shared-state command queue/lifecycle bookkeeping helpers (ID allocation, queued/running/terminal status updates, bounded history).
 - `dashboard_command_intents.py`: pure dashboard trigger->command intent mapping helpers for UI callbacks.
+- `dashboard_control_health.py`: pure Status-tab health formatting helpers for control-engine queue/runtime summaries and per-plant Modbus diagnostics.
 - `config_loader.py`: validates/normalizes YAML into runtime dict.
 - `dashboard_agent.py`: UI layout and callbacks; enqueues control intents, renders status from shared state/cached plant observations, applies short click-feedback transition overlay, and handles manual/API settings UI paths.
+- `dashboard_layout.py`: Dash layout builder; Status top card now includes control-engine/queue health summary placeholders in addition to API inline status.
 - `manual_schedule_manager.py`: manual override series metadata, editor breakpoint row conversions/validation, relative CSV load/save parsing, and manual-series rebuild/sanitization helpers.
 - `dashboard_history.py`: historical plots helper utilities (file scan/index, slider range helpers, CSV crop/export serialization).
 - `dashboard_plotting.py`: shared Plotly figure/theme helpers for status and historical plant plots, including optional x-window cropping used by Status-tab immediate-context plots.
@@ -110,7 +112,8 @@ Per-plant config includes:
   - default selector is `today`,
   - `today` reads tail of current date file for live refresh,
   - historical log browsing reads selectable files from `logs/*.log`.
-- Control engine publishes `plant_observed_state_by_plant` (cached `enable`, `p_battery`, `q_battery`, freshness/error metadata) so dashboard status callbacks avoid direct control-path Modbus polling.
+- Control engine publishes `plant_observed_state_by_plant` (cached `enable`, `p_battery`, `q_battery`, freshness/error metadata including `read_status` / `last_error` / `consecutive_failures`) so dashboard status callbacks avoid direct control-path Modbus polling.
+- Control engine also publishes `control_engine_status` (loop liveness/timestamps, queue metrics, active command metadata, last loop exception/last finished command) for Status-tab operator visibility.
 
 ## Dashboard Styling Conventions
 - Brand assets are served from Dash `assets/` (logo PNGs + local font files).
@@ -141,6 +144,7 @@ Per-plant config includes:
 - Local SoC restore handshake is best-effort by design: control-engine start waits briefly for plant-agent ack and logs timeout, but still proceeds with plant enable/start sequence.
 - Control command execution is serialized through a bounded FIFO queue in shared state; high-latency stop/transport flows can delay later queued commands by design in this first pass.
 - Dashboard status controls now depend on control-engine observed-state cache freshness (`stale` marker) rather than direct Modbus reads; stale cache displays `Unknown` for Modbus enable.
+- Dashboard Status tab health lines are server-published-state-only (control engine + observed-state cache) and include queue/backlog and per-plant Modbus reachability/read-error diagnostics.
 - Measurement posting queue is in-memory only; it does not persist across restarts.
 - Measurement compression applies only to new runtime writes; no automatic backfill is performed for historical dense CSV files.
 - Historical plots tab reads `data/*.csv` directly on demand; large datasets may increase dashboard callback latency because there is no persistent history index/cache yet.

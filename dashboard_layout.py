@@ -80,6 +80,8 @@ def build_dashboard_layout(
                                         ],
                                     ),
                                     html.Div(id="api-status-inline", className="status-text"),
+                                    html.Div(id="control-engine-status-inline", className="status-text"),
+                                    html.Div(id="control-queue-status-inline", className="status-text"),
                                 ],
                             ),
                             html.Div(

@@ -15,6 +15,11 @@ from dash.exceptions import PreventUpdate
 
 from control_command_runtime import enqueue_control_command
 from dashboard_command_intents import command_intent_from_control_trigger, transport_switch_intent_from_confirm
+from dashboard_control_health import (
+    summarize_control_engine_status,
+    summarize_control_queue_status,
+    summarize_plant_modbus_health,
+)
 from dashboard_history import (
     build_slider_marks,
     clamp_epoch_range,
@@ -1231,6 +1236,8 @@ def dashboard_agent(config, shared_data):
     @app.callback(
         [
             Output("api-status-inline", "children"),
+            Output("control-engine-status-inline", "children"),
+            Output("control-queue-status-inline", "children"),
             Output("status-lib", "children"),
             Output("status-vrfb", "children"),
             Output("graph-lib", "figure"),
@@ -1275,6 +1282,7 @@ def dashboard_agent(config, shared_data):
             transition_by_plant = dict(shared_data.get("plant_transition_by_plant", {}))
             recording_files = dict(shared_data.get("measurements_filename_by_plant", {}))
             observed_state_by_plant = dict(shared_data.get("plant_observed_state_by_plant", {}))
+            control_engine_status = dict(shared_data.get("control_engine_status", {}))
             status = shared_data.get("data_fetcher_status", {}).copy()
             api_schedule_map = {
                 plant_id: shared_data.get("api_schedule_df_by_plant", {}).get(plant_id, pd.DataFrame()).copy()
@@ -1334,21 +1342,28 @@ def dashboard_agent(config, shared_data):
         )
         if status.get("error"):
             api_inline += f" | Error: {status.get('error')}"
+        control_engine_inline = summarize_control_engine_status(control_engine_status, status_now)
+        control_queue_inline = summarize_control_queue_status(control_engine_status)
 
         status_window_start = status_now.replace(hour=0, minute=0, second=0, microsecond=0)
         status_window_end = status_window_start + timedelta(days=2)
 
         def plant_status_text(plant_id):
-            enable_state = enable_state_by_plant.get(plant_id)
-            running = bool(scheduler_running.get(plant_id, False))
             recording = recording_files.get(plant_id)
             runtime_state = runtime_state_by_plant.get(plant_id, "unknown")
-            modbus_text = "Running" if enable_state == 1 else ("Stopped" if enable_state == 0 else "Unknown")
             rec_text = f"Recording: On ({os.path.basename(recording)})" if recording else "Recording: Off"
-            return (
-                f"{plant_name(plant_id)} | State: {runtime_state.capitalize()} | "
-                f"Scheduler gate: {running} | Modbus enable: {modbus_text} | {rec_text}"
-            )
+            observed = dict(observed_state_by_plant.get(plant_id, {}) or {})
+            health_lines = summarize_plant_modbus_health(observed, status_now)
+            rows = [
+                html.Div(
+                    (
+                        f"{plant_name(plant_id)} | Plant State: {runtime_state.capitalize()} | {rec_text}"
+                    ),
+                    className="status-text",
+                )
+            ]
+            rows.extend(html.Div(text, className="status-text") for text in health_lines)
+            return rows
 
         effective_schedule_map = {}
         for plant_id in plant_ids:
@@ -1400,6 +1415,8 @@ def dashboard_agent(config, shared_data):
 
         return (
             api_inline,
+            control_engine_inline,
+            control_queue_inline,
             plant_status_text("lib"),
             plant_status_text("vrfb"),
             lib_fig,

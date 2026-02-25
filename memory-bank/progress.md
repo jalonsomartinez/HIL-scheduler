@@ -31,6 +31,11 @@
   - `control_engine_agent.py` serially executes commands and owns control-path Modbus I/O,
   - shared command lifecycle status/history is tracked in bounded shared-state maps/queue,
 - cached plant observed-state publication (`enable`, `p_battery`, `q_battery`, stale/error metadata) for Status-tab control/status rendering (no direct dashboard Modbus polling on those paths),
+- Status-tab health surfacing for server/runtime conditions:
+  - top-card control-engine summary (liveness, active command, last finished command, last loop error),
+  - top-card queue summary (queued/running/recent failed, backlog-high hint),
+  - per-plant Modbus diagnostics (link state/read error/freshness age/failure count/last error),
+  - simplified primary plant status line (`Plant State` + recording status only; internal scheduler gate and raw Modbus-enable fields removed from the main line),
 - immediate click-feedback transition overlay (`starting`/`stopping`) followed by server-owned transition state and Modbus-confirmed `running`/`stopped`,
 - `Status` tab (formerly `Status & Plots`) live status + control plots,
 - `Plots` tab historical measurement browsing from `data/*.csv` with full-range timeline + range slider,
@@ -61,7 +66,7 @@
 - targeted measurement-storage SoC lookup regressions (`tests/test_measurement_storage_latest_soc.py`) and plant-agent local SoC seed request regressions (`tests/test_plant_agent_soc_seed_requests.py`).
  - targeted scheduler merged-dispatch regressions (`tests/test_scheduler_source_switch.py`) covering manual override priority and stale API base fallback behavior.
 - targeted posting telemetry regression coverage confirming posting gate no longer depends on `active_schedule_source`.
-- targeted command-runtime/control-engine regressions (`tests/test_control_command_runtime.py`, `tests/test_control_engine_agent.py`) and dashboard intent/UI-state helper regressions (`tests/test_dashboard_command_intents.py`, `tests/test_dashboard_ui_state.py`).
+- targeted command-runtime/control-engine regressions (`tests/test_control_command_runtime.py`, `tests/test_control_engine_agent.py`) and dashboard intent/UI-state/control-health helper regressions (`tests/test_dashboard_command_intents.py`, `tests/test_dashboard_ui_state.py`, `tests/test_dashboard_control_health.py`).
 7. Dashboard control flow is now separated into `dashboard_control.py` with dedicated tests for safe-stop and transport switch semantics (source-switch helper removed from active dashboard flow).
 8. Runtime shared-state initialization contract is centralized in `build_initial_shared_data(config)` with schema tests.
  - Shared-state contract now includes local emulator SoC seed request/result maps for dashboard->plant-agent local-start coordination.
@@ -73,7 +78,7 @@
 2. Log retention policy definition and implementation scope.
 3. Manual validation pass for new historical `Plots` tab behavior on larger data directories.
 4. Manual Schedule editor UX polish / layout tuning validation on different viewport widths.
-5. Control-engine command queue observability/alerting follow-up (queue full/retry/operator feedback).
+5. Evaluate per-plant queue architecture vs global queue after observing new queue/backlog UI on real workloads.
 
 ## Next
 1. Add repeatable remote transport smoke checks.
@@ -86,7 +91,7 @@
 
 ## Known Issues / Gaps
 1. No persistent store for API posting retry queue across process restarts.
-2. Control-engine queue is serial and bounded; long-running stop/transport commands can delay later commands and queue-full rejections currently surface only via logs/command status (no dedicated operator alert yet).
+2. Control-engine queue is serial and bounded; long-running stop/transport commands can delay later commands. UI now surfaces backlog/failure counts, but there is no dedicated alert/escalation behavior yet.
 3. Operational runbook and incident handling guidance are still thin.
 4. UI styling changes are still validated manually; no screenshot/DOM snapshot checks in CI.
 5. `schedule_manager.py` remains in repository for legacy compatibility only and is intentionally deprecated.

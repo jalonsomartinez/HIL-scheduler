@@ -8,10 +8,10 @@
  - Plots tab remains the path for historical inspection.
 4. Stabilize the new merged schedule dispatch model (API base + per-signal manual overrides) and the redesigned Manual Schedule editor UX.
 5. Keep reliability guardrails green via automated regression tests and CI enforcement, including measurement compression, posting-gate semantics, and schedule-window pruning behavior.
-6. Prepare follow-up hardening for remaining high-risk paths (posting durability, remote smoke coverage, queue/alert observability).
+6. Prepare follow-up hardening for remaining high-risk paths (posting durability, remote smoke coverage, queue topology tradeoffs/prioritization).
 
 ## Open Decisions and Risks
-1. Control-engine command queue is serialized and bounded; long safe-stop/transport operations can delay later commands and may need operator-visible queue/backlog indicators.
+1. Control-engine command queue is serialized and bounded; long safe-stop/transport operations can delay later commands (UI queue/backlog visibility now exists, but per-plant queue topology remains a deferred design decision).
 2. API posting durability remains in-memory only; pending queue is lost on process restart.
 3. Logging retention policy is undefined; date-routed files accumulate without automatic pruning.
 4. Operational validation gap remains for remote transport end-to-end flows.
@@ -20,10 +20,29 @@
 7. Historical dense measurement CSV files created while compression was inactive are intentionally not backfilled.
 8. Historical plots tab currently rescans and reloads CSV files on demand; performance may degrade with very large `data/` directories.
 9. Transition UX now combines immediate click-feedback overlay + server/runtime transition state + Modbus confirmation; hold-window tuning may need additional operator validation across remote latency conditions.
+10. Modbus error strings are now surfaced to operators; message wording/aggregation may need refinement to avoid noisy UI on unstable links.
 
 ## Rolling Change Log (Compressed, 30-Day Window)
 
 ### 2026-02-25
+- Added Status-tab runtime health surfacing for operator visibility:
+  - top-card control-engine summary (`alive`, active command, last finished command, last loop error),
+  - top-card command queue summary (`queued`, `running`, recent failed/rejected count, backlog-high hint).
+- Extended `plant_observed_state_by_plant` runtime schema with Modbus diagnostics:
+  - `read_status` (`ok` / `connect_failed` / `read_error` / `unknown`),
+  - `last_error` structured payload (`timestamp`, `code`, `message`),
+  - `consecutive_failures`.
+- Control engine now publishes `control_engine_status` in shared state each loop with queue metrics and runtime health metadata for UI consumption.
+- Status-tab per-plant status UI now shows cached Modbus link condition, observed freshness age/stale marker, failure count, and last error message (no direct dashboard Modbus reads).
+- Simplified Status-tab primary per-plant status line for operators:
+  - renamed `State` -> `Plant State`,
+  - removed internal `Scheduler gate` field,
+  - removed redundant raw `Modbus enable` field from the primary line (detailed Modbus diagnostics remain below).
+- Added pure formatting helpers in `dashboard_control_health.py` plus regression coverage for control-engine/queue and per-plant Modbus health summaries.
+- Extended control-engine regression coverage for:
+  - `control_engine_status` loop publishing (`last_loop_*`, `last_observed_refresh`, queue/running counts, last finished command),
+  - command-crash `last_exception` publishing,
+  - observed-state error classification/reset semantics.
 - Implemented first-pass control-path UI/engine separation hardening:
   - added `control_engine_agent.py` to own start/stop/fleet/transport/record command execution and control-path Modbus I/O,
   - added bounded FIFO control command queue + lifecycle status tracking in shared state (`control_command_queue`, `control_command_status_by_id`, `control_command_history_ids`, `control_command_active_id`, `control_command_next_id`),

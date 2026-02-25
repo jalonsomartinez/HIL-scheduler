@@ -44,6 +44,7 @@ class SharedStateContractTests(unittest.TestCase):
             "control_command_active_id",
             "control_command_next_id",
             "plant_observed_state_by_plant",
+            "control_engine_status",
             "lock",
             "shutdown_event",
             "log_file_path",
@@ -62,10 +63,30 @@ class SharedStateContractTests(unittest.TestCase):
         self.assertEqual(set(shared_data["local_emulator_soc_seed_request_by_plant"].keys()), set(plant_ids))
         self.assertEqual(set(shared_data["local_emulator_soc_seed_result_by_plant"].keys()), set(plant_ids))
         self.assertEqual(set(shared_data["plant_observed_state_by_plant"].keys()), set(plant_ids))
+        self.assertIsInstance(shared_data["control_engine_status"], dict)
         self.assertTrue(
             all(result.get("status") == "idle" for result in shared_data["local_emulator_soc_seed_result_by_plant"].values())
         )
         self.assertTrue(all(state.get("stale") is True for state in shared_data["plant_observed_state_by_plant"].values()))
+        self.assertTrue(all("read_status" in state for state in shared_data["plant_observed_state_by_plant"].values()))
+        self.assertTrue(all("consecutive_failures" in state for state in shared_data["plant_observed_state_by_plant"].values()))
+        self.assertTrue(
+            {
+                "alive",
+                "last_loop_start",
+                "last_loop_end",
+                "last_observed_refresh",
+                "last_exception",
+                "active_command_id",
+                "active_command_kind",
+                "active_command_started_at",
+                "last_finished_command",
+                "queue_depth",
+                "queued_count",
+                "running_count",
+                "failed_recent_count",
+            }.issubset(shared_data["control_engine_status"].keys())
+        )
         self.assertIsInstance(shared_data["measurements_df"], pd.DataFrame)
 
     def test_build_initial_shared_data_normalizes_invalid_startup_values(self):

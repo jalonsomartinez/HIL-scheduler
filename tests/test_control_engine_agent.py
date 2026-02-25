@@ -41,6 +41,9 @@ def _shared_data():
                 "last_attempt": None,
                 "last_success": None,
                 "error": None,
+                "read_status": "unknown",
+                "last_error": None,
+                "consecutive_failures": 0,
                 "stale": True,
             },
             "vrfb": {
@@ -50,8 +53,26 @@ def _shared_data():
                 "last_attempt": None,
                 "last_success": None,
                 "error": None,
+                "read_status": "unknown",
+                "last_error": None,
+                "consecutive_failures": 0,
                 "stale": True,
             },
+        },
+        "control_engine_status": {
+            "alive": False,
+            "last_loop_start": None,
+            "last_loop_end": None,
+            "last_observed_refresh": None,
+            "last_exception": None,
+            "active_command_id": None,
+            "active_command_kind": None,
+            "active_command_started_at": None,
+            "last_finished_command": None,
+            "queue_depth": 0,
+            "queued_count": 0,
+            "running_count": 0,
+            "failed_recent_count": 0,
         },
     }
 
@@ -239,6 +260,16 @@ class ControlEngineAgentTests(unittest.TestCase):
         self.assertIsNotNone(final_status["started_at"])
         self.assertIsNotNone(final_status["finished_at"])
         self.assertIsNone(shared_data["control_command_active_id"])
+        engine_status = shared_data["control_engine_status"]
+        self.assertTrue(engine_status["alive"])
+        self.assertEqual(engine_status["queue_depth"], 0)
+        self.assertEqual(engine_status["queued_count"], 0)
+        self.assertEqual(engine_status["running_count"], 0)
+        self.assertIsNotNone(engine_status["last_loop_start"])
+        self.assertIsNotNone(engine_status["last_loop_end"])
+        self.assertIsNotNone(engine_status["last_observed_refresh"])
+        self.assertEqual(engine_status["last_finished_command"]["id"], status["id"])
+        self.assertEqual(engine_status["last_finished_command"]["state"], "succeeded")
 
     def test_publish_observed_state_preserves_values_on_failure_and_marks_stale(self):
         shared_data = _shared_data()
@@ -270,8 +301,67 @@ class ControlEngineAgentTests(unittest.TestCase):
         self.assertEqual(failed["enable_state"], 1)
         self.assertEqual(failed["p_battery_kw"], 4.0)
         self.assertEqual(failed["error"], "connect_failed")
+        self.assertEqual(failed["read_status"], "connect_failed")
+        self.assertEqual(failed["consecutive_failures"], 1)
+        self.assertIsNotNone(failed["last_error"])
         self.assertFalse(failed["stale"])
         self.assertTrue(stale["stale"])
+        self.assertEqual(stale["consecutive_failures"], 2)
+
+    def test_publish_observed_state_classifies_dict_error_and_resets_on_success(self):
+        shared_data = _shared_data()
+        t0 = datetime(2026, 2, 25, 12, 0, tzinfo=timezone.utc)
+        t1 = t0 + timedelta(seconds=1)
+
+        failed = _publish_observed_state(
+            shared_data,
+            "lib",
+            {"enable_state": None, "p_battery_kw": None, "q_battery_kvar": None},
+            error={"code": "read_error", "message": "boom"},
+            now_value=t0,
+        )
+        recovered = _publish_observed_state(
+            shared_data,
+            "lib",
+            {"enable_state": 0, "p_battery_kw": 0.0, "q_battery_kvar": 0.0},
+            now_value=t1,
+        )
+
+        self.assertEqual(failed["read_status"], "read_error")
+        self.assertEqual(failed["error"], "boom")
+        self.assertEqual(failed["consecutive_failures"], 1)
+        self.assertEqual(recovered["read_status"], "ok")
+        self.assertIsNone(recovered["error"])
+        self.assertEqual(recovered["consecutive_failures"], 0)
+        self.assertEqual(recovered["enable_state"], 0)
+
+    def test_engine_cycle_publishes_last_exception_on_command_crash(self):
+        shared_data = _shared_data()
+        now_value = datetime(2026, 2, 25, 12, 0, tzinfo=timezone.utc)
+        enqueue_control_command(
+            shared_data,
+            kind="plant.start",
+            payload={"plant_id": "lib"},
+            source="dashboard",
+            now_fn=lambda: now_value,
+        )
+
+        _run_single_engine_cycle(
+            {"PLANT_IDS": ("lib", "vrfb")},
+            shared_data,
+            plant_ids=("lib", "vrfb"),
+            tz=timezone.utc,
+            now_fn=lambda _config: now_value,
+            deps={
+                "refresh_all_observed_state_fn": lambda: None,
+                "start_one_plant_fn": lambda plant_id: (_ for _ in ()).throw(RuntimeError("forced command crash")),
+            },
+        )
+
+        engine_status = shared_data["control_engine_status"]
+        self.assertIsNotNone(engine_status["last_exception"])
+        self.assertIn("forced command crash", engine_status["last_exception"]["message"])
+        self.assertEqual(engine_status["failed_recent_count"], 1)
 
 
 if __name__ == "__main__":

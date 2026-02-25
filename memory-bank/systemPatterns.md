@@ -18,6 +18,8 @@
   - command lifecycle tracking via `control_command_status_by_id`, `control_command_history_ids`, `control_command_active_id`.
 - Runtime plant observed-state cache:
   - `plant_observed_state_by_plant[plant_id]` publishes cached `enable`, `p_battery`, `q_battery`, freshness timestamps, and stale/error markers.
+- Runtime control-engine health cache:
+  - `control_engine_status` publishes loop liveness/timestamps, queue metrics, active command metadata, last finished command, and last loop exception for UI observability.
 - Normalized per-plant Modbus endpoints expose:
   - connection settings (`host`, `port`, required `byte_order`, required `word_order`)
   - structured Modbus `points` metadata (address, format, access, unit, scale, derived widths)
@@ -106,12 +108,20 @@ shared_data = {
     "plant_observed_state_by_plant": {
         "lib": {
             "enable_state": None, "p_battery_kw": None, "q_battery_kvar": None,
-            "last_attempt": None, "last_success": None, "error": None, "stale": True,
+            "last_attempt": None, "last_success": None, "error": None,
+            "read_status": "unknown", "last_error": None, "consecutive_failures": 0, "stale": True,
         },
         "vrfb": {
             "enable_state": None, "p_battery_kw": None, "q_battery_kvar": None,
-            "last_attempt": None, "last_success": None, "error": None, "stale": True,
+            "last_attempt": None, "last_success": None, "error": None,
+            "read_status": "unknown", "last_error": None, "consecutive_failures": 0, "stale": True,
         },
+    },
+    "control_engine_status": {
+        "alive": False, "last_loop_start": None, "last_loop_end": None, "last_observed_refresh": None,
+        "last_exception": None, "active_command_id": None, "active_command_kind": None,
+        "active_command_started_at": None, "last_finished_command": None, "queue_depth": 0,
+        "queued_count": 0, "running_count": 0, "failed_recent_count": 0,
     },
 
     "lock": threading.Lock(),
@@ -171,12 +181,24 @@ shared_data = {
 
 ### Plant Observed-State Cache and UI Transition Semantics
 - Control engine performs periodic best-effort Modbus reads for `enable`, `p_battery`, and `q_battery` and publishes `plant_observed_state_by_plant`.
-- Cache entries track `last_attempt`, `last_success`, `error`, and `stale`.
+- Cache entries track `last_attempt`, `last_success`, `error`, `read_status`, `last_error`, `consecutive_failures`, and `stale`.
 - Dashboard Status tab consumes this cache and does not perform direct Modbus polling for control/status paths.
 - Plant state semantics in UI/runtime:
   - `starting` / `stopping` are authoritative runtime transition states owned by the control engine (`plant_transition_by_plant`).
   - `running` / `stopped` are confirmed when Modbus `enable` reflects `1` / `0`.
   - Dashboard applies a short immediate click-feedback overlay (`starting`/`stopping`) before falling back to server transition state, then Modbus-confirmed state.
+
+### Control-Engine Health Surfacing
+- Control engine publishes `control_engine_status` every loop so dashboard UI can render queue/backlog and runtime health without scanning raw command status maps.
+- Published queue metrics are derived from shared command lifecycle state and include:
+  - `queue_depth`,
+  - `queued_count`,
+  - `running_count`,
+  - `failed_recent_count` (rolling recent terminal `failed`/`rejected` count).
+- Dashboard Status tab top card renders:
+  - control-engine liveness/active-command summary,
+  - queue backlog summary,
+  - per-plant Modbus read/connectivity/freshness diagnostics.
 
 ### Local Plant Start SoC Restore
 - Applies only when transport mode is `local`.

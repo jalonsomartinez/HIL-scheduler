@@ -31,6 +31,7 @@ from time_utils import get_config_tz, now_tz
 
 CONTROL_ENGINE_LOOP_PERIOD_S = 1.0
 OBSERVED_STATE_STALE_AFTER_S = 3.0
+CONTROL_ENGINE_FAILED_RECENT_WINDOW = 20
 
 
 def _plant_name(config, plant_id):
@@ -78,7 +79,10 @@ def _read_observed_points(config, shared_data, plant_id, transport_mode=None):
     error = None
     try:
         if not client.open():
-            return values, f"connect_failed:{plant_id}"
+            return values, {
+                "code": "connect_failed",
+                "message": f"Could not connect to {plant_id.upper()} endpoint.",
+            }
         enable_state = read_point_internal(client, cfg, "enable")
         p_battery = read_point_internal(client, cfg, "p_battery")
         q_battery = read_point_internal(client, cfg, "q_battery")
@@ -86,7 +90,7 @@ def _read_observed_points(config, shared_data, plant_id, transport_mode=None):
         values["p_battery_kw"] = None if p_battery is None else float(p_battery)
         values["q_battery_kvar"] = None if q_battery is None else float(q_battery)
     except Exception as exc:
-        error = str(exc)
+        error = {"code": "read_error", "message": str(exc)}
     finally:
         try:
             client.close()
@@ -109,6 +113,9 @@ def _publish_observed_state(shared_data, plant_id, values, *, error=None, now_va
             "last_attempt": now_value,
             "last_success": prev.get("last_success"),
             "error": prev.get("error"),
+            "read_status": str(prev.get("read_status", "unknown") or "unknown"),
+            "last_error": prev.get("last_error"),
+            "consecutive_failures": int(prev.get("consecutive_failures", 0) or 0),
             "stale": True,
         }
 
@@ -119,8 +126,24 @@ def _publish_observed_state(shared_data, plant_id, values, *, error=None, now_va
                     current[key] = values.get(key)
             current["last_success"] = now_value
             current["error"] = None
+            current["read_status"] = "ok"
+            current["last_error"] = prev.get("last_error")
+            current["consecutive_failures"] = 0
         elif error is not None:
-            current["error"] = str(error)
+            if isinstance(error, dict):
+                error_code = str(error.get("code") or "read_error")
+                error_message = str(error.get("message") or error_code)
+            else:
+                error_message = str(error)
+                error_code = "connect_failed" if error_message.lower().startswith("connect_failed") else "read_error"
+            current["error"] = error_message
+            current["read_status"] = error_code
+            current["last_error"] = {
+                "timestamp": now_value,
+                "code": error_code,
+                "message": error_message,
+            }
+            current["consecutive_failures"] = int(prev.get("consecutive_failures", 0) or 0) + 1
 
         last_success = current.get("last_success")
         stale = True
@@ -132,6 +155,93 @@ def _publish_observed_state(shared_data, plant_id, values, *, error=None, now_va
         current["stale"] = bool(stale)
         state_map[plant_id] = current
         return dict(current)
+
+
+def _default_control_engine_status():
+    return {
+        "alive": False,
+        "last_loop_start": None,
+        "last_loop_end": None,
+        "last_observed_refresh": None,
+        "last_exception": None,
+        "active_command_id": None,
+        "active_command_kind": None,
+        "active_command_started_at": None,
+        "last_finished_command": None,
+        "queue_depth": 0,
+        "queued_count": 0,
+        "running_count": 0,
+        "failed_recent_count": 0,
+    }
+
+
+def _update_control_engine_status(
+    shared_data,
+    *,
+    now_value=None,
+    set_alive=None,
+    last_loop_start=None,
+    last_loop_end=None,
+    last_observed_refresh=None,
+    last_exception=None,
+    last_finished_command=None,
+):
+    if now_value is None:
+        now_value = pd.Timestamp.utcnow().to_pydatetime()
+
+    with shared_data["lock"]:
+        status = shared_data.setdefault("control_engine_status", _default_control_engine_status())
+        if set_alive is not None:
+            status["alive"] = bool(set_alive)
+        if last_loop_start is not None:
+            status["last_loop_start"] = last_loop_start
+        if last_loop_end is not None:
+            status["last_loop_end"] = last_loop_end
+        if last_observed_refresh is not None:
+            status["last_observed_refresh"] = last_observed_refresh
+        if last_exception is not None:
+            status["last_exception"] = last_exception
+        if last_finished_command is not None:
+            status["last_finished_command"] = last_finished_command
+
+        queue_obj = shared_data.get("control_command_queue")
+        try:
+            queue_depth = int(queue_obj.qsize()) if queue_obj is not None else 0
+        except Exception:
+            queue_depth = 0
+        status["queue_depth"] = max(0, queue_depth)
+
+        active_command_id = shared_data.get("control_command_active_id")
+        status["active_command_id"] = active_command_id
+
+        status_by_id = shared_data.get("control_command_status_by_id", {}) or {}
+        active_status = status_by_id.get(active_command_id) if active_command_id else None
+        status["active_command_kind"] = active_status.get("kind") if isinstance(active_status, dict) else None
+        status["active_command_started_at"] = active_status.get("started_at") if isinstance(active_status, dict) else None
+
+        queued_count = 0
+        running_count = 0
+        history_ids = list(shared_data.get("control_command_history_ids", []) or [])
+        failed_recent_count = 0
+        terminal_window_ids = history_ids[-CONTROL_ENGINE_FAILED_RECENT_WINDOW:]
+        for cmd_status in status_by_id.values():
+            if not isinstance(cmd_status, dict):
+                continue
+            state = str(cmd_status.get("state") or "")
+            if state == "queued":
+                queued_count += 1
+            elif state == "running":
+                running_count += 1
+        for cmd_id in terminal_window_ids:
+            cmd_status = status_by_id.get(cmd_id)
+            if not isinstance(cmd_status, dict):
+                continue
+            if str(cmd_status.get("state") or "") in {"failed", "rejected"}:
+                failed_recent_count += 1
+        status["queued_count"] = int(queued_count)
+        status["running_count"] = int(running_count)
+        status["failed_recent_count"] = int(failed_recent_count)
+        return dict(status)
 
 
 def _refresh_all_observed_state(
@@ -527,16 +637,31 @@ def _run_single_engine_cycle(config, shared_data, *, plant_ids, tz, deps=None, n
     refresh_fn = deps.get("refresh_all_observed_state_fn") or (
         lambda: _refresh_all_observed_state(config, shared_data, plant_ids, now_value=now_fn(config))
     )
+    loop_now = now_fn(config)
+    _update_control_engine_status(
+        shared_data,
+        now_value=loop_now,
+        set_alive=True,
+        last_loop_start=loop_now,
+    )
 
     refresh_fn()
+    _update_control_engine_status(
+        shared_data,
+        now_value=now_fn(config),
+        set_alive=True,
+        last_observed_refresh=now_fn(config),
+    )
 
     queue_obj = snapshot_locked(shared_data, lambda data: data.get("control_command_queue"))
     if queue_obj is None:
+        _update_control_engine_status(shared_data, now_value=now_fn(config), set_alive=True, last_loop_end=now_fn(config))
         return None
 
     try:
         command = queue_obj.get_nowait()
     except queue.Empty:
+        _update_control_engine_status(shared_data, now_value=now_fn(config), set_alive=True, last_loop_end=now_fn(config))
         return None
 
     command_id = str((command or {}).get("id", ""))
@@ -552,8 +677,14 @@ def _run_single_engine_cycle(config, shared_data, *, plant_ids, tz, deps=None, n
         terminal_state = "failed"
         terminal_message = str(exc)
         terminal_result = None
+        _update_control_engine_status(
+            shared_data,
+            now_value=now_fn(config),
+            set_alive=True,
+            last_exception={"timestamp": now_fn(config), "message": str(exc)},
+        )
     finally:
-        mark_command_finished(
+        final_status = mark_command_finished(
             shared_data,
             command_id,
             state=terminal_state,
@@ -561,12 +692,31 @@ def _run_single_engine_cycle(config, shared_data, *, plant_ids, tz, deps=None, n
             result=terminal_result,
             finished_at=now_fn(config),
         )
+        _update_control_engine_status(
+            shared_data,
+            now_value=now_fn(config),
+            set_alive=True,
+            last_finished_command={
+                "id": final_status.get("id"),
+                "kind": final_status.get("kind"),
+                "state": final_status.get("state"),
+                "finished_at": final_status.get("finished_at"),
+                "message": final_status.get("message"),
+            },
+        )
         try:
             queue_obj.task_done()
         except Exception:
             pass
 
     refresh_fn()
+    _update_control_engine_status(
+        shared_data,
+        now_value=now_fn(config),
+        set_alive=True,
+        last_observed_refresh=now_fn(config),
+        last_loop_end=now_fn(config),
+    )
     return command_id
 
 
@@ -582,7 +732,16 @@ def control_engine_agent(config, shared_data):
             _run_single_engine_cycle(config, shared_data, plant_ids=plant_ids, tz=tz)
         except Exception:
             logging.exception("ControlEngine: unexpected loop error.")
+            error_now = now_tz(config)
+            _update_control_engine_status(
+                shared_data,
+                now_value=error_now,
+                set_alive=True,
+                last_exception={"timestamp": error_now, "message": "unexpected loop error"},
+                last_loop_end=error_now,
+            )
         elapsed = time.monotonic() - loop_start
         time.sleep(max(0.0, CONTROL_ENGINE_LOOP_PERIOD_S - elapsed))
 
+    _update_control_engine_status(shared_data, now_value=now_tz(config), set_alive=False, last_loop_end=now_tz(config))
     logging.info("Control engine agent stopped.")

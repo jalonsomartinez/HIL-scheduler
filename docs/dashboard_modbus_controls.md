@@ -14,7 +14,8 @@ A dedicated runtime engine (`control_engine_agent.py`) now owns:
 - plant/fleet/transport control execution,
 - safe-stop sequencing,
 - Modbus reads/writes for those flows,
-- cached plant observed state publication (`enable`, `p_battery`, `q_battery`).
+- cached plant observed state publication (`enable`, `p_battery`, `q_battery`) plus Modbus read/connectivity/freshness error metadata,
+- control-engine health/queue status publication for dashboard display (queue depth, active command, recent failures, last loop error/last finished command).
 
 ## Dashboard behavior (control paths)
 
@@ -57,6 +58,32 @@ The dashboard callback returns immediately after enqueueing. Execution happens i
 `update_status_and_graphs` in `dashboard_agent.py` no longer reads Modbus directly.
 
 It now reads `shared_data["plant_observed_state_by_plant"]` and treats `enable_state` as unknown when the cached state is marked stale.
+
+The Status tab also reads server-published:
+- `shared_data["control_engine_status"]` for control-engine/queue health summary,
+- extended observed-state metadata (`read_status`, `last_error`, `consecutive_failures`) for per-plant Modbus link diagnostics.
+
+## Status tab health surfacing (current)
+
+### Top-card runtime health
+- `Control Engine` summary line shows:
+  - alive/stopped state,
+  - queue depth,
+  - active command (id/kind/runtime age),
+  - last finished command,
+  - last loop error (if any).
+- `Command Queue` summary line shows:
+  - queued count,
+  - running count,
+  - recent failed/rejected count,
+  - `Backlog: HIGH` hint for elevated queue depth (presentation-only threshold).
+
+### Per-plant Modbus health details
+- Existing per-plant status sections now include:
+  - Modbus link/read condition (`OK`, `CONNECT_FAILED`, `READ_ERROR`, `UNKNOWN`),
+  - observed-state freshness age / stale marker,
+  - consecutive failure count,
+  - last error message (if available).
 
 ### API tab actions
 - `Set Password`: stores runtime API password in shared state.

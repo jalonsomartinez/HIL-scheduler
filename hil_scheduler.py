@@ -68,9 +68,30 @@ def _default_plant_observed_state_by_plant(plant_ids):
             "last_attempt": None,
             "last_success": None,
             "error": None,
+            "read_status": "unknown",
+            "last_error": None,
+            "consecutive_failures": 0,
             "stale": True,
         }
         for plant_id in plant_ids
+    }
+
+
+def _default_control_engine_status():
+    return {
+        "alive": False,
+        "last_loop_start": None,
+        "last_loop_end": None,
+        "last_observed_refresh": None,
+        "last_exception": None,
+        "active_command_id": None,
+        "active_command_kind": None,
+        "active_command_started_at": None,
+        "last_finished_command": None,
+        "queue_depth": 0,
+        "queued_count": 0,
+        "running_count": 0,
+        "failed_recent_count": 0,
     }
 
 
@@ -130,6 +151,7 @@ def build_initial_shared_data(config):
         "control_command_active_id": None,
         "control_command_next_id": 1,
         "plant_observed_state_by_plant": _default_plant_observed_state_by_plant(plant_ids),
+        "control_engine_status": _default_control_engine_status(),
         "lock": threading.Lock(),
         "shutdown_event": threading.Event(),
         "log_file_path": None,
