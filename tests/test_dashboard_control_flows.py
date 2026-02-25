@@ -79,6 +79,30 @@ class DashboardControlFlowTests(unittest.TestCase):
             self.assertIsNone(shared_data["current_file_path_by_plant"][plant_id])
             self.assertTrue(shared_data["current_file_df_by_plant"][plant_id].empty)
 
+    def test_safe_stop_plant_timeout_path_propagates_result(self):
+        shared_data = _shared_data()
+
+        def _send_setpoints(plant_id, p_kw, q_kvar):
+            return True
+
+        def _wait(plant_id, threshold_kw=1.0, timeout_s=30):
+            return False
+
+        def _set_enable(plant_id, value):
+            return False
+
+        result = safe_stop_plant(
+            shared_data,
+            "lib",
+            send_setpoints=_send_setpoints,
+            wait_until_battery_power_below_threshold=_wait,
+            set_enable=_set_enable,
+        )
+
+        self.assertEqual(result, {"threshold_reached": False, "disable_ok": False})
+        self.assertEqual(shared_data["plant_transition_by_plant"]["lib"], "unknown")
+        self.assertFalse(shared_data["scheduler_running_by_plant"]["lib"])
+
 
 if __name__ == "__main__":
     unittest.main()

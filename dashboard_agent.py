@@ -13,11 +13,8 @@ import plotly.graph_objects as go
 from dash import ALL, Dash, Input, Output, State, callback_context, dcc, html
 from dash.exceptions import PreventUpdate
 
-from dashboard_control import (
-    perform_transport_switch as perform_transport_switch_flow,
-    safe_stop_all_plants as safe_stop_all_plants_flow,
-    safe_stop_plant as safe_stop_plant_flow,
-)
+from control_command_runtime import enqueue_control_command
+from dashboard_command_intents import command_intent_from_control_trigger, transport_switch_intent_from_confirm
 from dashboard_history import (
     build_slider_marks,
     clamp_epoch_range,
@@ -27,12 +24,6 @@ from dashboard_history import (
 )
 from dashboard_layout import build_dashboard_layout
 from dashboard_logs import get_logs_dir, get_today_log_file_path, parse_and_format_historical_logs, read_log_tail
-from dashboard_modbus_io import (
-    read_enable_state as read_enable_state_io,
-    send_setpoints as send_setpoints_io,
-    set_enable as set_enable_io,
-    wait_until_battery_power_below_threshold as wait_until_battery_power_below_threshold_io,
-)
 from dashboard_plotting import (
     DEFAULT_PLOT_THEME,
     DEFAULT_TRACE_COLORS,
@@ -40,11 +31,15 @@ from dashboard_plotting import (
     create_plant_figure,
     create_manual_series_figure,
 )
-from dashboard_ui_state import get_plant_control_labels_and_disabled, resolve_runtime_transition_state
+from dashboard_ui_state import (
+    get_plant_control_labels_and_disabled,
+    resolve_click_feedback_transition_state,
+    resolve_runtime_transition_state,
+)
 import manual_schedule_manager as msm
-from measurement_storage import MEASUREMENT_COLUMNS, find_latest_persisted_soc_for_plant
-from runtime_contracts import resolve_modbus_endpoint, sanitize_plant_name
-from schedule_runtime import build_effective_schedule_frame, resolve_schedule_setpoint
+from measurement_storage import MEASUREMENT_COLUMNS
+from runtime_contracts import sanitize_plant_name
+from schedule_runtime import build_effective_schedule_frame
 from shared_state import snapshot_locked
 from time_utils import get_config_tz, normalize_datetime_series, normalize_schedule_index, normalize_timestamp_value, now_tz
 
@@ -62,15 +57,6 @@ def dashboard_agent(config, shared_data):
     plants_cfg = config.get("PLANTS", {})
     tz = get_config_tz(config)
 
-    raw_schedule_period_minutes = config.get("ISTENTORE_SCHEDULE_PERIOD_MINUTES", 15)
-    try:
-        schedule_period_minutes = float(raw_schedule_period_minutes)
-        if schedule_period_minutes <= 0:
-            raise ValueError("must be > 0")
-    except (TypeError, ValueError):
-        schedule_period_minutes = 15.0
-    api_validity_window = pd.Timedelta(minutes=schedule_period_minutes)
-    startup_initial_soc_pu = float(config.get("STARTUP_INITIAL_SOC_PU", 0.5))
     initial_snapshot = snapshot_locked(
         shared_data,
         lambda data: {
@@ -88,77 +74,10 @@ def dashboard_agent(config, shared_data):
     plot_theme = dict(DEFAULT_PLOT_THEME)
     trace_colors = dict(DEFAULT_TRACE_COLORS)
     base_dir = os.path.dirname(__file__)
+    ui_transition_feedback_hold_s = 2.0
 
     def plant_name(plant_id):
         return str((plants_cfg.get(plant_id, {}) or {}).get("name", plant_id.upper()))
-
-    def get_plant_modbus_config(plant_id, transport_mode=None):
-        mode = transport_mode or snapshot_locked(shared_data, lambda data: data.get("transport_mode", "local"))
-        endpoint = resolve_modbus_endpoint(config, plant_id, mode)
-        return {
-            "mode": mode,
-            "host": endpoint.get("host", "localhost"),
-            "port": int(endpoint.get("port", 5020 if plant_id == "lib" else 5021)),
-            "byte_order": endpoint.get("byte_order"),
-            "word_order": endpoint.get("word_order"),
-            "points": endpoint.get("points", {}),
-        }
-
-    def set_enable(plant_id, value):
-        cfg = get_plant_modbus_config(plant_id)
-        return set_enable_io(cfg, plant_id.upper(), value)
-
-    def send_setpoints(plant_id, p_kw, q_kvar):
-        cfg = get_plant_modbus_config(plant_id)
-        return send_setpoints_io(cfg, plant_id.upper(), p_kw, q_kvar)
-
-    def read_enable_state(plant_id):
-        cfg = get_plant_modbus_config(plant_id)
-        return read_enable_state_io(cfg)
-
-    def wait_until_battery_power_below_threshold(plant_id, threshold_kw=1.0, timeout_s=30):
-        cfg = get_plant_modbus_config(plant_id)
-        return wait_until_battery_power_below_threshold_io(cfg, threshold_kw=threshold_kw, timeout_s=timeout_s)
-
-    def safe_stop_plant(plant_id, threshold_kw=1.0, timeout_s=30):
-        return safe_stop_plant_flow(
-            shared_data,
-            plant_id,
-            send_setpoints=send_setpoints,
-            wait_until_battery_power_below_threshold=wait_until_battery_power_below_threshold,
-            set_enable=set_enable,
-            threshold_kw=threshold_kw,
-            timeout_s=timeout_s,
-        )
-
-    def safe_stop_all_plants():
-        return safe_stop_all_plants_flow(plant_ids, safe_stop_plant)
-
-    def get_latest_schedule_setpoint(plant_id):
-        source_snapshot = snapshot_locked(
-            shared_data,
-            lambda data: {
-                "api_df": data.get("api_schedule_df_by_plant", {}).get(plant_id),
-                "manual_series_map": dict(data.get("manual_schedule_series_df_by_key", {})),
-                "manual_merge_enabled": dict(data.get("manual_schedule_merge_enabled_by_key", {})),
-            },
-        )
-        p_key, q_key = msm.manual_series_keys_for_plant(plant_id)
-        effective_df = build_effective_schedule_frame(
-            source_snapshot["api_df"],
-            source_snapshot["manual_series_map"].get(p_key),
-            source_snapshot["manual_series_map"].get(q_key),
-            manual_p_enabled=bool(source_snapshot["manual_merge_enabled"].get(p_key, False)),
-            manual_q_enabled=bool(source_snapshot["manual_merge_enabled"].get(q_key, False)),
-            tz=tz,
-        )
-        p_kw, q_kvar, _ = resolve_schedule_setpoint(
-            effective_df,
-            now_tz(config),
-            tz,
-            source="manual",
-        )
-        return p_kw, q_kvar
 
     def _manual_window_bounds(now_value=None):
         now_value = normalize_timestamp_value(now_value or now_tz(config), tz)
@@ -232,107 +151,6 @@ def dashboard_agent(config, shared_data):
         if bool(enabled):
             return "toggle-option active", "toggle-option"
         return "toggle-option", "toggle-option active"
-
-    def get_daily_recording_file_path(plant_id):
-        safe_name = sanitize_plant_name(plant_name(plant_id), plant_id)
-        date_str = now_tz(config).strftime("%Y%m%d")
-        return os.path.join("data", f"{date_str}_{safe_name}.csv")
-
-    def _clamp_soc_pu(value):
-        try:
-            soc_value = float(value)
-        except (TypeError, ValueError):
-            soc_value = startup_initial_soc_pu
-        if pd.isna(soc_value):
-            soc_value = startup_initial_soc_pu
-        return min(1.0, max(0.0, soc_value))
-
-    def resolve_local_start_soc_seed(plant_id):
-        latest = find_latest_persisted_soc_for_plant("data", plant_name(plant_id), plant_id, tz)
-        if latest is not None:
-            logging.info(
-                "Dashboard: %s local start SoC seed from disk %.4f pu (%s @ %s).",
-                plant_id.upper(),
-                float(latest["soc_pu"]),
-                latest["file_path"],
-                pd.Timestamp(latest["timestamp"]).isoformat(),
-            )
-            return {
-                "soc_pu": _clamp_soc_pu(latest["soc_pu"]),
-                "source": "disk",
-                "message": f"{latest['file_path']}",
-            }
-
-        fallback_soc = _clamp_soc_pu(startup_initial_soc_pu)
-        logging.info(
-            "Dashboard: %s local start SoC seed not found on disk; using startup fallback %.4f pu.",
-            plant_id.upper(),
-            fallback_soc,
-        )
-        return {
-            "soc_pu": fallback_soc,
-            "source": "startup_fallback",
-            "message": "no persisted soc found",
-        }
-
-    def request_local_emulator_soc_seed(plant_id, soc_pu, source, timeout_s=1.5):
-        request_id = int(time.time_ns())
-        request_payload = {
-            "request_id": request_id,
-            "soc_pu": _clamp_soc_pu(soc_pu),
-            "source": str(source),
-        }
-
-        with shared_data["lock"]:
-            request_map = shared_data.setdefault("local_emulator_soc_seed_request_by_plant", {})
-            result_map = shared_data.setdefault("local_emulator_soc_seed_result_by_plant", {})
-            request_map[plant_id] = dict(request_payload)
-            result_map.setdefault(
-                plant_id,
-                {"request_id": None, "status": "idle", "soc_pu": None, "message": None},
-            )
-
-        logging.info(
-            "Dashboard: %s local emulator SoC seed request published (id=%s source=%s soc=%.4f pu).",
-            plant_id.upper(),
-            request_id,
-            request_payload["source"],
-            request_payload["soc_pu"],
-        )
-
-        deadline = time.monotonic() + max(0.1, float(timeout_s))
-        while time.monotonic() < deadline:
-            result = snapshot_locked(
-                shared_data,
-                lambda data: dict((data.get("local_emulator_soc_seed_result_by_plant", {}) or {}).get(plant_id, {})),
-            )
-            if result and result.get("request_id") == request_id:
-                status = str(result.get("status", ""))
-                if status in {"applied", "skipped", "error"}:
-                    if status == "applied":
-                        logging.info(
-                            "Dashboard: %s local emulator SoC seed applied (id=%s soc=%.4f pu).",
-                            plant_id.upper(),
-                            request_id,
-                            float(result.get("soc_pu", request_payload["soc_pu"])),
-                        )
-                    else:
-                        logging.warning(
-                            "Dashboard: %s local emulator SoC seed %s (id=%s message=%s).",
-                            plant_id.upper(),
-                            status,
-                            request_id,
-                            result.get("message"),
-                        )
-                    return result
-            time.sleep(0.05)
-
-        logging.warning(
-            "Dashboard: %s local emulator SoC seed request timed out (id=%s, continuing start).",
-            plant_id.upper(),
-            request_id,
-        )
-        return None
 
     def _epoch_ms_to_ts(epoch_ms):
         return normalize_timestamp_value(pd.to_datetime(int(epoch_ms), unit="ms", utc=True), tz)
@@ -581,18 +399,22 @@ def dashboard_agent(config, shared_data):
             return "local", "toggle-option active", "toggle-option", hidden_class
 
         if trigger_id == "transport-switch-confirm":
-            requested_mode = "remote" if stored_mode == "local" else "local"
-
-            def perform_transport_switch():
-                perform_transport_switch_flow(
+            intent = transport_switch_intent_from_confirm(trigger_id, stored_mode=stored_mode)
+            if intent:
+                status = enqueue_control_command(
                     shared_data,
-                    plant_ids,
-                    requested_mode,
-                    safe_stop_all_plants,
+                    kind=intent["kind"],
+                    payload=intent["payload"],
+                    source="dashboard",
+                    now_fn=lambda: now_tz(config),
                 )
-
-            thread = threading.Thread(target=perform_transport_switch, daemon=True)
-            thread.start()
+                logging.info(
+                    "Dashboard: queued transport switch command %s state=%s mode=%s",
+                    status.get("id"),
+                    status.get("state"),
+                    intent.get("requested_mode"),
+                )
+            requested_mode = (intent or {}).get("requested_mode", ("remote" if stored_mode == "local" else "local"))
 
             if requested_mode == "remote":
                 return "remote", "toggle-option", "toggle-option active", hidden_class
@@ -717,135 +539,25 @@ def dashboard_agent(config, shared_data):
 
         bulk_request = args[-1]
         trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
-
-        action_map = {
-            "start-lib": ("lib", "start"),
-            "stop-lib": ("lib", "stop"),
-            "record-lib": ("lib", "record"),
-            "record-stop-lib": ("lib", "record_stop"),
-            "start-vrfb": ("vrfb", "start"),
-            "stop-vrfb": ("vrfb", "stop"),
-            "record-vrfb": ("vrfb", "record"),
-            "record-stop-vrfb": ("vrfb", "record_stop"),
-        }
-
-        def start_one_plant(plant_id):
-            with shared_data["lock"]:
-                transition_state = shared_data["plant_transition_by_plant"].get(plant_id, "stopped")
-                if transition_state in {"starting", "running"}:
-                    logging.info("Dashboard: %s start ignored (state=%s).", plant_id.upper(), transition_state)
-                    return False
-                shared_data["scheduler_running_by_plant"][plant_id] = True
-                shared_data["plant_transition_by_plant"][plant_id] = "starting"
-
-            def start_sequence():
-                transport_mode = snapshot_locked(shared_data, lambda data: data.get("transport_mode", "local"))
-                if transport_mode == "local":
-                    seed = resolve_local_start_soc_seed(plant_id)
-                    request_local_emulator_soc_seed(
-                        plant_id,
-                        seed.get("soc_pu"),
-                        seed.get("source", "unknown"),
-                    )
-
-                enabled = set_enable(plant_id, 1)
-                if not enabled:
-                    logging.error("Dashboard: %s start failed while enabling plant.", plant_id.upper())
-                    with shared_data["lock"]:
-                        shared_data["scheduler_running_by_plant"][plant_id] = False
-                        shared_data["plant_transition_by_plant"][plant_id] = "stopped"
-                    return
-
-                logging.info("Dashboard: %s enable command successful.", plant_id.upper())
-                p_kw, q_kvar = get_latest_schedule_setpoint(plant_id)
-                send_ok = send_setpoints(plant_id, p_kw, q_kvar)
-                if send_ok:
-                    logging.info(
-                        "Dashboard: %s initial setpoints sent (P=%.3f kW Q=%.3f kvar).",
-                        plant_id.upper(),
-                        p_kw,
-                        q_kvar,
-                    )
-                else:
-                    logging.warning(
-                        "Dashboard: %s initial setpoint write failed (P=%.3f kW Q=%.3f kvar).",
-                        plant_id.upper(),
-                        p_kw,
-                        q_kvar,
-                    )
-                with shared_data["lock"]:
-                    shared_data["plant_transition_by_plant"][plant_id] = "running"
-                logging.info("Dashboard: %s transitioned to running.", plant_id.upper())
-
-            threading.Thread(target=start_sequence, daemon=True).start()
-            return True
-
-        if trigger_id == "bulk-control-confirm":
-            if bulk_request == "start_all":
-                os.makedirs("data", exist_ok=True)
-                with shared_data["lock"]:
-                    for pid in plant_ids:
-                        shared_data["measurements_filename_by_plant"][pid] = get_daily_recording_file_path(pid)
-                for pid in plant_ids:
-                    logging.info("Dashboard: start all requested for %s.", pid.upper())
-                    start_one_plant(pid)
-                return f"start-all:{now_tz(config).strftime('%H%M%S')}"
-
-            if bulk_request == "stop_all":
-                logging.info("Dashboard: stop all requested.")
-
-                def stop_all_sequence():
-                    safe_stop_all_plants()
-                    with shared_data["lock"]:
-                        for pid in plant_ids:
-                            shared_data["measurements_filename_by_plant"][pid] = None
-
-                threading.Thread(target=stop_all_sequence, daemon=True).start()
-                return f"stop-all:{now_tz(config).strftime('%H%M%S')}"
-
+        intent = command_intent_from_control_trigger(trigger_id, bulk_request=bulk_request)
+        if intent is None:
             raise PreventUpdate
 
-        if trigger_id not in action_map:
-            raise PreventUpdate
-
-        plant_id, action = action_map[trigger_id]
-
-        if action == "start":
-            logging.info("Dashboard: start requested for %s.", plant_id.upper())
-            started = start_one_plant(plant_id)
-            if not started:
-                return f"{trigger_id}:{now_tz(config).strftime('%H%M%S')}"
-
-        elif action == "stop":
-            logging.info("Dashboard: stop requested for %s.", plant_id.upper())
-            with shared_data["lock"]:
-                transition_state = shared_data["plant_transition_by_plant"].get(plant_id, "stopped")
-                if transition_state in {"stopping", "stopped"}:
-                    logging.info("Dashboard: %s stop ignored (state=%s).", plant_id.upper(), transition_state)
-                    return f"{trigger_id}:{now_tz(config).strftime('%H%M%S')}"
-                shared_data["plant_transition_by_plant"][plant_id] = "stopping"
-
-            def stop_sequence():
-                result = safe_stop_plant(plant_id)
-                if not result.get("disable_ok", False):
-                    with shared_data["lock"]:
-                        shared_data["plant_transition_by_plant"][plant_id] = "unknown"
-
-            threading.Thread(target=stop_sequence, daemon=True).start()
-
-        elif action == "record":
-            os.makedirs("data", exist_ok=True)
-            filename = get_daily_recording_file_path(plant_id)
-            logging.info("Dashboard: record requested for %s -> %s", plant_id.upper(), filename)
-            with shared_data["lock"]:
-                shared_data["measurements_filename_by_plant"][plant_id] = filename
-
-        elif action == "record_stop":
-            logging.info("Dashboard: record stop requested for %s.", plant_id.upper())
-            with shared_data["lock"]:
-                shared_data["measurements_filename_by_plant"][plant_id] = None
-
-        return f"{trigger_id}:{now_tz(config).strftime('%H%M%S')}"
+        status = enqueue_control_command(
+            shared_data,
+            kind=intent["kind"],
+            payload=intent["payload"],
+            source="dashboard",
+            now_fn=lambda: now_tz(config),
+        )
+        logging.info(
+            "Dashboard: queued command trigger=%s kind=%s id=%s state=%s",
+            trigger_id,
+            status.get("kind"),
+            status.get("id"),
+            status.get("state"),
+        )
+        return f"{status['kind']}:{status['id']}:{status['state']}"
 
     @app.callback(Output("manual-status-text", "children"), Input("manual-editor-status-store", "data"))
     def render_manual_status(status_text):
@@ -1540,14 +1252,29 @@ def dashboard_agent(config, shared_data):
             Output("record-stop-vrfb", "children"),
             Output("record-stop-vrfb", "disabled"),
         ],
-        [Input("interval-component", "n_intervals"), Input("control-action", "data")],
+        [
+            Input("interval-component", "n_intervals"),
+            Input("control-action", "data"),
+            Input("start-lib", "n_clicks_timestamp"),
+            Input("stop-lib", "n_clicks_timestamp"),
+            Input("start-vrfb", "n_clicks_timestamp"),
+            Input("stop-vrfb", "n_clicks_timestamp"),
+        ],
     )
-    def update_status_and_graphs(n_intervals, control_action):
+    def update_status_and_graphs(
+        n_intervals,
+        control_action,
+        start_lib_click_ts_ms,
+        stop_lib_click_ts_ms,
+        start_vrfb_click_ts_ms,
+        stop_vrfb_click_ts_ms,
+    ):
         with shared_data["lock"]:
             transport_mode = shared_data.get("transport_mode", "local")
             scheduler_running = dict(shared_data.get("scheduler_running_by_plant", {}))
             transition_by_plant = dict(shared_data.get("plant_transition_by_plant", {}))
             recording_files = dict(shared_data.get("measurements_filename_by_plant", {}))
+            observed_state_by_plant = dict(shared_data.get("plant_observed_state_by_plant", {}))
             status = shared_data.get("data_fetcher_status", {}).copy()
             api_schedule_map = {
                 plant_id: shared_data.get("api_schedule_df_by_plant", {}).get(plant_id, pd.DataFrame()).copy()
@@ -1560,8 +1287,15 @@ def dashboard_agent(config, shared_data):
                 for plant_id in plant_ids
             }
 
-        enable_state_by_plant = {plant_id: read_enable_state(plant_id) for plant_id in plant_ids}
-        runtime_state_by_plant = {
+        status_now = now_tz(config)
+        enable_state_by_plant = {}
+        for plant_id in plant_ids:
+            observed = dict(observed_state_by_plant.get(plant_id, {}) or {})
+            if bool(observed.get("stale", True)):
+                enable_state_by_plant[plant_id] = None
+            else:
+                enable_state_by_plant[plant_id] = observed.get("enable_state")
+        _engine_state_by_plant = {
             plant_id: resolve_runtime_transition(
                 plant_id,
                 transition_by_plant.get(plant_id, "unknown"),
@@ -1569,6 +1303,27 @@ def dashboard_agent(config, shared_data):
             )
             for plant_id in plant_ids
         }
+        click_feedback_by_plant = {
+            "lib": resolve_click_feedback_transition_state(
+                start_click_ts_ms=start_lib_click_ts_ms,
+                stop_click_ts_ms=stop_lib_click_ts_ms,
+                now_ts=status_now,
+                hold_seconds=ui_transition_feedback_hold_s,
+            ),
+            "vrfb": resolve_click_feedback_transition_state(
+                start_click_ts_ms=start_vrfb_click_ts_ms,
+                stop_click_ts_ms=stop_vrfb_click_ts_ms,
+                now_ts=status_now,
+                hold_seconds=ui_transition_feedback_hold_s,
+            ),
+        }
+        runtime_state_by_plant = {}
+        for plant_id in plant_ids:
+            pending_feedback_state = click_feedback_by_plant.get(plant_id)
+            if pending_feedback_state in {"starting", "stopping"}:
+                runtime_state_by_plant[plant_id] = pending_feedback_state
+                continue
+            runtime_state_by_plant[plant_id] = _engine_state_by_plant.get(plant_id, "unknown")
 
         api_inline = (
             f"API Connected: {bool(status.get('connected'))} | "
@@ -1580,7 +1335,6 @@ def dashboard_agent(config, shared_data):
         if status.get("error"):
             api_inline += f" | Error: {status.get('error')}"
 
-        status_now = now_tz(config)
         status_window_start = status_now.replace(hour=0, minute=0, second=0, microsecond=0)
         status_window_end = status_window_start + timedelta(days=2)
 

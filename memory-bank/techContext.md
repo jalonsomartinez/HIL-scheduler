@@ -11,12 +11,15 @@
 
 ## Repository Runtime Modules
 - `hil_scheduler.py`: director, shared state initialization, thread startup/shutdown.
+- `control_engine_agent.py`: serial command execution engine for dashboard-issued control intents; owns control-path Modbus I/O and cached plant observed-state publication.
+- `control_command_runtime.py`: shared-state command queue/lifecycle bookkeeping helpers (ID allocation, queued/running/terminal status updates, bounded history).
+- `dashboard_command_intents.py`: pure dashboard trigger->command intent mapping helpers for UI callbacks.
 - `config_loader.py`: validates/normalizes YAML into runtime dict.
-- `dashboard_agent.py`: UI layout, callbacks, safe-stop controls, switch modals, fleet start/stop actions, and API posting toggle handling.
+- `dashboard_agent.py`: UI layout and callbacks; enqueues control intents, renders status from shared state/cached plant observations, applies short click-feedback transition overlay, and handles manual/API settings UI paths.
 - `manual_schedule_manager.py`: manual override series metadata, editor breakpoint row conversions/validation, relative CSV load/save parsing, and manual-series rebuild/sanitization helpers.
 - `dashboard_history.py`: historical plots helper utilities (file scan/index, slider range helpers, CSV crop/export serialization).
 - `dashboard_plotting.py`: shared Plotly figure/theme helpers for status and historical plant plots, including optional x-window cropping used by Status-tab immediate-context plots.
-- `dashboard_control.py`: safe-stop/transport-switch control-flow helpers for dashboard callbacks.
+- `dashboard_control.py`: safe-stop/transport-switch control-flow helpers reused by control engine.
 - `assets/custom.css`: dashboard design tokens, responsive rules, control/tab/modal/log styling.
 - `assets/brand/fonts/*`: locally served dashboard fonts (DM Sans files + OFL license).
 - `data_fetcher_agent.py`: day-ahead API polling and status updates.
@@ -85,8 +88,8 @@ Per-plant config includes:
 
 ## Plant Emulation Behavior
 - Local mode starts one Modbus server per plant (`lib`, `vrfb`) simultaneously.
-- Local plant start in dashboard local transport now attempts to restore emulator SoC from the latest persisted on-disk `soc_pu` for that plant (`data/YYYYMMDD_<sanitized_plant>.csv`), with fallback to `STARTUP_INITIAL_SOC_PU`.
-- Dashboard->plant-agent coordination for this restore uses shared-state request/ack maps; `plant_agent.py` applies the seed to internal emulator state (`soc_kwh`) before enable.
+- Local plant start in control-engine local transport now attempts to restore emulator SoC from the latest persisted on-disk `soc_pu` for that plant (`data/YYYYMMDD_<sanitized_plant>.csv`), with fallback to `STARTUP_INITIAL_SOC_PU`.
+- Control-engine->plant-agent coordination for this restore uses shared-state request/ack maps; `plant_agent.py` applies the seed to internal emulator state (`soc_kwh`) before enable.
 - Plant emulation applies:
   - enable gating,
   - configured active/reactive power limits,
@@ -107,6 +110,7 @@ Per-plant config includes:
   - default selector is `today`,
   - `today` reads tail of current date file for live refresh,
   - historical log browsing reads selectable files from `logs/*.log`.
+- Control engine publishes `plant_observed_state_by_plant` (cached `enable`, `p_battery`, `q_battery`, freshness/error metadata) so dashboard status callbacks avoid direct control-path Modbus polling.
 
 ## Dashboard Styling Conventions
 - Brand assets are served from Dash `assets/` (logo PNGs + local font files).
@@ -134,7 +138,9 @@ Per-plant config includes:
 
 ## Operational Constraints
 - Threaded model requires short lock sections and external I/O outside locks.
-- Local SoC restore handshake is best-effort by design: dashboard start waits briefly for plant-agent ack and logs timeout, but still proceeds with plant enable/start sequence.
+- Local SoC restore handshake is best-effort by design: control-engine start waits briefly for plant-agent ack and logs timeout, but still proceeds with plant enable/start sequence.
+- Control command execution is serialized through a bounded FIFO queue in shared state; high-latency stop/transport flows can delay later queued commands by design in this first pass.
+- Dashboard status controls now depend on control-engine observed-state cache freshness (`stale` marker) rather than direct Modbus reads; stale cache displays `Unknown` for Modbus enable.
 - Measurement posting queue is in-memory only; it does not persist across restarts.
 - Measurement compression applies only to new runtime writes; no automatic backfill is performed for historical dense CSV files.
 - Historical plots tab reads `data/*.csv` directly on demand; large datasets may increase dashboard callback latency because there is no persistent history index/cache yet.

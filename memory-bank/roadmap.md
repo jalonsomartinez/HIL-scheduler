@@ -13,12 +13,13 @@ Increase reliability and operator confidence without changing the core dual-plan
 5. Keep measurement compression and config-loader schema regression coverage green to prevent config/runtime drift.
 6. Keep API schedule fetcher poll-gate/config regression coverage green (`tomorrow_poll_start_time` parsing, gate timing, partial-window status semantics).
 7. Add dashboard/manual-editor callback regressions for key manual override UX flows (series selector load, CSV upload, breakpoint add/delete, row validation).
+8. Add one regression covering control-engine command queue overflow visibility/behavior (`queue_full` rejection path surfaced to UI/log state).
 
 ### P1 - Operational Hardening
 1. Define log retention policy and implement cleanup automation.
-2. Move dashboard synchronous Modbus polling to agent-cached plant-state publication.
+2. Validate and tune control-engine observed-state cache cadence/staleness thresholds and transition UX hold timing (`starting`/`stopping` immediate feedback vs server-confirmed state).
 3. Add structured health checks for API connectivity and posting backlog age.
-4. Add explicit operator alerts for sustained posting failures or stale schedule windows.
+4. Add explicit operator alerts for sustained posting failures, stale schedule windows, or command-queue saturation.
 5. Add an operator UI validation checklist for critical control/readability states after styling updates, including logs-tab `Today` live refresh, historical-file selection behavior, bulk-action confirmation states, and small-screen control-row behavior.
 6. Validate and refine the new Manual Schedule split-layout/editor ergonomics across desktop/tablet breakpoints.
 

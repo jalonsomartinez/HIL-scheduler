@@ -26,6 +26,12 @@
 - per-plant Start/Stop + Record/Stop controls,
 - top-card `Start All` / `Stop All` controls with confirmation modal for high-impact actions,
 - transport switching with confirmation and safe-stop,
+- control-path UI/engine separation for start/stop/record/fleet/transport actions:
+  - dashboard callbacks enqueue normalized control intents instead of executing Modbus/control flows,
+  - `control_engine_agent.py` serially executes commands and owns control-path Modbus I/O,
+  - shared command lifecycle status/history is tracked in bounded shared-state maps/queue,
+- cached plant observed-state publication (`enable`, `p_battery`, `q_battery`, stale/error metadata) for Status-tab control/status rendering (no direct dashboard Modbus polling on those paths),
+- immediate click-feedback transition overlay (`starting`/`stopping`) followed by server-owned transition state and Modbus-confirmed `running`/`stopped`,
 - `Status` tab (formerly `Status & Plots`) live status + control plots,
 - `Plots` tab historical measurement browsing from `data/*.csv` with full-range timeline + range slider,
 - `Plots` tab range slider now defaults to the full detected history span when the current value is a stale/placeholder out-of-domain range (avoids first-load collapsed selection),
@@ -54,30 +60,33 @@
  - compression-gap config-loader regression now validates schema/typing (not a fixed `max_kept_gap_s` value) so config tuning does not cause CI failures.
 - targeted measurement-storage SoC lookup regressions (`tests/test_measurement_storage_latest_soc.py`) and plant-agent local SoC seed request regressions (`tests/test_plant_agent_soc_seed_requests.py`).
  - targeted scheduler merged-dispatch regressions (`tests/test_scheduler_source_switch.py`) covering manual override priority and stale API base fallback behavior.
- - targeted posting telemetry regression coverage confirming posting gate no longer depends on `active_schedule_source`.
+- targeted posting telemetry regression coverage confirming posting gate no longer depends on `active_schedule_source`.
+- targeted command-runtime/control-engine regressions (`tests/test_control_command_runtime.py`, `tests/test_control_engine_agent.py`) and dashboard intent/UI-state helper regressions (`tests/test_dashboard_command_intents.py`, `tests/test_dashboard_ui_state.py`).
 7. Dashboard control flow is now separated into `dashboard_control.py` with dedicated tests for safe-stop and transport switch semantics (source-switch helper removed from active dashboard flow).
 8. Runtime shared-state initialization contract is centralized in `build_initial_shared_data(config)` with schema tests.
  - Shared-state contract now includes local emulator SoC seed request/result maps for dashboard->plant-agent local-start coordination.
+ - Shared-state contract now also includes control command queue/lifecycle keys and `plant_observed_state_by_plant` cache for control-engine/dashboard coordination.
 9. Runtime posting gate now includes `measurement_posting_enabled` state seeded from config and adjustable from dashboard UI.
 
 ## In Progress
-1. Follow-up reliability design for dashboard callback de-blocking (replace synchronous Modbus reads with cached plant state).
-2. Remote transport smoke coverage design (repeatable unattended checks).
-3. Log retention policy definition and implementation scope.
-4. Manual validation pass for new historical `Plots` tab behavior on larger data directories.
-5. Manual Schedule editor UX polish / layout tuning validation on different viewport widths.
+1. Remote transport smoke coverage design (repeatable unattended checks).
+2. Log retention policy definition and implementation scope.
+3. Manual validation pass for new historical `Plots` tab behavior on larger data directories.
+4. Manual Schedule editor UX polish / layout tuning validation on different viewport widths.
+5. Control-engine command queue observability/alerting follow-up (queue full/retry/operator feedback).
 
 ## Next
 1. Add repeatable remote transport smoke checks.
 2. Define and implement log retention/cleanup policy.
 3. Add lightweight dashboard visual regression/smoke checklist.
-4. Expand README operator runbook/troubleshooting sections.
+4. Expand README operator runbook/troubleshooting sections (including control engine command/transition semantics).
 5. Decide whether to provide an optional offline recompression utility for historical dense CSV files.
 6. Consider removing deprecated compatibility-only `active_schedule_source` / `schedule_switching` shared-state keys after downstream checks.
+7. Evaluate command cancellation/prioritization needs for long safe-stop/transport flows (if operator usage demands it).
 
 ## Known Issues / Gaps
 1. No persistent store for API posting retry queue across process restarts.
-2. Dashboard status callback still performs direct Modbus polling and can block under slow endpoints.
+2. Control-engine queue is serial and bounded; long-running stop/transport commands can delay later commands and queue-full rejections currently surface only via logs/command status (no dedicated operator alert yet).
 3. Operational runbook and incident handling guidance are still thin.
 4. UI styling changes are still validated manually; no screenshot/DOM snapshot checks in CI.
 5. `schedule_manager.py` remains in repository for legacy compatibility only and is intentionally deprecated.

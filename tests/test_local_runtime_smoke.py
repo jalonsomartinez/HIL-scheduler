@@ -10,6 +10,7 @@ from unittest.mock import patch
 import pandas as pd
 
 from config_loader import load_config
+import manual_schedule_manager as msm
 from measurement_storage import MEASUREMENT_VALUE_COLUMNS
 from measurement_agent import measurement_agent
 from plant_agent import plant_agent
@@ -126,6 +127,8 @@ def _build_shared_data(config):
     plant_ids = tuple(config.get("PLANT_IDS", ("lib", "vrfb")))
     return {
         "manual_schedule_df_by_plant": _empty_df_by_plant(plant_ids),
+        "manual_schedule_series_df_by_key": msm.default_manual_series_map(),
+        "manual_schedule_merge_enabled_by_key": msm.default_manual_merge_enabled_map(default_enabled=False),
         "api_schedule_df_by_plant": _empty_df_by_plant(plant_ids),
         "active_schedule_source": "manual",
         "transport_mode": "local",
@@ -195,8 +198,8 @@ class LocalRuntimeSmokeTests(unittest.TestCase):
                     index=schedule_index,
                 )
                 with shared_data["lock"]:
-                    shared_data["manual_schedule_df_by_plant"]["lib"] = lib_df
-                    shared_data["manual_schedule_df_by_plant"]["vrfb"] = vrfb_df
+                    shared_data["api_schedule_df_by_plant"]["lib"] = lib_df
+                    shared_data["api_schedule_df_by_plant"]["vrfb"] = vrfb_df
 
                 with patch("plant_agent.ModbusServer", _FakeModbusServer), patch(
                     "scheduler_agent.ModbusClient",

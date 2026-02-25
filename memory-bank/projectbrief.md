@@ -21,9 +21,10 @@ HIL Scheduler is a multi-agent Python application that executes active and react
 - Per-plant controls:
   - dispatch gate via `scheduler_running_by_plant[plant_id]`.
   - recording gate via `measurements_filename_by_plant[plant_id]`.
+  - operator control intents are enqueued by the dashboard and executed by a runtime control engine.
 
 ## In Scope
-- Threaded agents: director, data fetcher, scheduler, plant emulator, measurement, dashboard.
+- Threaded agents: director, data fetcher, scheduler, plant emulator, measurement, control engine, dashboard.
 - Day-ahead API schedule ingestion and stale-setpoint guardrails.
 - Per-plant Modbus endpoint management for local and remote modes.
 - CSV measurement persistence and in-memory plot caches.

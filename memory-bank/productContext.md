@@ -24,6 +24,7 @@ The system closes the operational gap between market/control schedules and plant
 
 ### Dispatch
 - Dispatch enable is per plant through `scheduler_running_by_plant`.
+- Dashboard start/stop controls submit intents; runtime control engine executes the flow.
 - Start enables plant and applies immediate setpoint selection.
 - Immediate setpoint selection uses the merged effective schedule (API base + enabled manual overrides).
 - Stop executes safe-stop flow (gate off, zero setpoints, decay wait, disable).
@@ -38,13 +39,14 @@ The system closes the operational gap between market/control schedules and plant
 - API tab includes a runtime posting toggle (`Enabled`/`Disabled`) for session-scoped read-only testing.
 - API measurement posting toggle gates posting of actual measurements regardless of manual override usage.
 - Status tab (renamed from `Status & Plots`) keeps inline API summary with today/tomorrow fetched-point counts for both plants.
+- Status tab plant-state controls/status now render from cached runtime-published plant observed state (no direct dashboard Modbus polling for control/status paths).
 - Status tab live plots are intentionally limited to immediate context (local current day + next day) for both schedule and measurements.
 - Plots tab provides historical measurement browsing from `data/*.csv` with a full-range timeline, range slider, and per-plant CSV/PNG exports.
 - Logs tab exposes a live `Today` view (tail of the current date log file) and selectable historical log files.
 
 ## UX Intent
 1. Clear separation between dispatch control and recording control.
-2. Explicit transition states (`starting`, `running`, `stopping`, `stopped`, `unknown`).
+2. Explicit transition states (`starting`, `running`, `stopping`, `stopped`, `unknown`) with immediate click feedback and server-authoritative transition persistence until Modbus confirmation.
 3. Safe confirmation flows before transport changes and fleet actions; manual override edits should be direct and low-friction.
 4. Stable plot interactions during periodic refresh.
 5. Historical browsing controls should preserve context (range selection) while new files appear.
@@ -53,14 +55,16 @@ The system closes the operational gap between market/control schedules and plant
 ## Critical Workflows
 ### Start Plant Dispatch
 1. User starts plant card.
-2. Dashboard sets transition to `starting`, enables plant, and sends immediate setpoint.
-3. Scheduler loop continues dispatch while the plant gate is true.
-4. Transition resolves to `running` on observed plant state.
+2. Dashboard immediately shows a temporary `starting` feedback state and enqueues a start command.
+3. Control engine sets runtime transition to `starting`, enables plant, and sends immediate setpoint.
+4. Scheduler loop continues dispatch while the plant gate is true.
+5. Transition resolves to `running` on observed Modbus enable state.
 
 ### Stop Plant Dispatch
 1. User stops plant card.
-2. Dashboard executes safe-stop helper.
-3. Helper returns `{threshold_reached, disable_ok}` and transition resolves accordingly.
+2. Dashboard immediately shows a temporary `stopping` feedback state and enqueues a stop command.
+3. Control engine executes safe-stop helper.
+4. Helper returns `{threshold_reached, disable_ok}` and transition resolves accordingly.
 
 ### Edit Manual Override Schedule
 1. User selects one of the four manual override series in the Manual Schedule editor.
@@ -71,8 +75,8 @@ The system closes the operational gap between market/control schedules and plant
 
 ### Switch Transport
 1. User confirms switch in modal.
-2. Dashboard safely stops both plants.
-3. Dashboard updates transport selector and clears switching flag.
+2. Dashboard enqueues a transport-switch command and closes the modal (optimistic selector feedback only).
+3. Control engine safely stops both plants, applies transport mode, and clears switching flag.
 
 ### Record Session
 1. User sets recording on for one plant.
@@ -82,8 +86,9 @@ The system closes the operational gap between market/control schedules and plant
 ### Start All / Stop All
 1. User requests fleet action from the Status top card.
 2. Dashboard opens confirmation modal before execution.
-3. `Start All`: recording is enabled for both plants, then plant start sequences execute.
-4. `Stop All`: safe-stop runs for both plants, then recording is stopped for both plants.
+3. On confirm, dashboard enqueues the fleet action command.
+4. `Start All`: control engine enables recording for both plants, then plant start sequences execute.
+5. `Stop All`: control engine safe-stops both plants, then recording is stopped for both plants.
 
 ### Browse Historical Plots
 1. User opens `Plots` tab.

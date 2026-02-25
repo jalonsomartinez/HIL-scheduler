@@ -13,6 +13,11 @@
 - Per-plant runtime gates:
   - `scheduler_running_by_plant[plant_id]`.
   - `measurements_filename_by_plant[plant_id]` (`None` means recording off).
+- Runtime control command channel:
+  - FIFO `control_command_queue` for UI-issued operator intents.
+  - command lifecycle tracking via `control_command_status_by_id`, `control_command_history_ids`, `control_command_active_id`.
+- Runtime plant observed-state cache:
+  - `plant_observed_state_by_plant[plant_id]` publishes cached `enable`, `p_battery`, `q_battery`, freshness timestamps, and stale/error markers.
 - Normalized per-plant Modbus endpoints expose:
   - connection settings (`host`, `port`, required `byte_order`, required `word_order`)
   - structured Modbus `points` metadata (address, format, access, unit, scale, derived widths)
@@ -93,6 +98,21 @@ shared_data = {
 
     "schedule_switching": False,  # compatibility only; source-switch UI removed
     "transport_switching": False,
+    "control_command_queue": queue.Queue(maxsize=128),
+    "control_command_status_by_id": {},
+    "control_command_history_ids": [],
+    "control_command_active_id": None,
+    "control_command_next_id": 1,
+    "plant_observed_state_by_plant": {
+        "lib": {
+            "enable_state": None, "p_battery_kw": None, "q_battery_kvar": None,
+            "last_attempt": None, "last_success": None, "error": None, "stale": True,
+        },
+        "vrfb": {
+            "enable_state": None, "p_battery_kw": None, "q_battery_kvar": None,
+            "last_attempt": None, "last_success": None, "error": None, "stale": True,
+        },
+    },
 
     "lock": threading.Lock(),
     "shutdown_event": threading.Event(),
@@ -105,14 +125,15 @@ shared_data = {
 - `scheduler_agent.py`: dispatches P/Q setpoints per plant from merged effective schedule (API base + enabled manual overrides) and per-plant gate.
 - `plant_agent.py`: local emulation server for each logical plant with SoC and power limit behavior.
 - `measurement_agent.py`: measurement sampling, recording, cache updates, API posting queue/telemetry.
-- `dashboard_agent.py`: user controls, safe-stop flows, transport switch modal, manual override editor/plots, status plots, logs.
+- `control_engine_agent.py`: consumes UI command queue, executes start/stop/fleet/transport/record control flows, owns control-path Modbus I/O, and publishes cached plant observed state.
+- `dashboard_agent.py`: UI layout/callbacks, command enqueueing, manual override editor/plots, status plots, logs, and short-lived click-feedback transition overlay.
 - `dashboard_history.py`: helper functions for dashboard historical measurement scan/index, range clamping, file loading/cropping, and CSV serialization.
-- `dashboard_control.py`: shared safe-stop + transport-switch control-flow helpers used by dashboard callbacks.
+- `dashboard_control.py`: shared safe-stop + transport-switch control-flow helpers reused by control engine execution.
 
 ## Operational Patterns
 
 ### Safe Stop Contract
-- Safe stop is the standard stop primitive for dashboard operations.
+- Safe stop is the standard stop primitive for control-engine stop operations.
 - Sequence:
   1. Set dispatch gate off for the plant.
   2. Write zero active and reactive setpoints.
@@ -124,23 +145,42 @@ shared_data = {
 ### Transport Switching
 - Transport switch is modal-confirmed and safety-gated.
 - Confirm path:
-  1. Set transport switching flag.
-  2. Safe-stop both plants.
-  3. Apply transport selector update.
-  4. Clear switching flag.
+  1. Dashboard enqueues transport-switch intent.
+  2. Control engine sets transport switching flag.
+  3. Control engine safe-stops both plants.
+  4. Control engine applies transport selector update.
+  5. Control engine clears switching flag.
 
 ### Fleet Start/Stop Actions
 - Status tab top card provides confirmation-gated bulk controls.
 - `Start All` sequence:
-  1. Enable recording for both plants (`measurements_filename_by_plant[*]`).
-  2. Trigger each plant start flow (gate on, enable command, initial setpoint send).
+  1. Dashboard enqueues fleet-start intent after confirmation.
+  2. Control engine enables recording for both plants (`measurements_filename_by_plant[*]`).
+  3. Control engine triggers each plant start flow (gate on, enable command, initial setpoint send).
 - `Stop All` sequence:
-  1. Safe-stop both plants.
-  2. Clear recording flags for both plants.
+  1. Dashboard enqueues fleet-stop intent after confirmation.
+  2. Control engine safe-stops both plants.
+  3. Control engine clears recording flags for both plants.
+
+### Control Command Execution and Status Cache
+- Dashboard control callbacks enqueue normalized commands (`plant.start`, `plant.stop`, `plant.record_start`, `plant.record_stop`, `fleet.start_all`, `fleet.stop_all`, `transport.switch`) into `control_command_queue`.
+- `control_engine_agent.py` processes commands serially (FIFO) and updates command lifecycle status:
+  - `queued` -> `running` -> terminal (`succeeded` / `failed` / `rejected`).
+- Queue overflow is handled as a terminal rejected status (`message="queue_full"`), preserving UI responsiveness.
+- Command status history is bounded (recent IDs/statuses retained, oldest pruned).
+
+### Plant Observed-State Cache and UI Transition Semantics
+- Control engine performs periodic best-effort Modbus reads for `enable`, `p_battery`, and `q_battery` and publishes `plant_observed_state_by_plant`.
+- Cache entries track `last_attempt`, `last_success`, `error`, and `stale`.
+- Dashboard Status tab consumes this cache and does not perform direct Modbus polling for control/status paths.
+- Plant state semantics in UI/runtime:
+  - `starting` / `stopping` are authoritative runtime transition states owned by the control engine (`plant_transition_by_plant`).
+  - `running` / `stopped` are confirmed when Modbus `enable` reflects `1` / `0`.
+  - Dashboard applies a short immediate click-feedback overlay (`starting`/`stopping`) before falling back to server transition state, then Modbus-confirmed state.
 
 ### Local Plant Start SoC Restore
 - Applies only when transport mode is `local`.
-- Dashboard start flow resolves a target SoC before enable:
+- Control-engine start flow resolves a target SoC before enable:
   1. Read latest persisted non-null `soc_pu` for the plant from `data/*.csv` (by highest timestamp).
   2. Fallback to `STARTUP_INITIAL_SOC_PU` if none exists.
   3. Publish a seed request into `local_emulator_soc_seed_request_by_plant[plant_id]`.

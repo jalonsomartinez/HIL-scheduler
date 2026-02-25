@@ -8,10 +8,10 @@
  - Plots tab remains the path for historical inspection.
 4. Stabilize the new merged schedule dispatch model (API base + per-signal manual overrides) and the redesigned Manual Schedule editor UX.
 5. Keep reliability guardrails green via automated regression tests and CI enforcement, including measurement compression, posting-gate semantics, and schedule-window pruning behavior.
-6. Prepare follow-up hardening for remaining high-risk paths (dashboard synchronous Modbus polling, posting durability, remote smoke coverage).
+6. Prepare follow-up hardening for remaining high-risk paths (posting durability, remote smoke coverage, queue/alert observability).
 
 ## Open Decisions and Risks
-1. Dashboard interval callbacks still perform synchronous Modbus reads; remote endpoint slowness can degrade responsiveness.
+1. Control-engine command queue is serialized and bounded; long safe-stop/transport operations can delay later commands and may need operator-visible queue/backlog indicators.
 2. API posting durability remains in-memory only; pending queue is lost on process restart.
 3. Logging retention policy is undefined; date-routed files accumulate without automatic pruning.
 4. Operational validation gap remains for remote transport end-to-end flows.
@@ -19,10 +19,27 @@
 6. Lock-discipline target is not fully met in measurement cache paths where dataframe operations still occur under lock.
 7. Historical dense measurement CSV files created while compression was inactive are intentionally not backfilled.
 8. Historical plots tab currently rescans and reloads CSV files on demand; performance may degrade with very large `data/` directories.
+9. Transition UX now combines immediate click-feedback overlay + server/runtime transition state + Modbus confirmation; hold-window tuning may need additional operator validation across remote latency conditions.
 
 ## Rolling Change Log (Compressed, 30-Day Window)
 
 ### 2026-02-25
+- Implemented first-pass control-path UI/engine separation hardening:
+  - added `control_engine_agent.py` to own start/stop/fleet/transport/record command execution and control-path Modbus I/O,
+  - added bounded FIFO control command queue + lifecycle status tracking in shared state (`control_command_queue`, `control_command_status_by_id`, `control_command_history_ids`, `control_command_active_id`, `control_command_next_id`),
+  - dashboard control callbacks now enqueue normalized command intents instead of executing control flows or spawning execution threads.
+- Added cached plant observed-state publication (`plant_observed_state_by_plant`) in control engine (`enable`, `p_battery`, `q_battery`, freshness/error/stale metadata); Status tab no longer performs direct Modbus polling for control/status paths.
+- Added pure dashboard trigger->command intent helpers (`dashboard_command_intents.py`) and targeted regression coverage for intent mapping.
+- Added command runtime and control-engine regression coverage:
+  - queue/lifecycle bookkeeping,
+  - command execution ordering and idempotent record on/off behavior,
+  - observed-state cache stale/failure behavior.
+- Updated shared-state contract regression coverage for new command queue and observed-state keys.
+- Fixed local runtime smoke-test fixture drift after scheduler/manual-series contract changes and normalized dashboard-plotting timezone assertions (Plotly timestamp serialization behavior).
+- Refined dashboard control transition UX after hardening:
+  - immediate click feedback for `starting`/`stopping` without waiting for enqueue success,
+  - short forced transition overlay window (currently `2s`),
+  - server/runtime `starting`/`stopping` persists until Modbus `enable` confirms `running`/`stopped`.
 - Replaced runtime manual/API source switching dispatch behavior with merged dispatch:
   - API schedules are now the base,
   - manual overrides are stored as four independent series (`lib_p`, `lib_q`, `vrfb_p`, `vrfb_q`),

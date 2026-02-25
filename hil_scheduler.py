@@ -1,4 +1,5 @@
 import logging
+import queue
 import threading
 import time
 
@@ -6,6 +7,7 @@ import pandas as pd
 
 import manual_schedule_manager as msm
 from config_loader import load_config
+from control_engine_agent import control_engine_agent
 from dashboard_agent import dashboard_agent
 from data_fetcher_agent import data_fetcher_agent
 from logger_config import setup_logging
@@ -52,6 +54,21 @@ def _default_local_emulator_soc_seed_result_by_plant(plant_ids):
             "status": "idle",
             "soc_pu": None,
             "message": None,
+        }
+        for plant_id in plant_ids
+    }
+
+
+def _default_plant_observed_state_by_plant(plant_ids):
+    return {
+        plant_id: {
+            "enable_state": None,
+            "p_battery_kw": None,
+            "q_battery_kvar": None,
+            "last_attempt": None,
+            "last_success": None,
+            "error": None,
+            "stale": True,
         }
         for plant_id in plant_ids
     }
@@ -107,6 +124,12 @@ def build_initial_shared_data(config):
         },
         "schedule_switching": False,
         "transport_switching": False,
+        "control_command_queue": queue.Queue(maxsize=128),
+        "control_command_status_by_id": {},
+        "control_command_history_ids": [],
+        "control_command_active_id": None,
+        "control_command_next_id": 1,
+        "plant_observed_state_by_plant": _default_plant_observed_state_by_plant(plant_ids),
         "lock": threading.Lock(),
         "shutdown_event": threading.Event(),
         "log_file_path": None,
@@ -128,6 +151,7 @@ def main():
             threading.Thread(target=scheduler_agent, args=(config, shared_data), daemon=True),
             threading.Thread(target=plant_agent, args=(config, shared_data), daemon=True),
             threading.Thread(target=measurement_agent, args=(config, shared_data), daemon=True),
+            threading.Thread(target=control_engine_agent, args=(config, shared_data), daemon=True),
             threading.Thread(target=dashboard_agent, args=(config, shared_data), daemon=True),
         ]
 

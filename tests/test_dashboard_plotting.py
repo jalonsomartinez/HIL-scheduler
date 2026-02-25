@@ -48,8 +48,17 @@ def _trace_by_suffix(fig, suffix):
     raise AssertionError(f"Trace ending with {suffix!r} not found.")
 
 
-def _x_as_timestamps(trace):
-    return [pd.Timestamp(value) for value in list(trace.x)]
+def _x_as_timestamps(trace, tz=None):
+    values = []
+    for value in list(trace.x):
+        ts = pd.Timestamp(value)
+        if tz is not None:
+            if ts.tzinfo is None:
+                ts = ts.tz_localize(tz)
+            else:
+                ts = ts.tz_convert(tz)
+        values.append(ts)
+    return values
 
 
 @unittest.skipIf(pd is None, f"plot/pandas unavailable: {_IMPORT_ERROR}")
@@ -97,7 +106,7 @@ class DashboardPlottingTests(unittest.TestCase):
         fig = self._fig(schedule_df, pd.DataFrame(), x_window_start=window_start, x_window_end=window_end)
 
         p_setpoint = _trace_by_suffix(fig, "P Setpoint")
-        xs = _x_as_timestamps(p_setpoint)
+        xs = _x_as_timestamps(p_setpoint, self.tz)
         self.assertEqual(xs, [pd.Timestamp(window_start), pd.Timestamp(window_start + timedelta(days=1, minutes=15))])
 
     def test_measurement_traces_are_cropped_after_timestamp_normalization(self):
@@ -113,7 +122,7 @@ class DashboardPlottingTests(unittest.TestCase):
         fig = self._fig(pd.DataFrame(), measurements_df, x_window_start=window_start, x_window_end=window_end)
 
         p_poi = _trace_by_suffix(fig, "P POI")
-        xs = _x_as_timestamps(p_poi)
+        xs = _x_as_timestamps(p_poi, self.tz)
         self.assertEqual(len(xs), 2)
         self.assertEqual(xs[0], pd.Timestamp(window_start))
         self.assertTrue(xs[1] < pd.Timestamp(window_end))
@@ -128,8 +137,8 @@ class DashboardPlottingTests(unittest.TestCase):
 
         p_setpoint = _trace_by_suffix(fig, "P Setpoint")
         p_poi = _trace_by_suffix(fig, "P POI")
-        self.assertEqual(_x_as_timestamps(p_setpoint), [pd.Timestamp(window_start)])
-        self.assertEqual(_x_as_timestamps(p_poi), [pd.Timestamp(window_start)])
+        self.assertEqual(_x_as_timestamps(p_setpoint, self.tz), [pd.Timestamp(window_start)])
+        self.assertEqual(_x_as_timestamps(p_poi, self.tz), [pd.Timestamp(window_start)])
 
 
 if __name__ == "__main__":

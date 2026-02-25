@@ -1,3 +1,4 @@
+import queue
 import threading
 import unittest
 
@@ -37,6 +38,12 @@ class SharedStateContractTests(unittest.TestCase):
             "data_fetcher_status",
             "schedule_switching",
             "transport_switching",
+            "control_command_queue",
+            "control_command_status_by_id",
+            "control_command_history_ids",
+            "control_command_active_id",
+            "control_command_next_id",
+            "plant_observed_state_by_plant",
             "lock",
             "shutdown_event",
             "log_file_path",
@@ -45,6 +52,7 @@ class SharedStateContractTests(unittest.TestCase):
 
         self.assertIsInstance(shared_data["lock"], type(threading.Lock()))
         self.assertIsInstance(shared_data["shutdown_event"], threading.Event)
+        self.assertIsInstance(shared_data["control_command_queue"], queue.Queue)
         self.assertEqual(set(shared_data["manual_schedule_df_by_plant"].keys()), set(plant_ids))
         self.assertEqual(set(shared_data["manual_schedule_series_df_by_key"].keys()), {"lib_p", "lib_q", "vrfb_p", "vrfb_q"})
         self.assertEqual(set(shared_data["manual_schedule_merge_enabled_by_key"].keys()), {"lib_p", "lib_q", "vrfb_p", "vrfb_q"})
@@ -53,9 +61,11 @@ class SharedStateContractTests(unittest.TestCase):
         self.assertEqual(set(shared_data["measurement_post_status"].keys()), set(plant_ids))
         self.assertEqual(set(shared_data["local_emulator_soc_seed_request_by_plant"].keys()), set(plant_ids))
         self.assertEqual(set(shared_data["local_emulator_soc_seed_result_by_plant"].keys()), set(plant_ids))
+        self.assertEqual(set(shared_data["plant_observed_state_by_plant"].keys()), set(plant_ids))
         self.assertTrue(
             all(result.get("status") == "idle" for result in shared_data["local_emulator_soc_seed_result_by_plant"].values())
         )
+        self.assertTrue(all(state.get("stale") is True for state in shared_data["plant_observed_state_by_plant"].values()))
         self.assertIsInstance(shared_data["measurements_df"], pd.DataFrame)
 
     def test_build_initial_shared_data_normalizes_invalid_startup_values(self):
