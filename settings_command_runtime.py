@@ -1,6 +1,6 @@
 """Shared-state command queue helpers for settings-engine command lifecycle."""
 
-from control_command_runtime import (
+from command_runtime import (
     COMMAND_HISTORY_LIMIT,
     enqueue_command_for_keys,
     get_next_command_id_for_keys,
@@ -48,4 +48,3 @@ def mark_command_finished(shared_data, command_id, *, state, message=None, resul
         finished_at=finished_at,
         keys=SETTINGS_COMMAND_KEYS,
     )
-
