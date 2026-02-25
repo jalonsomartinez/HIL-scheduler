@@ -1,6 +1,6 @@
 # Dashboard Control/Modbus Boundary
 
-This document summarizes the current control boundary after the first dashboard hardening pass.
+This document summarizes the current control/settings boundary after the second dashboard hardening pass.
 
 ## Current architecture (as implemented)
 
@@ -16,6 +16,12 @@ A dedicated runtime engine (`control_engine_agent.py`) now owns:
 - Modbus reads/writes for those flows,
 - cached plant observed state publication (`enable`, `p_battery`, `q_battery`) plus Modbus read/connectivity/freshness error metadata,
 - control-engine health/queue status publication for dashboard display (queue depth, active command, recent failures, last loop error/last finished command).
+
+A dedicated settings engine (`settings_engine_agent.py`) now owns:
+- manual schedule activation/inactivation/update commands (per series),
+- API connect/disconnect commands (password storage separated from connection state),
+- posting policy enable/disable commands,
+- server-owned transition/runtime state for manual/API/posting UI rendering.
 
 ## Dashboard behavior (control paths)
 
@@ -86,14 +92,19 @@ The Status tab also reads server-published:
   - last error message (if available).
 
 ### API tab actions
-- `Set Password`: stores runtime API password in shared state.
-- `Disconnect`: clears runtime API password.
-- `Measurement Posting Enabled/Disabled`: toggles runtime gate `measurement_posting_enabled`.
+- `Connect`: enqueues `api.connect` (uses input password if provided, otherwise stored password).
+- `Disconnect`: enqueues `api.disconnect` (intentionally disconnects without clearing stored password).
+- `Measurement Posting Enabled/Disabled`: enqueue `posting.enable` / `posting.disable` settings commands.
+
+Dashboard renders server-owned API/posting state and uses short optimistic transition feedback on buttons (`Connecting...`, `Disconnecting...`, `Enabling...`, `Disabling...`).
 
 ### Manual schedule actions
-- `Generate Random`: build random schedule for selected plant.
-- `Clear Plant Schedule`: clear manual schedule map entry for selected plant.
-- CSV upload: parse + normalize + store uploaded schedule for selected plant.
+- Editor load/save/edit remains dashboard-owned (draft series data).
+- Per-series `Activate` / `Inactivate` / `Update` now enqueue settings commands:
+  - `manual.activate`
+  - `manual.inactivate`
+  - `manual.update`
+- Scheduler continues dispatching from server-applied manual series (`manual_schedule_series_df_by_key`) and merge flags; dashboard drafts are separate.
 
 ## Recommended architecture boundary (target)
 
@@ -112,4 +123,4 @@ This hardening pass implements the desired model for control paths:
 
 - `scheduler_agent.py` is the periodic setpoint dispatch engine (it applies schedule setpoints when per-plant scheduler gates are enabled).
 - `control_engine_agent.py` now handles non-periodic operator control execution (start/stop/transport/recording control) and plant observed-state polling.
-- Remaining UI-owned state mutations (manual schedule editor and API settings/password actions) are follow-up scope.
+- Remaining UI-owned mutations after this pass are primarily editor draft manipulation and API password field input (the resulting state transitions are settings-engine commands).

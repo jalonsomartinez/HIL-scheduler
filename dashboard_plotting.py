@@ -226,8 +226,9 @@ def create_manual_series_figure(
     *,
     title,
     unit_label,
-    series_df,
-    enabled,
+    staged_series_df,
+    applied_series_df=None,
+    applied_enabled=False,
     tz,
     plot_theme,
     line_color,
@@ -236,33 +237,57 @@ def create_manual_series_figure(
     uirevision_key="manual-series",
 ):
     fig = go.Figure()
-    plot_df = normalize_schedule_index(series_df, tz) if series_df is not None else None
-    if plot_df is not None and not plot_df.empty:
+    staged_df = normalize_schedule_index(staged_series_df, tz) if staged_series_df is not None else None
+    applied_df = normalize_schedule_index(applied_series_df, tz) if applied_series_df is not None else None
+    if staged_df is not None and not staged_df.empty:
         if x_window_start is not None:
-            plot_df = plot_df.loc[plot_df.index >= x_window_start]
+            staged_df = staged_df.loc[staged_df.index >= x_window_start]
         if x_window_end is not None:
-            plot_df = plot_df.loc[plot_df.index < x_window_end]
+            staged_df = staged_df.loc[staged_df.index < x_window_end]
+    if applied_df is not None and not applied_df.empty:
+        if x_window_start is not None:
+            applied_df = applied_df.loc[applied_df.index >= x_window_start]
+        if x_window_end is not None:
+            applied_df = applied_df.loc[applied_df.index < x_window_end]
 
-    if plot_df is None or plot_df.empty or "setpoint" not in plot_df.columns:
+    staged_ok = staged_df is not None and not staged_df.empty and "setpoint" in staged_df.columns
+    applied_ok = applied_df is not None and not applied_df.empty and "setpoint" in applied_df.columns
+
+    if not staged_ok and not applied_ok:
         fig.add_annotation(text="No manual schedule.", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
-    else:
+    if staged_ok:
         fig.add_trace(
             go.Scatter(
-                x=plot_df.index,
-                y=plot_df["setpoint"],
+                x=staged_df.index,
+                y=staged_df["setpoint"],
                 mode="lines",
                 line_shape="hv",
-                name="Manual Override",
+                name="Staged (Editor)",
                 line=dict(
-                    color=line_color if enabled else plot_theme["muted"],
+                    color=line_color,
                     width=2,
-                    dash="solid" if enabled else "dot",
+                    dash="solid",
                 ),
             )
         )
-        if not enabled:
+    if applied_ok:
+        fig.add_trace(
+            go.Scatter(
+                x=applied_df.index,
+                y=applied_df["setpoint"],
+                mode="lines",
+                line_shape="hv",
+                name="Applied (Server)",
+                line=dict(
+                    color=line_color if applied_enabled else plot_theme["muted"],
+                    width=2,
+                    dash="dash",
+                ),
+            )
+        )
+        if not applied_enabled:
             fig.add_annotation(
-                text="Inactive override (not merged)",
+                text="Applied schedule inactive (not merged)",
                 xref="paper",
                 yref="paper",
                 x=0.99,
@@ -272,6 +297,18 @@ def create_manual_series_figure(
                 showarrow=False,
                 font=dict(color=plot_theme["muted"], size=11, family=plot_theme["font_family"]),
             )
+    elif staged_ok:
+        fig.add_annotation(
+            text="No schedule sent to server yet",
+            xref="paper",
+            yref="paper",
+            x=0.99,
+            y=0.98,
+            xanchor="right",
+            yanchor="top",
+            showarrow=False,
+            font=dict(color=plot_theme["muted"], size=11, family=plot_theme["font_family"]),
+        )
 
     apply_figure_theme(
         fig,

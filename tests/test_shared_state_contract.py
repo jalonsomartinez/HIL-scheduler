@@ -18,8 +18,10 @@ class SharedStateContractTests(unittest.TestCase):
             "session_logs",
             "log_lock",
             "manual_schedule_df_by_plant",
+            "manual_schedule_draft_series_df_by_key",
             "manual_schedule_series_df_by_key",
             "manual_schedule_merge_enabled_by_key",
+            "manual_series_runtime_state_by_key",
             "api_schedule_df_by_plant",
             "active_schedule_source",
             "transport_mode",
@@ -34,7 +36,9 @@ class SharedStateContractTests(unittest.TestCase):
             "local_emulator_soc_seed_request_by_plant",
             "local_emulator_soc_seed_result_by_plant",
             "measurement_posting_enabled",
+            "posting_runtime",
             "api_password",
+            "api_connection_runtime",
             "data_fetcher_status",
             "schedule_switching",
             "transport_switching",
@@ -45,6 +49,12 @@ class SharedStateContractTests(unittest.TestCase):
             "control_command_next_id",
             "plant_observed_state_by_plant",
             "control_engine_status",
+            "settings_command_queue",
+            "settings_command_status_by_id",
+            "settings_command_history_ids",
+            "settings_command_active_id",
+            "settings_command_next_id",
+            "settings_engine_status",
             "lock",
             "shutdown_event",
             "log_file_path",
@@ -55,8 +65,10 @@ class SharedStateContractTests(unittest.TestCase):
         self.assertIsInstance(shared_data["shutdown_event"], threading.Event)
         self.assertIsInstance(shared_data["control_command_queue"], queue.Queue)
         self.assertEqual(set(shared_data["manual_schedule_df_by_plant"].keys()), set(plant_ids))
+        self.assertEqual(set(shared_data["manual_schedule_draft_series_df_by_key"].keys()), {"lib_p", "lib_q", "vrfb_p", "vrfb_q"})
         self.assertEqual(set(shared_data["manual_schedule_series_df_by_key"].keys()), {"lib_p", "lib_q", "vrfb_p", "vrfb_q"})
         self.assertEqual(set(shared_data["manual_schedule_merge_enabled_by_key"].keys()), {"lib_p", "lib_q", "vrfb_p", "vrfb_q"})
+        self.assertEqual(set(shared_data["manual_series_runtime_state_by_key"].keys()), {"lib_p", "lib_q", "vrfb_p", "vrfb_q"})
         self.assertEqual(set(shared_data["api_schedule_df_by_plant"].keys()), set(plant_ids))
         self.assertEqual(set(shared_data["scheduler_running_by_plant"].keys()), set(plant_ids))
         self.assertEqual(set(shared_data["measurement_post_status"].keys()), set(plant_ids))
@@ -64,6 +76,10 @@ class SharedStateContractTests(unittest.TestCase):
         self.assertEqual(set(shared_data["local_emulator_soc_seed_result_by_plant"].keys()), set(plant_ids))
         self.assertEqual(set(shared_data["plant_observed_state_by_plant"].keys()), set(plant_ids))
         self.assertIsInstance(shared_data["control_engine_status"], dict)
+        self.assertIsInstance(shared_data["settings_command_queue"], queue.Queue)
+        self.assertIsInstance(shared_data["settings_engine_status"], dict)
+        self.assertIsInstance(shared_data["api_connection_runtime"], dict)
+        self.assertIsInstance(shared_data["posting_runtime"], dict)
         self.assertTrue(
             all(result.get("status") == "idle" for result in shared_data["local_emulator_soc_seed_result_by_plant"].values())
         )
@@ -86,6 +102,22 @@ class SharedStateContractTests(unittest.TestCase):
                 "running_count",
                 "failed_recent_count",
             }.issubset(shared_data["control_engine_status"].keys())
+        )
+        self.assertTrue(
+            {
+                "alive",
+                "last_loop_start",
+                "last_loop_end",
+                "last_exception",
+                "active_command_id",
+                "active_command_kind",
+                "active_command_started_at",
+                "last_finished_command",
+                "queue_depth",
+                "queued_count",
+                "running_count",
+                "failed_recent_count",
+            }.issubset(shared_data["settings_engine_status"].keys())
         )
         self.assertIsInstance(shared_data["measurements_df"], pd.DataFrame)
 

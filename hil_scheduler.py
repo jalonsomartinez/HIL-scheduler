@@ -14,6 +14,7 @@ from logger_config import setup_logging
 from measurement_agent import measurement_agent
 from plant_agent import plant_agent
 from scheduler_agent import scheduler_agent
+from settings_engine_agent import settings_engine_agent
 
 
 def _empty_df_by_plant(plant_ids):
@@ -95,6 +96,69 @@ def _default_control_engine_status():
     }
 
 
+def _default_settings_engine_status():
+    return {
+        "alive": False,
+        "last_loop_start": None,
+        "last_loop_end": None,
+        "last_exception": None,
+        "active_command_id": None,
+        "active_command_kind": None,
+        "active_command_started_at": None,
+        "last_finished_command": None,
+        "queue_depth": 0,
+        "queued_count": 0,
+        "running_count": 0,
+        "failed_recent_count": 0,
+    }
+
+
+def _default_manual_series_runtime_state_by_key():
+    series_map = _empty_manual_series_df_by_key()
+    merge_map = _default_manual_merge_enabled_by_key()
+    state_map = {}
+    for key in msm.MANUAL_SERIES_KEYS:
+        active = bool(merge_map.get(key, False))
+        state_map[key] = {
+            "state": "active" if active else "inactive",
+            "desired_state": "active" if active else "inactive",
+            "active": active,
+            "applied_series_df": series_map.get(key, pd.DataFrame(columns=["setpoint"])),
+            "last_command_id": None,
+            "last_error": None,
+            "last_updated": None,
+            "last_success": None,
+        }
+    return state_map
+
+
+def _default_api_connection_runtime():
+    return {
+        "state": "disconnected",
+        "connected": False,
+        "desired_state": "disconnected",
+        "last_command_id": None,
+        "last_error": None,
+        "last_updated": None,
+        "last_success": None,
+        "last_probe": None,
+        "disconnect_reason": "startup",
+    }
+
+
+def _default_posting_runtime(policy_enabled):
+    terminal = "enabled" if bool(policy_enabled) else "disabled"
+    return {
+        "state": terminal,
+        "policy_enabled": bool(policy_enabled),
+        "desired_state": terminal,
+        "last_command_id": None,
+        "last_error": None,
+        "last_updated": None,
+        "last_success": None,
+    }
+
+
 def build_initial_shared_data(config):
     """Create the authoritative runtime shared_data contract."""
     plant_ids = tuple(config.get("PLANT_IDS", ("lib", "vrfb")))
@@ -113,8 +177,10 @@ def build_initial_shared_data(config):
         "session_logs": [],
         "log_lock": threading.Lock(),
         "manual_schedule_df_by_plant": _empty_df_by_plant(plant_ids),
+        "manual_schedule_draft_series_df_by_key": _empty_manual_series_df_by_key(),
         "manual_schedule_series_df_by_key": _empty_manual_series_df_by_key(),
         "manual_schedule_merge_enabled_by_key": _default_manual_merge_enabled_by_key(),
+        "manual_series_runtime_state_by_key": _default_manual_series_runtime_state_by_key(),
         "api_schedule_df_by_plant": _empty_df_by_plant(plant_ids),
         "active_schedule_source": startup_schedule_source,
         "transport_mode": startup_transport_mode,
@@ -129,7 +195,9 @@ def build_initial_shared_data(config):
         "local_emulator_soc_seed_request_by_plant": _default_local_emulator_soc_seed_request_by_plant(plant_ids),
         "local_emulator_soc_seed_result_by_plant": _default_local_emulator_soc_seed_result_by_plant(plant_ids),
         "measurement_posting_enabled": bool(config.get("ISTENTORE_POST_MEASUREMENTS_IN_API_MODE", True)),
+        "posting_runtime": _default_posting_runtime(config.get("ISTENTORE_POST_MEASUREMENTS_IN_API_MODE", True)),
         "api_password": None,
+        "api_connection_runtime": _default_api_connection_runtime(),
         "data_fetcher_status": {
             "connected": False,
             "today_fetched": False,
@@ -152,6 +220,12 @@ def build_initial_shared_data(config):
         "control_command_next_id": 1,
         "plant_observed_state_by_plant": _default_plant_observed_state_by_plant(plant_ids),
         "control_engine_status": _default_control_engine_status(),
+        "settings_command_queue": queue.Queue(maxsize=128),
+        "settings_command_status_by_id": {},
+        "settings_command_history_ids": [],
+        "settings_command_active_id": None,
+        "settings_command_next_id": 1,
+        "settings_engine_status": _default_settings_engine_status(),
         "lock": threading.Lock(),
         "shutdown_event": threading.Event(),
         "log_file_path": None,
@@ -174,6 +248,7 @@ def main():
             threading.Thread(target=plant_agent, args=(config, shared_data), daemon=True),
             threading.Thread(target=measurement_agent, args=(config, shared_data), daemon=True),
             threading.Thread(target=control_engine_agent, args=(config, shared_data), daemon=True),
+            threading.Thread(target=settings_engine_agent, args=(config, shared_data), daemon=True),
             threading.Thread(target=dashboard_agent, args=(config, shared_data), daemon=True),
         ]
 

@@ -6,7 +6,7 @@
 3. Stabilize and validate dashboard time-window semantics:
  - Status tab should show only immediate context (current day + next day),
  - Plots tab remains the path for historical inspection.
-4. Stabilize the new merged schedule dispatch model (API base + per-signal manual overrides) and the redesigned Manual Schedule editor UX.
+4. Stabilize the new merged schedule dispatch model (API base + per-signal manual overrides) and the redesigned Manual Schedule editor UX, now split into dashboard-owned drafts + settings-engine activation/update commands.
 5. Keep reliability guardrails green via automated regression tests and CI enforcement, including measurement compression, posting-gate semantics, and schedule-window pruning behavior.
 6. Prepare follow-up hardening for remaining high-risk paths (posting durability, remote smoke coverage, queue topology tradeoffs/prioritization).
 
@@ -21,10 +21,30 @@
 8. Historical plots tab currently rescans and reloads CSV files on demand; performance may degrade with very large `data/` directories.
 9. Transition UX now combines immediate click-feedback overlay + server/runtime transition state + Modbus confirmation; hold-window tuning may need additional operator validation across remote latency conditions.
 10. Modbus error strings are now surfaced to operators; message wording/aggregation may need refinement to avoid noisy UI on unstable links.
+11. API connection runtime `Error` state is currently derived in dashboard rendering from fetch/post telemetry plus connection intent; deeper runtime-agent synchronization into `api_connection_runtime` may be refined later.
 
 ## Rolling Change Log (Compressed, 30-Day Window)
 
 ### 2026-02-25
+- Implemented second-pass UI separation for settings/manual/API paths:
+  - added `settings_engine_agent.py` + `settings_command_runtime.py` with separate FIFO settings queue and command lifecycle tracking (`settings_command_*` keys),
+  - added server-owned runtime state for manual series activation (`manual_series_runtime_state_by_key`), API connection (`api_connection_runtime`), and posting policy (`posting_runtime`),
+  - added dashboard helper modules `dashboard_settings_intents.py` and `dashboard_settings_ui_state.py`.
+- Manual Schedule tab behavior changed:
+  - editor/load/save now writes dashboard-owned draft series (`manual_schedule_draft_series_df_by_key`) instead of directly mutating scheduler-applied manual series,
+  - per-series controls are now command-driven `Activate` / `Inactivate` / `Update`,
+  - per-series UI shows server-owned transition/runtime state via button labels (`Activate/Activating.../Active`, `Inactive/Inactivating...`) with short optimistic button feedback,
+  - manual series plots now overlay `Staged (Editor)` vs `Applied (Server)` schedules to make resend/update differences visible,
+  - redundant per-series status text lines were removed (buttons carry the activation state).
+- API tab behavior changed:
+  - `Set Password` button replaced with `Connect` semantics (use input password if present, otherwise stored password),
+  - `Disconnect` now intentionally disconnects API runtime without clearing stored password,
+  - posting enable/disable is settings-command driven with transition states and separate policy vs effective posting status display,
+  - terminal button labels now show `Connected` / `Disconnected` on the API connect/disconnect pair.
+- Runtime gating updates:
+  - `measurement_agent.py` posting-effective gate now considers `posting_runtime` and `api_connection_runtime` (with backward-compatible fallback),
+  - `data_fetcher_agent.py` respects intentional API disconnect via `api_connection_runtime` (with backward-compatible fallback).
+- Added regression coverage for settings command runtime/engine and dashboard settings intent/UI helper behavior; full suite remains green (`125 tests`).
 - Added Status-tab runtime health surfacing for operator visibility:
   - top-card control-engine summary (`alive`, active command, last finished command, last loop error),
   - top-card command queue summary (`queued`, `running`, recent failed/rejected count, backlog-high hint).

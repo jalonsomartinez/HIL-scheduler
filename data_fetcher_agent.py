@@ -152,7 +152,26 @@ def data_fetcher_agent(config, shared_data):
 
     while not shared_data["shutdown_event"].is_set():
         try:
-            password = snapshot_locked(shared_data, lambda data: data.get("api_password"))
+            api_gate = snapshot_locked(
+                shared_data,
+                lambda data: {
+                    "password": data.get("api_password"),
+                    "api_connection_runtime": dict(data.get("api_connection_runtime", {}) or {}),
+                },
+            )
+            password = api_gate.get("password")
+            api_runtime = dict(api_gate.get("api_connection_runtime", {}) or {})
+            api_runtime_state = str(api_runtime.get("state") or "")
+            api_allowed = api_runtime_state in {"connected", "error"} or ("state" not in api_runtime)
+
+            if not api_allowed:
+                if password_checked:
+                    password_checked = False
+                    api = None
+                    _update_status(shared_data, connected=False, error=None)
+                    logging.info("Data fetcher: API connection disabled by runtime state (%s).", api_runtime_state or "unknown")
+                time.sleep(error_backoff_s)
+                continue
 
             if not password:
                 if password_checked:

@@ -9,6 +9,8 @@
 - Manual schedule override model:
   - API schedule is the dispatch base.
   - Manual schedules are stored as four independent series (`lib_p`, `lib_q`, `vrfb_p`, `vrfb_q`).
+  - Dashboard now maintains separate manual draft series (`manual_schedule_draft_series_df_by_key`) for editor/load/save UX.
+  - Settings engine applies/activates server-owned manual series into `manual_schedule_series_df_by_key` + merge flags via commands.
   - Per-series booleans control whether each manual series overwrites the corresponding API signal in dispatch.
 - Per-plant runtime gates:
   - `scheduler_running_by_plant[plant_id]`.
@@ -35,6 +37,7 @@ shared_data = {
     "log_lock": threading.Lock(),
 
     "manual_schedule_df_by_plant": {"lib": pd.DataFrame(), "vrfb": pd.DataFrame()},  # derived compatibility/display cache
+    "manual_schedule_draft_series_df_by_key": { ... },  # dashboard-owned editor drafts
     "manual_schedule_series_df_by_key": {
         "lib_p": pd.DataFrame(), "lib_q": pd.DataFrame(),
         "vrfb_p": pd.DataFrame(), "vrfb_q": pd.DataFrame(),
@@ -42,6 +45,7 @@ shared_data = {
     "manual_schedule_merge_enabled_by_key": {
         "lib_p": False, "lib_q": False, "vrfb_p": False, "vrfb_q": False,
     },
+    "manual_series_runtime_state_by_key": { ... },
     "api_schedule_df_by_plant": {"lib": pd.DataFrame(), "vrfb": pd.DataFrame()},
 
     "active_schedule_source": "manual",  # compatibility only; dispatch no longer branches on source
@@ -82,8 +86,10 @@ shared_data = {
         "vrfb": {"request_id": None, "status": "idle", "soc_pu": None, "message": None},
     },
     "measurement_posting_enabled": True,
+    "posting_runtime": { ... },
 
     "api_password": None,
+    "api_connection_runtime": { ... },
     "data_fetcher_status": {
         "connected": False,
         "today_fetched": False,
@@ -123,6 +129,12 @@ shared_data = {
         "active_command_started_at": None, "last_finished_command": None, "queue_depth": 0,
         "queued_count": 0, "running_count": 0, "failed_recent_count": 0,
     },
+    "settings_command_queue": queue.Queue(maxsize=128),
+    "settings_command_status_by_id": {},
+    "settings_command_history_ids": [],
+    "settings_command_active_id": None,
+    "settings_command_next_id": 1,
+    "settings_engine_status": { ... },
 
     "lock": threading.Lock(),
     "shutdown_event": threading.Event(),
@@ -136,6 +148,7 @@ shared_data = {
 - `plant_agent.py`: local emulation server for each logical plant with SoC and power limit behavior.
 - `measurement_agent.py`: measurement sampling, recording, cache updates, API posting queue/telemetry.
 - `control_engine_agent.py`: consumes UI command queue, executes start/stop/fleet/transport/record control flows, owns control-path Modbus I/O, and publishes cached plant observed state.
+- `settings_engine_agent.py`: consumes settings command queue and executes manual activation/update/inactivation, API connect/disconnect, and posting policy enable/disable.
 - `dashboard_agent.py`: UI layout/callbacks, command enqueueing, manual override editor/plots, status plots, logs, and short-lived click-feedback transition overlay.
 - `dashboard_history.py`: helper functions for dashboard historical measurement scan/index, range clamping, file loading/cropping, and CSV serialization.
 - `dashboard_control.py`: shared safe-stop + transport-switch control-flow helpers reused by control engine execution.
@@ -199,6 +212,19 @@ shared_data = {
   - control-engine liveness/active-command summary,
   - queue backlog summary,
   - per-plant Modbus read/connectivity/freshness diagnostics.
+
+### Settings Command Pattern (Manual/API/Posting)
+- Dashboard manual editor/load/save remains dashboard-owned and writes draft series only.
+- High-level settings transitions are command-driven:
+  - manual per-series `Activate` / `Inactivate` / `Update`,
+  - API `Connect` / `Disconnect`,
+  - Posting policy `Enable` / `Disable`.
+- Dashboard buttons use short immediate click-feedback transition overlays (e.g. `Activating...`, `Connecting...`) and then render server-owned settings runtime state.
+- `Disconnect` intentionally stops API runtime activity but preserves stored `api_password`.
+- `measurement_agent.py` posting-effective gate now depends on:
+  - stored password presence,
+  - posting policy (`posting_runtime.policy_enabled` / compat `measurement_posting_enabled`),
+  - API connection runtime state (connected/error vs intentionally disconnected).
 
 ### Local Plant Start SoC Restore
 - Applies only when transport mode is `local`.
@@ -318,3 +344,12 @@ shared_data = {
   - keep dashboard callbacks responsive by avoiding long lock sections.
 - Current exception:
   - measurement cache update paths in `measurement_agent.py` still include some lock-scoped dataframe operations; this is tracked as a follow-up cleanup item.
+- Runtime settings command channel:
+  - FIFO `settings_command_queue` for UI-issued manual/API/posting intents.
+  - command lifecycle tracking via `settings_command_status_by_id`, `settings_command_history_ids`, `settings_command_active_id`.
+- Runtime settings-engine health cache:
+  - `settings_engine_status` publishes queue/liveness/active command metadata for settings-command execution.
+- Runtime settings state caches:
+  - `manual_series_runtime_state_by_key` (per-series `inactive|activating|active|inactivating|updating|error` state + last error/command metadata),
+  - `api_connection_runtime` (`disconnected|connecting|connected|disconnecting|error`; password storage is separate),
+  - `posting_runtime` (`disabled|enabling|enabled|disabling|error` policy state).

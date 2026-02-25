@@ -13,10 +13,14 @@
 - `hil_scheduler.py`: director, shared state initialization, thread startup/shutdown.
 - `control_engine_agent.py`: serial command execution engine for dashboard-issued control intents; owns control-path Modbus I/O and cached plant observed-state publication.
 - `control_command_runtime.py`: shared-state command queue/lifecycle bookkeeping helpers (ID allocation, queued/running/terminal status updates, bounded history).
+- `settings_engine_agent.py`: serial settings command execution engine for manual activation/update/inactivation, API connect/disconnect, and posting policy commands.
+- `settings_command_runtime.py`: settings-engine command queue/lifecycle bookkeeping wrappers (same shared helper pattern as control commands).
 - `dashboard_command_intents.py`: pure dashboard trigger->command intent mapping helpers for UI callbacks.
+- `dashboard_settings_intents.py`: pure dashboard trigger->settings-command mapping helpers (manual/API/posting).
+- `dashboard_settings_ui_state.py`: pure UI transition/button-state helpers for manual/API/posting commanded resources.
 - `dashboard_control_health.py`: pure Status-tab health formatting helpers for control-engine queue/runtime summaries and per-plant Modbus diagnostics.
 - `config_loader.py`: validates/normalizes YAML into runtime dict.
-- `dashboard_agent.py`: UI layout and callbacks; enqueues control intents, renders status from shared state/cached plant observations, applies short click-feedback transition overlay, and handles manual/API settings UI paths.
+- `dashboard_agent.py`: UI layout and callbacks; enqueues control + settings intents, renders status from shared state/cached plant observations, applies short click-feedback transition overlays, and keeps manual editor drafts dashboard-owned.
 - `dashboard_layout.py`: Dash layout builder; Status top card now includes control-engine/queue health summary placeholders in addition to API inline status.
 - `manual_schedule_manager.py`: manual override series metadata, editor breakpoint row conversions/validation, relative CSV load/save parsing, and manual-series rebuild/sanitization helpers.
 - `dashboard_history.py`: historical plots helper utilities (file scan/index, slider range helpers, CSV crop/export serialization).
@@ -114,6 +118,7 @@ Per-plant config includes:
   - historical log browsing reads selectable files from `logs/*.log`.
 - Control engine publishes `plant_observed_state_by_plant` (cached `enable`, `p_battery`, `q_battery`, freshness/error metadata including `read_status` / `last_error` / `consecutive_failures`) so dashboard status callbacks avoid direct control-path Modbus polling.
 - Control engine also publishes `control_engine_status` (loop liveness/timestamps, queue metrics, active command metadata, last loop exception/last finished command) for Status-tab operator visibility.
+- Settings engine publishes manual/API/posting server-owned runtime states and `settings_engine_status` for command execution observability (currently mainly consumed by callbacks/tests; not yet surfaced in Status tab).
 
 ## Dashboard Styling Conventions
 - Brand assets are served from Dash `assets/` (logo PNGs + local font files).
@@ -122,6 +127,7 @@ Per-plant config includes:
 - Historical `Plots` tab reuses the same figure helper/theme as Status plots for visual consistency; PNG downloads use client-side Plotly export (`window.Plotly.downloadImage`) and do not require `kaleido`.
 - Status-tab figures call the same helper with an explicit local `today..day+2` x-window so live plots remain focused on immediate context while preserving historical browsing in `Plots`.
 - Manual Schedule tab now uses a responsive split layout (plots + compact editor), with dense operator-focused controls and compact breakpoint-row inputs.
+- Manual per-series plots now overlay staged editor and applied server schedules (`Staged (Editor)` vs `Applied (Server)`) so command-driven activation/update differences are visible in the UI.
 - Historical `Plots` tab range selection is resilient to stale/default slider values: helper clamping treats fully out-of-domain selections (including the layout placeholder `[0, 1]`) as invalid and restores full discovered history span.
 - Historical `Plots` tab availability timeline (`LIB`/`VRFB`) is intentionally compacted (reduced figure height/margins, lower legend placement) to minimize vertical whitespace.
 - Current operator-requested theme constraints:
@@ -145,6 +151,8 @@ Per-plant config includes:
 - Control command execution is serialized through a bounded FIFO queue in shared state; high-latency stop/transport flows can delay later queued commands by design in this first pass.
 - Dashboard status controls now depend on control-engine observed-state cache freshness (`stale` marker) rather than direct Modbus reads; stale cache displays `Unknown` for Modbus enable.
 - Dashboard Status tab health lines are server-published-state-only (control engine + observed-state cache) and include queue/backlog and per-plant Modbus reachability/read-error diagnostics.
+- Manual schedule editor persists draft series in dashboard-owned runtime draft maps; scheduler dispatch uses server-applied manual series activated through settings commands.
+- API connect/disconnect is no longer equivalent to setting/clearing `api_password`; password storage and connection runtime state are separate.
 - Measurement posting queue is in-memory only; it does not persist across restarts.
 - Measurement compression applies only to new runtime writes; no automatic backfill is performed for historical dense CSV files.
 - Historical plots tab reads `data/*.csv` directly on demand; large datasets may increase dashboard callback latency because there is no persistent history index/cache yet.

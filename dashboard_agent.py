@@ -15,6 +15,11 @@ from dash.exceptions import PreventUpdate
 
 from control_command_runtime import enqueue_control_command
 from dashboard_command_intents import command_intent_from_control_trigger, transport_switch_intent_from_confirm
+from dashboard_settings_intents import (
+    api_connection_intent_from_trigger,
+    manual_settings_intent_from_trigger,
+    posting_intent_from_trigger,
+)
 from dashboard_control_health import (
     summarize_control_engine_status,
     summarize_control_queue_status,
@@ -41,10 +46,20 @@ from dashboard_ui_state import (
     resolve_click_feedback_transition_state,
     resolve_runtime_transition_state,
 )
+from dashboard_settings_ui_state import (
+    api_connection_controls_state,
+    api_connection_display_state,
+    manual_series_controls_state,
+    manual_series_display_state,
+    posting_controls_state,
+    posting_display_state,
+    resolve_command_click_feedback_state,
+)
 import manual_schedule_manager as msm
 from measurement_storage import MEASUREMENT_COLUMNS
 from runtime_contracts import sanitize_plant_name
 from schedule_runtime import build_effective_schedule_frame
+from settings_command_runtime import enqueue_settings_command
 from shared_state import snapshot_locked
 from time_utils import get_config_tz, normalize_datetime_series, normalize_schedule_index, normalize_timestamp_value, now_tz
 
@@ -67,7 +82,10 @@ def dashboard_agent(config, shared_data):
         lambda data: {
             "initial_transport": data.get("transport_mode", "local"),
             "initial_posting_enabled": bool(
-                data.get("measurement_posting_enabled", config.get("ISTENTORE_POST_MEASUREMENTS_IN_API_MODE", True))
+                (data.get("posting_runtime", {}) or {}).get(
+                    "policy_enabled",
+                    data.get("measurement_posting_enabled", config.get("ISTENTORE_POST_MEASUREMENTS_IN_API_MODE", True)),
+                )
             ),
         },
     )
@@ -90,42 +108,44 @@ def dashboard_agent(config, shared_data):
         end = start + pd.Timedelta(days=2)
         return start, end
 
-    def _sync_manual_schedule_shared_state_locked(data, *, now_value=None):
-        manual_series_map = dict(data.get("manual_schedule_series_df_by_key", {}))
+    def _sync_manual_draft_shared_state_locked(data, *, now_value=None):
+        manual_series_map = dict(data.get("manual_schedule_draft_series_df_by_key", {}))
         for key in msm.MANUAL_SERIES_KEYS:
             manual_series_map.setdefault(key, pd.DataFrame(columns=["setpoint"]))
         window_start, window_end = _manual_window_bounds(now_value=now_value)
         pruned_series_map = msm.prune_manual_series_map_to_window(manual_series_map, tz, window_start, window_end)
-        data["manual_schedule_series_df_by_key"] = pruned_series_map
-        data["manual_schedule_df_by_plant"] = msm.rebuild_manual_schedule_df_by_plant(
-            pruned_series_map,
-            timezone_name=config.get("TIMEZONE_NAME"),
-        )
-        merge_map = dict(data.get("manual_schedule_merge_enabled_by_key", {}))
-        for key in msm.MANUAL_SERIES_KEYS:
-            merge_map[key] = bool(merge_map.get(key, False))
-        data["manual_schedule_merge_enabled_by_key"] = merge_map
+        data["manual_schedule_draft_series_df_by_key"] = pruned_series_map
 
     def _set_manual_series_from_editor(series_key, rows, start_dt):
         if series_key not in msm.MANUAL_SERIES_KEYS:
             raise ValueError("Invalid manual schedule selector")
         series_df = msm.manual_editor_rows_to_series_df(rows, start_dt, timezone_name=config.get("TIMEZONE_NAME"))
         with shared_data["lock"]:
-            _sync_manual_schedule_shared_state_locked(shared_data)
-            series_map = dict(shared_data.get("manual_schedule_series_df_by_key", {}))
+            _sync_manual_draft_shared_state_locked(shared_data)
+            series_map = dict(shared_data.get("manual_schedule_draft_series_df_by_key", {}))
             series_map[series_key] = series_df
-            shared_data["manual_schedule_series_df_by_key"] = series_map
-            _sync_manual_schedule_shared_state_locked(shared_data)
+            shared_data["manual_schedule_draft_series_df_by_key"] = series_map
+            _sync_manual_draft_shared_state_locked(shared_data)
         return series_df
 
     def _get_manual_series_snapshot():
         return snapshot_locked(
             shared_data,
             lambda data: {
-                "series_map": dict(data.get("manual_schedule_series_df_by_key", {})),
+                "draft_series_map": dict(data.get("manual_schedule_draft_series_df_by_key", {})),
+                "runtime_state": dict(data.get("manual_series_runtime_state_by_key", {})),
+                "applied_series_map": dict(data.get("manual_schedule_series_df_by_key", {})),
                 "merge_enabled": dict(data.get("manual_schedule_merge_enabled_by_key", {})),
             },
         )
+
+    def _manual_series_is_dirty(series_key, draft_df, applied_df):
+        try:
+            draft_norm = msm.normalize_manual_series_df(draft_df, timezone_name=config.get("TIMEZONE_NAME"))
+            applied_norm = msm.normalize_manual_series_df(applied_df, timezone_name=config.get("TIMEZONE_NAME"))
+            return not draft_norm.equals(applied_norm)
+        except Exception:
+            return True
 
     def _editor_start_to_datetime(date_value, hour_value, minute_value, second_value):
         if not date_value:
@@ -300,7 +320,9 @@ def dashboard_agent(config, shared_data):
         return resolved
 
     with shared_data["lock"]:
-        _sync_manual_schedule_shared_state_locked(shared_data)
+        if "manual_schedule_draft_series_df_by_key" not in shared_data:
+            shared_data["manual_schedule_draft_series_df_by_key"] = msm.default_manual_series_map()
+        _sync_manual_draft_shared_state_locked(shared_data)
 
     app.layout = build_dashboard_layout(
         config,
@@ -439,39 +461,139 @@ def dashboard_agent(config, shared_data):
             Output("api-posting-toggle-store", "data"),
             Output("api-posting-enable-btn", "className"),
             Output("api-posting-disable-btn", "className"),
+            Output("api-posting-enable-btn", "disabled"),
+            Output("api-posting-disable-btn", "disabled"),
         ],
-        [Input("api-posting-enable-btn", "n_clicks"), Input("api-posting-disable-btn", "n_clicks")],
-        [State("api-posting-toggle-store", "data")],
+        [
+            Input("interval-component", "n_intervals"),
+            Input("posting-settings-action", "data"),
+            Input("api-posting-enable-btn", "n_clicks_timestamp"),
+            Input("api-posting-disable-btn", "n_clicks_timestamp"),
+        ],
         prevent_initial_call=False,
     )
-    def toggle_api_posting(enable_clicks, disable_clicks, current_enabled):
-        ctx = callback_context
-
+    def render_api_posting_toggle(_n_intervals, _action_token, enable_click_ts_ms, disable_click_ts_ms):
         def classes_for(enabled):
             if enabled:
                 return "toggle-option active", "toggle-option"
             return "toggle-option", "toggle-option active"
 
         config_default = bool(config.get("ISTENTORE_POST_MEASUREMENTS_IN_API_MODE", True))
-        with shared_data["lock"]:
-            stored_enabled = bool(shared_data.get("measurement_posting_enabled", config_default))
+        posting_runtime = snapshot_locked(
+            shared_data,
+            lambda data: dict(data.get("posting_runtime", {}) or {}),
+        )
+        server_state = str(posting_runtime.get("state") or ("enabled" if posting_runtime.get("policy_enabled") else "disabled"))
+        policy_enabled = bool(posting_runtime.get("policy_enabled", config_default))
+        feedback_state = resolve_command_click_feedback_state(
+            positive_click_ts_ms=enable_click_ts_ms,
+            negative_click_ts_ms=disable_click_ts_ms,
+            positive_state="enabling",
+            negative_state="disabling",
+            now_ts=now_tz(config),
+            hold_seconds=ui_transition_feedback_hold_s,
+        )
+        display_state = posting_display_state(server_state, feedback_state)
+        controls = posting_controls_state(display_state)
+        visual_enabled = display_state in {"enabled", "enabling"}
+        enable_class, disable_class = classes_for(visual_enabled)
+        return (
+            bool(policy_enabled),
+            enable_class,
+            disable_class,
+            bool(controls["enable_disabled"]),
+            bool(controls["disable_disabled"]),
+        )
 
+    @app.callback(
+        Output("posting-settings-action", "data"),
+        [Input("api-posting-enable-btn", "n_clicks"), Input("api-posting-disable-btn", "n_clicks")],
+        prevent_initial_call=True,
+    )
+    def enqueue_posting_command(enable_clicks, disable_clicks):
+        ctx = callback_context
         if not ctx.triggered:
-            enable_class, disable_class = classes_for(stored_enabled)
-            return stored_enabled, enable_class, disable_class
-
+            raise PreventUpdate
         trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
-        selected_enabled = bool(current_enabled if current_enabled is not None else stored_enabled)
-        if trigger_id == "api-posting-enable-btn":
-            selected_enabled = True
-        elif trigger_id == "api-posting-disable-btn":
-            selected_enabled = False
+        intent = posting_intent_from_trigger(trigger_id)
+        if intent is None:
+            raise PreventUpdate
+        status = enqueue_settings_command(
+            shared_data,
+            kind=intent["kind"],
+            payload=intent["payload"],
+            source="dashboard",
+            now_fn=lambda: now_tz(config),
+        )
+        logging.info("Dashboard: queued settings command trigger=%s kind=%s id=%s state=%s", trigger_id, status.get("kind"), status.get("id"), status.get("state"))
+        return f"{status['kind']}:{status['id']}:{status['state']}"
 
-        with shared_data["lock"]:
-            shared_data["measurement_posting_enabled"] = bool(selected_enabled)
+    @app.callback(
+        [
+            Output("set-password-btn", "children"),
+            Output("set-password-btn", "disabled"),
+            Output("disconnect-api-btn", "children"),
+            Output("disconnect-api-btn", "disabled"),
+        ],
+        [
+            Input("interval-component", "n_intervals"),
+            Input("api-connection-action", "data"),
+            Input("set-password-btn", "n_clicks_timestamp"),
+            Input("disconnect-api-btn", "n_clicks_timestamp"),
+        ],
+        prevent_initial_call=False,
+    )
+    def render_api_connection_buttons(_n, _action_token, connect_click_ts_ms, disconnect_click_ts_ms):
+        snapshot = snapshot_locked(
+            shared_data,
+            lambda data: {
+                "api_connection_runtime": dict(data.get("api_connection_runtime", {}) or {}),
+                "data_fetcher_status": dict(data.get("data_fetcher_status", {}) or {}),
+            },
+        )
+        api_runtime = snapshot["api_connection_runtime"]
+        fetcher_status = snapshot["data_fetcher_status"]
+        feedback_state = resolve_command_click_feedback_state(
+            positive_click_ts_ms=connect_click_ts_ms,
+            negative_click_ts_ms=disconnect_click_ts_ms,
+            positive_state="connecting",
+            negative_state="disconnecting",
+            now_ts=now_tz(config),
+            hold_seconds=ui_transition_feedback_hold_s,
+        )
+        derived_error = bool(fetcher_status.get("error")) and str(api_runtime.get("desired_state", "")) == "connected"
+        display_state = api_connection_display_state(api_runtime.get("state"), feedback_state, derived_error=derived_error)
+        controls = api_connection_controls_state(display_state)
+        return (
+            controls["connect_label"],
+            bool(controls["connect_disabled"]),
+            controls["disconnect_label"],
+            bool(controls["disconnect_disabled"]),
+        )
 
-        enable_class, disable_class = classes_for(bool(selected_enabled))
-        return bool(selected_enabled), enable_class, disable_class
+    @app.callback(
+        Output("api-connection-action", "data"),
+        [Input("set-password-btn", "n_clicks"), Input("disconnect-api-btn", "n_clicks")],
+        [State("api-password", "value")],
+        prevent_initial_call=True,
+    )
+    def enqueue_api_connection_command(connect_clicks, disconnect_clicks, password_value):
+        ctx = callback_context
+        if not ctx.triggered:
+            raise PreventUpdate
+        trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
+        intent = api_connection_intent_from_trigger(trigger_id, password_value=password_value)
+        if intent is None:
+            raise PreventUpdate
+        status = enqueue_settings_command(
+            shared_data,
+            kind=intent["kind"],
+            payload=intent["payload"],
+            source="dashboard",
+            now_fn=lambda: now_tz(config),
+        )
+        logging.info("Dashboard: queued settings command trigger=%s kind=%s id=%s state=%s", trigger_id, status.get("kind"), status.get("id"), status.get("state"))
+        return f"{status['kind']}:{status['id']}:{status['state']}"
 
     @app.callback(
         [
@@ -570,59 +692,178 @@ def dashboard_agent(config, shared_data):
 
     @app.callback(
         [
+            Output("manual-toggle-lib-p-enable-btn", "children"),
             Output("manual-toggle-lib-p-enable-btn", "className"),
+            Output("manual-toggle-lib-p-enable-btn", "disabled"),
+            Output("manual-toggle-lib-p-disable-btn", "children"),
             Output("manual-toggle-lib-p-disable-btn", "className"),
+            Output("manual-toggle-lib-p-disable-btn", "disabled"),
+            Output("manual-toggle-lib-p-update-btn", "children"),
+            Output("manual-toggle-lib-p-update-btn", "disabled"),
+            Output("manual-toggle-lib-q-enable-btn", "children"),
             Output("manual-toggle-lib-q-enable-btn", "className"),
+            Output("manual-toggle-lib-q-enable-btn", "disabled"),
+            Output("manual-toggle-lib-q-disable-btn", "children"),
             Output("manual-toggle-lib-q-disable-btn", "className"),
+            Output("manual-toggle-lib-q-disable-btn", "disabled"),
+            Output("manual-toggle-lib-q-update-btn", "children"),
+            Output("manual-toggle-lib-q-update-btn", "disabled"),
+            Output("manual-toggle-vrfb-p-enable-btn", "children"),
             Output("manual-toggle-vrfb-p-enable-btn", "className"),
+            Output("manual-toggle-vrfb-p-enable-btn", "disabled"),
+            Output("manual-toggle-vrfb-p-disable-btn", "children"),
             Output("manual-toggle-vrfb-p-disable-btn", "className"),
+            Output("manual-toggle-vrfb-p-disable-btn", "disabled"),
+            Output("manual-toggle-vrfb-p-update-btn", "children"),
+            Output("manual-toggle-vrfb-p-update-btn", "disabled"),
+            Output("manual-toggle-vrfb-q-enable-btn", "children"),
             Output("manual-toggle-vrfb-q-enable-btn", "className"),
+            Output("manual-toggle-vrfb-q-enable-btn", "disabled"),
+            Output("manual-toggle-vrfb-q-disable-btn", "children"),
             Output("manual-toggle-vrfb-q-disable-btn", "className"),
+            Output("manual-toggle-vrfb-q-disable-btn", "disabled"),
+            Output("manual-toggle-vrfb-q-update-btn", "children"),
+            Output("manual-toggle-vrfb-q-update-btn", "disabled"),
         ],
         [
-            Input("manual-toggle-lib-p-enable-btn", "n_clicks"),
-            Input("manual-toggle-lib-p-disable-btn", "n_clicks"),
-            Input("manual-toggle-lib-q-enable-btn", "n_clicks"),
-            Input("manual-toggle-lib-q-disable-btn", "n_clicks"),
-            Input("manual-toggle-vrfb-p-enable-btn", "n_clicks"),
-            Input("manual-toggle-vrfb-p-disable-btn", "n_clicks"),
-            Input("manual-toggle-vrfb-q-enable-btn", "n_clicks"),
-            Input("manual-toggle-vrfb-q-disable-btn", "n_clicks"),
+            Input("interval-component", "n_intervals"),
+            Input("manual-settings-action", "data"),
+            Input("manual-editor-status-store", "data"),
+            Input("manual-toggle-lib-p-enable-btn", "n_clicks_timestamp"),
+            Input("manual-toggle-lib-p-disable-btn", "n_clicks_timestamp"),
+            Input("manual-toggle-lib-p-update-btn", "n_clicks_timestamp"),
+            Input("manual-toggle-lib-q-enable-btn", "n_clicks_timestamp"),
+            Input("manual-toggle-lib-q-disable-btn", "n_clicks_timestamp"),
+            Input("manual-toggle-lib-q-update-btn", "n_clicks_timestamp"),
+            Input("manual-toggle-vrfb-p-enable-btn", "n_clicks_timestamp"),
+            Input("manual-toggle-vrfb-p-disable-btn", "n_clicks_timestamp"),
+            Input("manual-toggle-vrfb-p-update-btn", "n_clicks_timestamp"),
+            Input("manual-toggle-vrfb-q-enable-btn", "n_clicks_timestamp"),
+            Input("manual-toggle-vrfb-q-disable-btn", "n_clicks_timestamp"),
+            Input("manual-toggle-vrfb-q-update-btn", "n_clicks_timestamp"),
         ],
         prevent_initial_call=False,
     )
-    def handle_manual_merge_toggles(*_clicks):
-        ctx = callback_context
-        mapping = {
-            "manual-toggle-lib-p-enable-btn": ("lib_p", True),
-            "manual-toggle-lib-p-disable-btn": ("lib_p", False),
-            "manual-toggle-lib-q-enable-btn": ("lib_q", True),
-            "manual-toggle-lib-q-disable-btn": ("lib_q", False),
-            "manual-toggle-vrfb-p-enable-btn": ("vrfb_p", True),
-            "manual-toggle-vrfb-p-disable-btn": ("vrfb_p", False),
-            "manual-toggle-vrfb-q-enable-btn": ("vrfb_q", True),
-            "manual-toggle-vrfb-q-disable-btn": ("vrfb_q", False),
+    def render_manual_series_controls(
+        _n_intervals,
+        _manual_settings_action,
+        _manual_editor_status,
+        lib_p_activate_ts,
+        lib_p_inactivate_ts,
+        lib_p_update_ts,
+        lib_q_activate_ts,
+        lib_q_inactivate_ts,
+        lib_q_update_ts,
+        vrfb_p_activate_ts,
+        vrfb_p_inactivate_ts,
+        vrfb_p_update_ts,
+        vrfb_q_activate_ts,
+        vrfb_q_inactivate_ts,
+        vrfb_q_update_ts,
+    ):
+        ts_map = {
+            "lib_p": {"activate": lib_p_activate_ts, "inactivate": lib_p_inactivate_ts, "update": lib_p_update_ts},
+            "lib_q": {"activate": lib_q_activate_ts, "inactivate": lib_q_inactivate_ts, "update": lib_q_update_ts},
+            "vrfb_p": {"activate": vrfb_p_activate_ts, "inactivate": vrfb_p_inactivate_ts, "update": vrfb_p_update_ts},
+            "vrfb_q": {"activate": vrfb_q_activate_ts, "inactivate": vrfb_q_inactivate_ts, "update": vrfb_q_update_ts},
         }
-        if ctx.triggered:
-            trigger_id = _parse_trigger_id(ctx.triggered[0]["prop_id"])
-            if trigger_id in mapping:
-                key, enabled = mapping[trigger_id]
-                with shared_data["lock"]:
-                    merge_map = dict(shared_data.get("manual_schedule_merge_enabled_by_key", {}))
-                    for series_key in msm.MANUAL_SERIES_KEYS:
-                        merge_map[series_key] = bool(merge_map.get(series_key, False))
-                    merge_map[key] = bool(enabled)
-                    shared_data["manual_schedule_merge_enabled_by_key"] = merge_map
+        snapshot = _get_manual_series_snapshot()
+        draft_series_map = snapshot["draft_series_map"]
+        applied_series_map = snapshot["applied_series_map"]
+        runtime_state_map = snapshot["runtime_state"]
+        now_value = now_tz(config)
 
-        merge_enabled = snapshot_locked(
-            shared_data,
-            lambda data: dict(data.get("manual_schedule_merge_enabled_by_key", {})),
-        )
         outputs = []
         for key in ("lib_p", "lib_q", "vrfb_p", "vrfb_q"):
-            active_cls, inactive_cls = _manual_toggle_classes(bool(merge_enabled.get(key, False)))
-            outputs.extend([active_cls, inactive_cls])
+            runtime = dict(runtime_state_map.get(key, {}) or {})
+            server_state = str(runtime.get("state") or ("active" if runtime.get("active") else "inactive"))
+            click_ts = ts_map.get(key, {})
+            display_state = manual_series_display_state(
+                server_state,
+                resolve_command_click_feedback_state(
+                    positive_click_ts_ms=click_ts.get("activate"),
+                    negative_click_ts_ms=click_ts.get("inactivate"),
+                    positive_state="activating",
+                    negative_state="inactivating",
+                    now_ts=now_value,
+                    hold_seconds=ui_transition_feedback_hold_s,
+                )
+                or (
+                    "updating"
+                    if resolve_command_click_feedback_state(
+                        positive_click_ts_ms=click_ts.get("update"),
+                        negative_click_ts_ms=None,
+                        positive_state="updating",
+                        negative_state="updating",
+                        now_ts=now_value,
+                        hold_seconds=ui_transition_feedback_hold_s,
+                    )
+                    == "updating"
+                    else None
+                ),
+            )
+            draft_df = draft_series_map.get(key, pd.DataFrame())
+            applied_df = applied_series_map.get(key, pd.DataFrame())
+            has_draft_rows = not msm.normalize_manual_series_df(draft_df, timezone_name=config.get("TIMEZONE_NAME")).empty
+            is_dirty = _manual_series_is_dirty(key, draft_df, applied_df)
+            control_state = manual_series_controls_state(display_state, has_draft_rows=has_draft_rows, is_dirty=is_dirty)
+            active_cls, inactive_cls = _manual_toggle_classes(bool(control_state["active_visual"]))
+            outputs.extend(
+                [
+                    control_state["activate_label"],
+                    active_cls,
+                    bool(control_state["activate_disabled"]),
+                    control_state["inactivate_label"],
+                    inactive_cls,
+                    bool(control_state["inactivate_disabled"]),
+                    control_state["update_label"],
+                    bool(control_state["update_disabled"]),
+                ]
+            )
         return tuple(outputs)
+
+    @app.callback(
+        Output("manual-settings-action", "data"),
+        [
+            Input("manual-toggle-lib-p-enable-btn", "n_clicks"),
+            Input("manual-toggle-lib-p-disable-btn", "n_clicks"),
+            Input("manual-toggle-lib-p-update-btn", "n_clicks"),
+            Input("manual-toggle-lib-q-enable-btn", "n_clicks"),
+            Input("manual-toggle-lib-q-disable-btn", "n_clicks"),
+            Input("manual-toggle-lib-q-update-btn", "n_clicks"),
+            Input("manual-toggle-vrfb-p-enable-btn", "n_clicks"),
+            Input("manual-toggle-vrfb-p-disable-btn", "n_clicks"),
+            Input("manual-toggle-vrfb-p-update-btn", "n_clicks"),
+            Input("manual-toggle-vrfb-q-enable-btn", "n_clicks"),
+            Input("manual-toggle-vrfb-q-disable-btn", "n_clicks"),
+            Input("manual-toggle-vrfb-q-update-btn", "n_clicks"),
+        ],
+        prevent_initial_call=True,
+    )
+    def enqueue_manual_series_commands(*_clicks):
+        ctx = callback_context
+        if not ctx.triggered:
+            raise PreventUpdate
+        trigger_id = _parse_trigger_id(ctx.triggered[0]["prop_id"])
+        draft_map = snapshot_locked(shared_data, lambda data: dict(data.get("manual_schedule_draft_series_df_by_key", {})))
+        intent = manual_settings_intent_from_trigger(trigger_id, draft_series_by_key=draft_map, tz=tz)
+        if intent is None:
+            raise PreventUpdate
+        status = enqueue_settings_command(
+            shared_data,
+            kind=intent["kind"],
+            payload=intent["payload"],
+            source="dashboard",
+            now_fn=lambda: now_tz(config),
+        )
+        logging.info(
+            "Dashboard: queued manual settings command trigger=%s kind=%s id=%s state=%s",
+            trigger_id,
+            status.get("kind"),
+            status.get("id"),
+            status.get("state"),
+        )
+        return f"{status['kind']}:{status['id']}:{status['state']}"
 
     @app.callback(
         [
@@ -635,21 +876,15 @@ def dashboard_agent(config, shared_data):
             Input("interval-component", "n_intervals"),
             Input("manual-editor-rows-store", "data"),
             Input("manual-editor-status-store", "data"),
-            Input("manual-toggle-lib-p-enable-btn", "n_clicks"),
-            Input("manual-toggle-lib-p-disable-btn", "n_clicks"),
-            Input("manual-toggle-lib-q-enable-btn", "n_clicks"),
-            Input("manual-toggle-lib-q-disable-btn", "n_clicks"),
-            Input("manual-toggle-vrfb-p-enable-btn", "n_clicks"),
-            Input("manual-toggle-vrfb-p-disable-btn", "n_clicks"),
-            Input("manual-toggle-vrfb-q-enable-btn", "n_clicks"),
-            Input("manual-toggle-vrfb-q-disable-btn", "n_clicks"),
+            Input("manual-settings-action", "data"),
         ],
         prevent_initial_call=False,
     )
     def update_manual_override_plots(*_):
         snapshot = _get_manual_series_snapshot()
-        series_map = snapshot["series_map"]
-        merge_enabled = snapshot["merge_enabled"]
+        draft_series_map = snapshot["draft_series_map"]
+        applied_series_map = snapshot["applied_series_map"]
+        runtime_state = snapshot["runtime_state"]
         window_start, window_end = _manual_window_bounds()
 
         def fig_for(series_key):
@@ -658,8 +893,9 @@ def dashboard_agent(config, shared_data):
             return create_manual_series_figure(
                 title=f"{meta['label']} (Manual Override)",
                 unit_label=meta["unit"],
-                series_df=series_map.get(series_key, pd.DataFrame()),
-                enabled=bool(merge_enabled.get(series_key, False)),
+                staged_series_df=draft_series_map.get(series_key, pd.DataFrame()),
+                applied_series_df=applied_series_map.get(series_key, pd.DataFrame()),
+                applied_enabled=bool(dict(runtime_state.get(series_key, {}) or {}).get("active", False)),
                 tz=tz,
                 plot_theme=plot_theme,
                 line_color=trace_colors["p_setpoint"] if is_p else trace_colors["q_setpoint"],
@@ -690,8 +926,8 @@ def dashboard_agent(config, shared_data):
         if series_key not in msm.MANUAL_SERIES_KEYS:
             series_key = "lib_p"
         with shared_data["lock"]:
-            _sync_manual_schedule_shared_state_locked(shared_data)
-            series_df = dict(shared_data.get("manual_schedule_series_df_by_key", {})).get(series_key, pd.DataFrame())
+            _sync_manual_draft_shared_state_locked(shared_data)
+            series_df = dict(shared_data.get("manual_schedule_draft_series_df_by_key", {})).get(series_key, pd.DataFrame())
         start_ts, rows = msm.manual_series_df_to_editor_rows_and_start(series_df, timezone_name=config.get("TIMEZONE_NAME"))
         if start_ts is None or pd.isna(start_ts):
             start_ts = normalize_timestamp_value(now_tz(config), tz)
@@ -1059,7 +1295,7 @@ def dashboard_agent(config, shared_data):
             count = len(list(rows or []))
             meta = msm.MANUAL_SERIES_META.get(series_key or "", {})
             label = meta.get("label", str(series_key or "schedule"))
-            return f"{label}: applied {count} breakpoint(s)."
+            return f"{label}: staged {count} breakpoint(s)."
         except Exception as exc:
             return f"Manual editor validation failed: {exc}"
 
@@ -1071,29 +1307,16 @@ def dashboard_agent(config, shared_data):
         ],
         [
             Input("interval-component", "n_intervals"),
-            Input("set-password-btn", "n_clicks"),
-            Input("disconnect-api-btn", "n_clicks"),
-            Input("api-posting-toggle-store", "data"),
+            Input("api-connection-action", "data"),
+            Input("posting-settings-action", "data"),
         ],
-        [State("api-password", "value")],
     )
-    def update_api_tab(n_intervals, set_clicks, disconnect_clicks, _posting_toggle_state, password_value):
-        ctx = callback_context
-        if ctx.triggered:
-            trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
-            if trigger_id == "set-password-btn" and password_value:
-                with shared_data["lock"]:
-                    shared_data["api_password"] = password_value
-            elif trigger_id == "disconnect-api-btn":
-                with shared_data["lock"]:
-                    shared_data["api_password"] = None
-
+    def update_api_tab(n_intervals, api_connection_action, posting_settings_action):
         with shared_data["lock"]:
             status = shared_data.get("data_fetcher_status", {}).copy()
             api_password = shared_data.get("api_password")
-            posting_toggle_enabled = bool(
-                shared_data.get("measurement_posting_enabled", config.get("ISTENTORE_POST_MEASUREMENTS_IN_API_MODE", True))
-            )
+            api_connection_runtime = dict(shared_data.get("api_connection_runtime", {}) or {})
+            posting_runtime = dict(shared_data.get("posting_runtime", {}) or {})
             api_map = {
                 plant_id: shared_data.get("api_schedule_df_by_plant", {}).get(plant_id, pd.DataFrame()).copy()
                 for plant_id in plant_ids
@@ -1102,20 +1325,47 @@ def dashboard_agent(config, shared_data):
                 plant_id: dict((shared_data.get("measurement_post_status", {}) or {}).get(plant_id, {}) or {})
                 for plant_id in plant_ids
             }
-
-        connected = "Connected" if status.get("connected") else "Not connected"
-        auth_state = "Password set" if api_password else "Password not set"
-        posting_toggle_text = "Enabled" if posting_toggle_enabled else "Disabled"
+        auth_state = "Password stored" if api_password else "No stored password"
+        posting_policy_enabled = bool(
+            posting_runtime.get(
+                "policy_enabled",
+                config.get("ISTENTORE_POST_MEASUREMENTS_IN_API_MODE", True),
+            )
+        )
+        has_posting_error = any(
+            isinstance((post_status_map.get(pid) or {}).get("last_error"), dict) for pid in plant_ids
+        )
+        derived_api_error = bool(status.get("error")) or (has_posting_error and str(api_connection_runtime.get("desired_state", "")) == "connected")
+        api_state_display = api_connection_display_state(
+            api_connection_runtime.get("state"),
+            None,
+            derived_error=derived_api_error,
+        )
+        posting_policy_state = posting_display_state(posting_runtime.get("state"), None)
+        api_intended_connected = str(api_connection_runtime.get("desired_state", "disconnected")) == "connected"
+        posting_effective = bool(posting_policy_enabled and api_intended_connected and bool(api_password))
+        posting_effective_text = "Active" if posting_effective else "Blocked"
 
         points_today = status.get("today_points_by_plant", {})
         points_tomorrow = status.get("tomorrow_points_by_plant", {})
         status_text = (
-            f"API: {connected} | {auth_state} | Posting toggle: {posting_toggle_text} | "
+            f"API Connection: {api_state_display.capitalize()} | {auth_state} | "
+            f"Posting Policy: {posting_policy_state.capitalize()} | "
+            f"Posting Effective: {posting_effective_text} | "
             f"Today {status.get('today_date')}: LIB={points_today.get('lib', 0)} VRFB={points_today.get('vrfb', 0)} | "
             f"Tomorrow {status.get('tomorrow_date')}: LIB={points_tomorrow.get('lib', 0)} VRFB={points_tomorrow.get('vrfb', 0)}"
         )
-        if status.get("error"):
-            status_text += f" | Error: {status.get('error')}"
+        api_error_text = None
+        if derived_api_error:
+            api_error_text = status.get("error")
+            if not api_error_text:
+                for pid in plant_ids:
+                    last_error = (post_status_map.get(pid) or {}).get("last_error")
+                    if isinstance(last_error, dict) and last_error.get("message"):
+                        api_error_text = last_error.get("message")
+                        break
+        if api_error_text:
+            status_text += f" | Error: {api_error_text}"
 
         def format_ts(value):
             ts = normalize_timestamp_value(value, tz)

@@ -646,13 +646,18 @@ def measurement_agent(config, shared_data):
                 "requested_files": dict(data.get("measurements_filename_by_plant", {})),
                 "api_password": data.get("api_password"),
                 "posting_toggle_enabled": bool(data.get("measurement_posting_enabled", config_post_measurements_enabled)),
+                "posting_runtime": dict(data.get("posting_runtime", {}) or {}),
+                "api_connection_runtime": dict(data.get("api_connection_runtime", {}) or {}),
                 "current_paths": dict(data.get("current_file_path_by_plant", {})),
             },
         )
         transport_mode = snapshot["transport_mode"]
         requested_files = snapshot["requested_files"]
         api_password = snapshot["api_password"]
-        posting_toggle_enabled = bool(snapshot["posting_toggle_enabled"])
+        posting_runtime = dict(snapshot.get("posting_runtime", {}) or {})
+        api_connection_runtime = dict(snapshot.get("api_connection_runtime", {}) or {})
+        posting_toggle_enabled = bool(posting_runtime.get("policy_enabled", snapshot["posting_toggle_enabled"]))
+        api_connection_state = str(api_connection_runtime.get("state") or ("connected" if api_password else "disconnected"))
         current_paths = snapshot["current_paths"]
 
         for plant_id in plant_ids:
@@ -716,7 +721,8 @@ def measurement_agent(config, shared_data):
                 state["session_tail_ts"] = measurement_ts
                 state["session_tail_is_null"] = False
 
-        posting_mode_now = posting_toggle_enabled and bool(api_password)
+        api_connection_allows_posting = api_connection_state in {"connected", "error"} or ("state" not in api_connection_runtime)
+        posting_mode_now = posting_toggle_enabled and api_connection_allows_posting and bool(api_password)
         set_posting_enabled(posting_mode_now)
 
         if not posting_mode_now and posting_mode_active:

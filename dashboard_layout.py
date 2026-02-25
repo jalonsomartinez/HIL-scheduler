@@ -288,81 +288,98 @@ def build_dashboard_layout(
                                                 children=[
                                                     html.Div(
                                                         className="manual-override-grid",
+                                                        style={"rowGap": "16px", "columnGap": "16px"},
                                                         children=[
                                                             html.Div(
                                                                 className="manual-override-card",
+                                                                style={"paddingBottom": "10px"},
                                                                 children=[
                                                                     html.Div(
                                                                         className="form-row",
+                                                                        style={"alignItems": "center", "gap": "10px"},
                                                                         children=[
                                                                             html.Div("LIB Active Power", className="toggle-label"),
                                                                             html.Div(
                                                                                 className="compact-toggle",
                                                                                 children=[
-                                                                                    html.Button("Active", id="manual-toggle-lib-p-enable-btn", className="toggle-option", n_clicks=0),
-                                                                                    html.Button("Inactive", id="manual-toggle-lib-p-disable-btn", className="toggle-option active", n_clicks=0),
+                                                                                    html.Button("Activate", id="manual-toggle-lib-p-enable-btn", className="toggle-option", n_clicks=0),
+                                                                                    html.Button("Inactivated", id="manual-toggle-lib-p-disable-btn", className="toggle-option active", n_clicks=0),
                                                                                 ],
                                                                             ),
+                                                                            html.Button("Update", id="manual-toggle-lib-p-update-btn", className="btn btn-secondary", n_clicks=0),
                                                                         ],
                                                                     ),
-                                                                    dcc.Graph(id="manual-graph-lib-p", className="plot-graph"),
+                                                                    html.Div(style={"height": "4px"}),
+                                                                    dcc.Graph(id="manual-graph-lib-p", className="plot-graph", style={"marginBottom": "6px"}),
                                                                 ],
                                                             ),
                                                             html.Div(
                                                                 className="manual-override-card",
+                                                                style={"paddingBottom": "10px"},
                                                                 children=[
                                                                     html.Div(
                                                                         className="form-row",
+                                                                        style={"alignItems": "center", "gap": "10px"},
                                                                         children=[
                                                                             html.Div("LIB Reactive Power", className="toggle-label"),
                                                                             html.Div(
                                                                                 className="compact-toggle",
                                                                                 children=[
-                                                                                    html.Button("Active", id="manual-toggle-lib-q-enable-btn", className="toggle-option", n_clicks=0),
-                                                                                    html.Button("Inactive", id="manual-toggle-lib-q-disable-btn", className="toggle-option active", n_clicks=0),
+                                                                                    html.Button("Activate", id="manual-toggle-lib-q-enable-btn", className="toggle-option", n_clicks=0),
+                                                                                    html.Button("Inactivated", id="manual-toggle-lib-q-disable-btn", className="toggle-option active", n_clicks=0),
                                                                                 ],
                                                                             ),
+                                                                            html.Button("Update", id="manual-toggle-lib-q-update-btn", className="btn btn-secondary", n_clicks=0),
                                                                         ],
                                                                     ),
-                                                                    dcc.Graph(id="manual-graph-lib-q", className="plot-graph"),
+                                                                    html.Div(style={"height": "4px"}),
+                                                                    dcc.Graph(id="manual-graph-lib-q", className="plot-graph", style={"marginBottom": "6px"}),
                                                                 ],
                                                             ),
                                                             html.Div(
                                                                 className="manual-override-card",
+                                                                style={"paddingBottom": "10px"},
                                                                 children=[
                                                                     html.Div(
                                                                         className="form-row",
+                                                                        style={"alignItems": "center", "gap": "10px"},
                                                                         children=[
                                                                             html.Div("VRFB Active Power", className="toggle-label"),
                                                                             html.Div(
                                                                                 className="compact-toggle",
                                                                                 children=[
-                                                                                    html.Button("Active", id="manual-toggle-vrfb-p-enable-btn", className="toggle-option", n_clicks=0),
-                                                                                    html.Button("Inactive", id="manual-toggle-vrfb-p-disable-btn", className="toggle-option active", n_clicks=0),
+                                                                                    html.Button("Activate", id="manual-toggle-vrfb-p-enable-btn", className="toggle-option", n_clicks=0),
+                                                                                    html.Button("Inactivated", id="manual-toggle-vrfb-p-disable-btn", className="toggle-option active", n_clicks=0),
                                                                                 ],
                                                                             ),
+                                                                            html.Button("Update", id="manual-toggle-vrfb-p-update-btn", className="btn btn-secondary", n_clicks=0),
                                                                         ],
                                                                     ),
-                                                                    dcc.Graph(id="manual-graph-vrfb-p", className="plot-graph"),
+                                                                    html.Div(style={"height": "4px"}),
+                                                                    dcc.Graph(id="manual-graph-vrfb-p", className="plot-graph", style={"marginBottom": "6px"}),
                                                                 ],
                                                             ),
                                                             html.Div(
                                                                 className="manual-override-card",
+                                                                style={"paddingBottom": "10px"},
                                                                 children=[
                                                                     html.Div(
                                                                         className="form-row",
+                                                                        style={"alignItems": "center", "gap": "10px"},
                                                                         children=[
                                                                             html.Div("VRFB Reactive Power", className="toggle-label"),
                                                                             html.Div(
                                                                                 className="compact-toggle",
                                                                                 children=[
-                                                                                    html.Button("Active", id="manual-toggle-vrfb-q-enable-btn", className="toggle-option", n_clicks=0),
-                                                                                    html.Button("Inactive", id="manual-toggle-vrfb-q-disable-btn", className="toggle-option active", n_clicks=0),
+                                                                                    html.Button("Activate", id="manual-toggle-vrfb-q-enable-btn", className="toggle-option", n_clicks=0),
+                                                                                    html.Button("Inactivated", id="manual-toggle-vrfb-q-disable-btn", className="toggle-option active", n_clicks=0),
                                                                                 ],
                                                                             ),
+                                                                            html.Button("Update", id="manual-toggle-vrfb-q-update-btn", className="btn btn-secondary", n_clicks=0),
                                                                         ],
                                                                     ),
-                                                                    dcc.Graph(id="manual-graph-vrfb-q", className="plot-graph"),
+                                                                    html.Div(style={"height": "4px"}),
+                                                                    dcc.Graph(id="manual-graph-vrfb-q", className="plot-graph", style={"marginBottom": "6px"}),
                                                                 ],
                                                             ),
                                                         ],
@@ -482,7 +499,7 @@ def build_dashboard_layout(
                                         className="form-row api-credentials-row",
                                         children=[
                                             dcc.Input(id="api-password", type="password", placeholder="API password", className="form-control api-password-input"),
-                                            html.Button("Set Password", id="set-password-btn", className="btn btn-primary", n_clicks=0),
+                                            html.Button("Connect", id="set-password-btn", className="btn btn-primary", n_clicks=0),
                                             html.Button("Disconnect", id="disconnect-api-btn", className="btn btn-danger", n_clicks=0),
                                         ],
                                     ),
@@ -557,6 +574,9 @@ def build_dashboard_layout(
                 ],
             ),
             dcc.Store(id="control-action", data="idle"),
+            dcc.Store(id="manual-settings-action", data="idle"),
+            dcc.Store(id="api-connection-action", data="idle"),
+            dcc.Store(id="posting-settings-action", data="idle"),
             dcc.Store(id="bulk-control-request", data=None),
             dcc.Store(id="transport-mode-selector", data=initial_transport),
             dcc.Store(id="api-posting-toggle-store", data=bool(initial_posting_enabled)),
