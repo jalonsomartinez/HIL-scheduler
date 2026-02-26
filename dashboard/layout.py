@@ -58,8 +58,8 @@ def build_dashboard_layout(
                                                     html.Div(
                                                         className="compact-toggle",
                                                         children=[
-                                                            html.Button("Local", id="transport-local-btn", className="toggle-option active", n_clicks=0),
-                                                            html.Button("Remote", id="transport-remote-btn", className="toggle-option", n_clicks=0),
+                                                            html.Button("Local", id="transport-local-btn", className="toggle-option active", n_clicks=0, disabled=True),
+                                                            html.Button("Remote", id="transport-remote-btn", className="toggle-option", n_clicks=0, disabled=False),
                                                         ],
                                                     ),
                                                 ],
@@ -85,19 +85,19 @@ def build_dashboard_layout(
                                 ],
                             ),
                             html.Div(
-                                id="transport-switch-modal",
+                                id="toggle-confirm-modal",
                                 className="modal-overlay hidden",
                                 children=[
                                     html.Div(
                                         className="modal-card",
                                         children=[
-                                            html.H3("Confirm Transport Switch", className="modal-title"),
-                                            html.P("Switching transport mode will safe-stop both plants, stop recording, and clear plot caches. Continue?"),
+                                            html.H3("Confirm Action", id="toggle-confirm-modal-title", className="modal-title"),
+                                            html.P("", id="toggle-confirm-modal-text"),
                                             html.Div(
                                                 className="modal-actions",
                                                 children=[
-                                                    html.Button("Cancel", id="transport-switch-cancel", className="btn btn-secondary"),
-                                                    html.Button("Confirm", id="transport-switch-confirm", className="btn btn-primary"),
+                                                    html.Button("Cancel", id="toggle-confirm-cancel", className="btn btn-secondary"),
+                                                    html.Button("Confirm", id="toggle-confirm-confirm", className="btn btn-primary"),
                                                 ],
                                             ),
                                         ],
@@ -639,6 +639,8 @@ def build_dashboard_layout(
             dcc.Store(id="api-connection-action", data="idle"),
             dcc.Store(id="posting-settings-action", data="idle"),
             dcc.Store(id="bulk-control-request", data=None),
+            dcc.Store(id="toggle-confirm-request", data=None),
+            dcc.Store(id="toggle-confirm-action", data=None),
             dcc.Store(id="transport-mode-selector", data=initial_transport),
             dcc.Store(id="api-posting-toggle-store", data=bool(initial_posting_enabled)),
             dcc.Store(id="manual-editor-rows-store", data=[]),
@@ -649,7 +651,7 @@ def build_dashboard_layout(
             dcc.Download(id="manual-editor-download"),
             dcc.ConfirmDialog(id="manual-editor-clear-confirm", message="Clear selected manual schedule?"),
             dcc.ConfirmDialog(id="manual-editor-delete-confirm", message="Delete this breakpoint?"),
-            dcc.Interval(id="interval-component", interval=int(float(config.get("MEASUREMENT_PERIOD_S", 1)) * 1000), n_intervals=0),
+            dcc.Interval(id="interval-component", interval=int(float(config["MEASUREMENT_PERIOD_S"]) * 1000), n_intervals=0),
             dcc.Interval(id="plots-refresh-interval", interval=30000, n_intervals=0),
         ],
     )

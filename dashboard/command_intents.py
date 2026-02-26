@@ -39,3 +39,30 @@ def transport_switch_intent_from_confirm(trigger_id, *, stored_mode):
     current_mode = "remote" if str(stored_mode) == "remote" else "local"
     requested_mode = "local" if current_mode == "remote" else "remote"
     return {"kind": "transport.switch", "payload": {"mode": requested_mode}, "requested_mode": requested_mode}
+
+
+def confirmed_toggle_intent_from_request(request):
+    """Map a generic confirmed-toggle request payload to a normalized control intent."""
+    req = dict(request or {})
+    toggle_key = str(req.get("toggle_key") or "")
+    requested_side = str(req.get("requested_side") or "")
+    resource_key = req.get("resource_key")
+
+    if toggle_key == "transport":
+        if requested_side == "positive":
+            return {"kind": "transport.switch", "payload": {"mode": "local"}}
+        if requested_side == "negative":
+            return {"kind": "transport.switch", "payload": {"mode": "remote"}}
+        return None
+
+    if toggle_key == "plant_power":
+        plant_id = str(resource_key or "")
+        if plant_id not in {"lib", "vrfb"}:
+            return None
+        if requested_side == "positive":
+            return {"kind": "plant.start", "payload": {"plant_id": plant_id}}
+        if requested_side == "negative":
+            return {"kind": "plant.stop", "payload": {"plant_id": plant_id}}
+        return None
+
+    return None

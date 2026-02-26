@@ -474,7 +474,7 @@ def load_config(config_path="config.yaml"):
         timing_cfg.get("plant_period_s", 1), 1, "timing.plant_period_s", min_value=0.1
     )
     config["MEASUREMENT_PERIOD_S"] = _parse_float(
-        timing_cfg.get("measurement_period_s", 1), 1, "timing.measurement_period_s", min_value=0.1
+        timing_cfg.get("measurement_period_s", 5), 5, "timing.measurement_period_s", min_value=0.1
     )
     config["MEASUREMENTS_WRITE_PERIOD_S"] = _parse_float(
         timing_cfg.get("measurements_write_period_s", 60),

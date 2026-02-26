@@ -1,6 +1,10 @@
 import unittest
 
-from dashboard.command_intents import command_intent_from_control_trigger, transport_switch_intent_from_confirm
+from dashboard.command_intents import (
+    command_intent_from_control_trigger,
+    confirmed_toggle_intent_from_request,
+    transport_switch_intent_from_confirm,
+)
 
 
 class DashboardCommandIntentsTests(unittest.TestCase):
@@ -46,6 +50,25 @@ class DashboardCommandIntentsTests(unittest.TestCase):
             {"kind": "transport.switch", "payload": {"mode": "local"}, "requested_mode": "local"},
         )
         self.assertIsNone(transport_switch_intent_from_confirm("transport-switch-cancel", stored_mode="local"))
+
+    def test_confirmed_toggle_intent_mapping(self):
+        self.assertEqual(
+            confirmed_toggle_intent_from_request({"toggle_key": "transport", "requested_side": "negative"}),
+            {"kind": "transport.switch", "payload": {"mode": "remote"}},
+        )
+        self.assertEqual(
+            confirmed_toggle_intent_from_request(
+                {"toggle_key": "plant_power", "resource_key": "lib", "requested_side": "positive"}
+            ),
+            {"kind": "plant.start", "payload": {"plant_id": "lib"}},
+        )
+        self.assertEqual(
+            confirmed_toggle_intent_from_request(
+                {"toggle_key": "plant_power", "resource_key": "vrfb", "requested_side": "negative"}
+            ),
+            {"kind": "plant.stop", "payload": {"plant_id": "vrfb"}},
+        )
+        self.assertIsNone(confirmed_toggle_intent_from_request({"toggle_key": "plant_power", "resource_key": "bad"}))
 
 
 if __name__ == "__main__":

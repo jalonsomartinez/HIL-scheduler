@@ -15,7 +15,7 @@ from dash import ALL, Dash, Input, Output, State, callback_context, dcc, html
 from dash.exceptions import PreventUpdate
 
 from control.command_runtime import enqueue_control_command
-from dashboard.command_intents import command_intent_from_control_trigger, transport_switch_intent_from_confirm
+from dashboard.command_intents import command_intent_from_control_trigger, confirmed_toggle_intent_from_request
 from dashboard.settings_intents import (
     api_connection_intent_from_trigger,
     manual_settings_intent_from_trigger,
@@ -109,6 +109,8 @@ def dashboard_agent(config, shared_data):
     plot_theme = dict(DEFAULT_PLOT_THEME)
     trace_colors = dict(DEFAULT_TRACE_COLORS)
     ui_transition_feedback_hold_s = 2.0
+    ui_confirm_toggle_min_hold_s = max(ui_transition_feedback_hold_s, float(config["MEASUREMENT_PERIOD_S"]))
+    ui_confirm_toggle_max_hold_s = max(6.0, ui_confirm_toggle_min_hold_s + float(config["MEASUREMENT_PERIOD_S"]))
 
     def plant_name(plant_id):
         return str((plants_cfg.get(plant_id, {}) or {}).get("name", plant_id.upper()))
@@ -264,6 +266,77 @@ def dashboard_agent(config, shared_data):
         elif active_side == "negative":
             negative.append("active")
         return " ".join(positive), " ".join(negative)
+
+    def _toggle_confirm_request_for_transport(*, requested_side):
+        side = "positive" if str(requested_side) == "positive" else "negative"
+        requested_mode = "local" if side == "positive" else "remote"
+        return {
+            "toggle_key": "transport",
+            "resource_key": None,
+            "requested_side": side,
+            "title": "Confirm Transport Switch",
+            "message": "Switching transport mode will safe-stop both plants, stop recording, and clear plot caches. Continue?",
+            "requested_mode": requested_mode,
+        }
+
+    def _toggle_confirm_request_for_plant_power(*, plant_id, requested_side):
+        side = "positive" if str(requested_side) == "positive" else "negative"
+        plant_id = str(plant_id)
+        plant_label = plant_name(plant_id)
+        if side == "positive":
+            title = "Confirm Plant Start"
+            message = f"Start {plant_label} plant operation?"
+        else:
+            title = "Confirm Plant Stop"
+            message = f"Safe-stop {plant_label} plant operation?"
+        return {
+            "toggle_key": "plant_power",
+            "resource_key": plant_id,
+            "requested_side": side,
+            "title": title,
+            "message": message,
+        }
+
+    def _toggle_action_feedback_state(
+        action_data,
+        *,
+        toggle_key,
+        resource_key=None,
+        current_server_state=None,
+        min_hold_s=None,
+        max_hold_s=None,
+    ):
+        if not isinstance(action_data, dict):
+            return None
+        if str(action_data.get("toggle_key") or "") != str(toggle_key):
+            return None
+        if resource_key is not None and str(action_data.get("resource_key")) != str(resource_key):
+            return None
+        try:
+            ts_ms = int(action_data.get("timestamp_ms"))
+        except (TypeError, ValueError):
+            return None
+        now_ts = now_tz(config)
+        age_s = (float(now_ts.timestamp()) * 1000.0 - float(ts_ms)) / 1000.0
+        if age_s < 0:
+            age_s = 0.0
+        min_hold = float(ui_transition_feedback_hold_s if min_hold_s is None else min_hold_s)
+        max_hold = float(ui_transition_feedback_hold_s if max_hold_s is None else max_hold_s)
+        if max_hold < min_hold:
+            max_hold = min_hold
+        if age_s > max_hold:
+            return None
+        server_state_before = action_data.get("server_state_before", None)
+        if age_s >= min_hold and current_server_state is not None and server_state_before is not None:
+            if str(current_server_state) != str(server_state_before):
+                return None
+        side = str(action_data.get("requested_side") or "")
+        return {
+            "requested_side": side,
+            "age_s": age_s,
+            "timestamp_ms": ts_ms,
+            "server_state_before": server_state_before,
+        }
 
     def _epoch_ms_to_ts(epoch_ms):
         return normalize_timestamp_value(pd.to_datetime(int(epoch_ms), unit="ms", utc=True), tz)
@@ -482,62 +555,135 @@ def dashboard_agent(config, shared_data):
     @app.callback(
         [
             Output("transport-mode-selector", "data"),
+            Output("transport-local-btn", "children"),
             Output("transport-local-btn", "className"),
+            Output("transport-local-btn", "disabled"),
+            Output("transport-remote-btn", "children"),
             Output("transport-remote-btn", "className"),
-            Output("transport-switch-modal", "className"),
+            Output("transport-remote-btn", "disabled"),
+        ],
+        [
+            Input("interval-component", "n_intervals"),
+            Input("control-action", "data"),
+            Input("toggle-confirm-action", "data"),
+        ],
+        prevent_initial_call=False,
+    )
+    def render_transport_toggle(_n_intervals, _control_action, toggle_confirm_action):
+        with shared_data["lock"]:
+            stored_mode = str(shared_data.get("transport_mode", "local") or "local")
+            transport_switching = bool(shared_data.get("transport_switching", False))
+
+        feedback = _toggle_action_feedback_state(
+            toggle_confirm_action,
+            toggle_key="transport",
+            current_server_state=stored_mode,
+            min_hold_s=ui_confirm_toggle_min_hold_s,
+            max_hold_s=ui_confirm_toggle_max_hold_s,
+        )
+        if feedback:
+            requested_side = feedback.get("requested_side")
+            if requested_side == "positive":
+                active_side = "positive"
+                local_label = "Switching to Local..."
+                remote_label = "Remote"
+            else:
+                active_side = "negative"
+                local_label = "Local"
+                remote_label = "Switching to Remote..."
+            local_class, remote_class = _binary_toggle_classes(active_side, semantic=False)
+            return (
+                "local" if active_side == "positive" else "remote",
+                local_label,
+                local_class,
+                True,
+                remote_label,
+                remote_class,
+                True,
+            )
+
+        active_side = "negative" if stored_mode == "remote" else "positive"
+        local_class, remote_class = _binary_toggle_classes(active_side, semantic=False)
+        local_disabled = bool(transport_switching or stored_mode == "local")
+        remote_disabled = bool(transport_switching or stored_mode == "remote")
+        return (
+            stored_mode,
+            "Local",
+            local_class,
+            local_disabled,
+            "Remote",
+            remote_class,
+            remote_disabled,
+        )
+
+    @app.callback(
+        [
+            Output("toggle-confirm-modal", "className"),
+            Output("toggle-confirm-modal-title", "children"),
+            Output("toggle-confirm-modal-text", "children"),
+            Output("toggle-confirm-request", "data"),
         ],
         [
             Input("transport-local-btn", "n_clicks"),
             Input("transport-remote-btn", "n_clicks"),
-            Input("transport-switch-cancel", "n_clicks"),
-            Input("transport-switch-confirm", "n_clicks"),
+            Input("start-lib", "n_clicks"),
+            Input("stop-lib", "n_clicks"),
+            Input("start-vrfb", "n_clicks"),
+            Input("stop-vrfb", "n_clicks"),
+            Input("toggle-confirm-cancel", "n_clicks"),
+            Input("toggle-confirm-confirm", "n_clicks"),
         ],
-        [State("transport-mode-selector", "data")],
+        [State("toggle-confirm-request", "data")],
         prevent_initial_call=False,
     )
-    def select_transport_mode(local_clicks, remote_clicks, cancel_clicks, confirm_clicks, current_mode):
+    def handle_toggle_confirm_modal(
+        _transport_local_clicks,
+        _transport_remote_clicks,
+        _start_lib_clicks,
+        _stop_lib_clicks,
+        _start_vrfb_clicks,
+        _stop_vrfb_clicks,
+        _cancel_clicks,
+        _confirm_clicks,
+        current_request,
+    ):
         ctx = callback_context
-        with shared_data["lock"]:
-            stored_mode = shared_data.get("transport_mode", "local")
         hidden_class = "modal-overlay hidden"
         open_class = "modal-overlay"
+        default_title = "Confirm Action"
+        default_text = ""
 
         if not ctx.triggered:
-            if stored_mode == "remote":
-                return "remote", "toggle-option", "toggle-option active", hidden_class
-            return "local", "toggle-option active", "toggle-option", hidden_class
+            return hidden_class, default_title, default_text, None
 
         trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
+        if trigger_id in {"toggle-confirm-cancel", "toggle-confirm-confirm"}:
+            return hidden_class, default_title, default_text, None
 
-        if trigger_id == "transport-switch-cancel":
-            if stored_mode == "remote":
-                return "remote", "toggle-option", "toggle-option active", hidden_class
-            return "local", "toggle-option active", "toggle-option", hidden_class
+        with shared_data["lock"]:
+            stored_mode = str(shared_data.get("transport_mode", "local") or "local")
 
-        if trigger_id == "transport-switch-confirm":
-            intent = transport_switch_intent_from_confirm(trigger_id, stored_mode=stored_mode)
-            if intent:
-                status = _enqueue_dashboard_control_intent(intent)
-                logging.info(
-                    "Dashboard: queued transport switch command %s state=%s mode=%s",
-                    status.get("id"),
-                    status.get("state"),
-                    intent.get("requested_mode"),
-                )
-            requested_mode = (intent or {}).get("requested_mode", ("remote" if stored_mode == "local" else "local"))
+        if trigger_id in {"transport-local-btn", "transport-remote-btn"}:
+            requested_side = "positive" if trigger_id == "transport-local-btn" else "negative"
+            requested_mode = "local" if requested_side == "positive" else "remote"
+            if requested_mode == stored_mode:
+                return hidden_class, default_title, default_text, current_request
+            req = _toggle_confirm_request_for_transport(requested_side=requested_side)
+            return open_class, req["title"], req["message"], req
 
-            if requested_mode == "remote":
-                return "remote", "toggle-option", "toggle-option active", hidden_class
-            return "local", "toggle-option active", "toggle-option", hidden_class
+        plant_trigger_map = {
+            "start-lib": ("lib", "positive"),
+            "stop-lib": ("lib", "negative"),
+            "start-vrfb": ("vrfb", "positive"),
+            "stop-vrfb": ("vrfb", "negative"),
+        }
+        mapped = plant_trigger_map.get(trigger_id)
+        if mapped:
+            plant_id, requested_side = mapped
+            req = _toggle_confirm_request_for_plant_power(plant_id=plant_id, requested_side=requested_side)
+            return open_class, req["title"], req["message"], req
 
-        if trigger_id == "transport-remote-btn" and stored_mode != "remote":
-            return stored_mode, "toggle-option active", "toggle-option", open_class
-        if trigger_id == "transport-local-btn" and stored_mode != "local":
-            return stored_mode, "toggle-option", "toggle-option active", open_class
-
-        if stored_mode == "remote":
-            return "remote", "toggle-option", "toggle-option active", hidden_class
-        return "local", "toggle-option active", "toggle-option", hidden_class
+        return hidden_class, default_title, default_text, current_request
 
     @app.callback(
         [
@@ -715,23 +861,20 @@ def dashboard_agent(config, shared_data):
         return hidden_class, default_title, default_text, current_request
 
     @app.callback(
-        Output("control-action", "data"),
+        [Output("control-action", "data"), Output("toggle-confirm-action", "data")],
         [
-            Input("start-lib", "n_clicks"),
-            Input("stop-lib", "n_clicks"),
             Input("dispatch-enable-lib", "n_clicks"),
             Input("dispatch-disable-lib", "n_clicks"),
             Input("record-lib", "n_clicks"),
             Input("record-stop-lib", "n_clicks"),
-            Input("start-vrfb", "n_clicks"),
-            Input("stop-vrfb", "n_clicks"),
             Input("dispatch-enable-vrfb", "n_clicks"),
             Input("dispatch-disable-vrfb", "n_clicks"),
             Input("record-vrfb", "n_clicks"),
             Input("record-stop-vrfb", "n_clicks"),
             Input("bulk-control-confirm", "n_clicks"),
+            Input("toggle-confirm-confirm", "n_clicks"),
         ],
-        [State("bulk-control-request", "data")],
+        [State("bulk-control-request", "data"), State("toggle-confirm-request", "data")],
         prevent_initial_call=True,
     )
     def handle_controls(*args):
@@ -739,14 +882,43 @@ def dashboard_agent(config, shared_data):
         if not ctx.triggered:
             raise PreventUpdate
 
-        bulk_request = args[-1]
         trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
+        bulk_request = args[-2]
+        toggle_confirm_request = args[-1]
+
+        if trigger_id == "toggle-confirm-confirm":
+            req = dict(toggle_confirm_request or {})
+            intent = confirmed_toggle_intent_from_request(req)
+            if intent is None:
+                raise PreventUpdate
+            baseline_server_state = None
+            toggle_key = str(req.get("toggle_key") or "")
+            if toggle_key == "transport":
+                with shared_data["lock"]:
+                    baseline_server_state = str(shared_data.get("transport_mode", "local") or "local")
+            elif toggle_key == "plant_power":
+                plant_id = str(req.get("resource_key") or "")
+                with shared_data["lock"]:
+                    transition_state = str((shared_data.get("plant_transition_by_plant", {}) or {}).get(plant_id, "unknown"))
+                    observed = dict((shared_data.get("plant_observed_state_by_plant", {}) or {}).get(plant_id, {}) or {})
+                enable_state = None if bool(observed.get("stale", True)) else observed.get("enable_state")
+                baseline_server_state = resolve_runtime_transition_state(transition_state, enable_state)
+            status = _enqueue_dashboard_control_intent(intent, trigger_id=trigger_id)
+            toggle_action_data = {
+                "toggle_key": req.get("toggle_key"),
+                "resource_key": req.get("resource_key"),
+                "requested_side": req.get("requested_side"),
+                "timestamp_ms": int(time.time() * 1000),
+                "server_state_before": baseline_server_state,
+            }
+            return _command_status_action_token(status), toggle_action_data
+
         intent = command_intent_from_control_trigger(trigger_id, bulk_request=bulk_request)
         if intent is None:
             raise PreventUpdate
 
         status = _enqueue_dashboard_control_intent(intent, trigger_id=trigger_id)
-        return _command_status_action_token(status)
+        return _command_status_action_token(status), dash.no_update
 
     @app.callback(Output("manual-status-text", "children"), Input("manual-editor-status-store", "data"))
     def render_manual_status(status_text):
@@ -1645,14 +1817,11 @@ def dashboard_agent(config, shared_data):
         [
             Input("interval-component", "n_intervals"),
             Input("control-action", "data"),
-            Input("start-lib", "n_clicks_timestamp"),
-            Input("stop-lib", "n_clicks_timestamp"),
+            Input("toggle-confirm-action", "data"),
             Input("dispatch-enable-lib", "n_clicks_timestamp"),
             Input("dispatch-disable-lib", "n_clicks_timestamp"),
             Input("record-lib", "n_clicks_timestamp"),
             Input("record-stop-lib", "n_clicks_timestamp"),
-            Input("start-vrfb", "n_clicks_timestamp"),
-            Input("stop-vrfb", "n_clicks_timestamp"),
             Input("dispatch-enable-vrfb", "n_clicks_timestamp"),
             Input("dispatch-disable-vrfb", "n_clicks_timestamp"),
             Input("record-vrfb", "n_clicks_timestamp"),
@@ -1662,14 +1831,11 @@ def dashboard_agent(config, shared_data):
     def update_status_and_graphs(
         n_intervals,
         control_action,
-        start_lib_click_ts_ms,
-        stop_lib_click_ts_ms,
+        toggle_confirm_action,
         dispatch_enable_lib_click_ts_ms,
         dispatch_disable_lib_click_ts_ms,
         record_lib_click_ts_ms,
         record_stop_lib_click_ts_ms,
-        start_vrfb_click_ts_ms,
-        stop_vrfb_click_ts_ms,
         dispatch_enable_vrfb_click_ts_ms,
         dispatch_disable_vrfb_click_ts_ms,
         record_vrfb_click_ts_ms,
@@ -1712,20 +1878,22 @@ def dashboard_agent(config, shared_data):
             )
             for plant_id in plant_ids
         }
-        click_feedback_by_plant = {
-            "lib": resolve_click_feedback_transition_state(
-                start_click_ts_ms=start_lib_click_ts_ms,
-                stop_click_ts_ms=stop_lib_click_ts_ms,
-                now_ts=status_now,
-                hold_seconds=ui_transition_feedback_hold_s,
-            ),
-            "vrfb": resolve_click_feedback_transition_state(
-                start_click_ts_ms=start_vrfb_click_ts_ms,
-                stop_click_ts_ms=stop_vrfb_click_ts_ms,
-                now_ts=status_now,
-                hold_seconds=ui_transition_feedback_hold_s,
-            ),
-        }
+        click_feedback_by_plant = {}
+        for plant_id in plant_ids:
+            confirm_feedback = _toggle_action_feedback_state(
+                toggle_confirm_action,
+                toggle_key="plant_power",
+                resource_key=plant_id,
+                current_server_state=_engine_state_by_plant.get(plant_id, "unknown"),
+                min_hold_s=ui_confirm_toggle_min_hold_s,
+                max_hold_s=ui_confirm_toggle_max_hold_s,
+            )
+            if not confirm_feedback:
+                click_feedback_by_plant[plant_id] = None
+                continue
+            click_feedback_by_plant[plant_id] = (
+                "starting" if str(confirm_feedback.get("requested_side")) == "positive" else "stopping"
+            )
         record_click_feedback_by_plant = {
             "lib": resolve_click_feedback_transition_state(
                 start_click_ts_ms=record_lib_click_ts_ms,
