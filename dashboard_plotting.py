@@ -1,6 +1,7 @@
 """Plot/theme helpers for dashboard figures."""
 
 import plotly.graph_objects as go
+import pandas as pd
 from plotly.subplots import make_subplots
 
 from time_utils import normalize_datetime_series, normalize_schedule_index
@@ -24,6 +25,7 @@ DEFAULT_TRACE_COLORS = {
     "soc": "#6756d6",
     "q_poi": "#1f7ea5",
     "q_battery": "#3d8f65",
+    "v_poi": "#c66a00",
     "api_lib": "#00945a",
     "api_vrfb": "#3f65c8",
 }
@@ -84,18 +86,24 @@ def create_plant_figure(
     trace_colors,
     x_window_start=None,
     x_window_end=None,
+    time_indicator_ts=None,
+    voltage_autorange_padding_kv=None,
 ):
     fig = make_subplots(
-        rows=3,
+        rows=4,
         cols=1,
         shared_xaxes=True,
-        vertical_spacing=0.08,
+        vertical_spacing=0.06,
         subplot_titles=(
             f"{plant_name_fn(plant_id)} Active Power (kW)",
             f"{plant_name_fn(plant_id)} State of Charge (pu)",
             f"{plant_name_fn(plant_id)} Reactive Power (kvar)",
+            f"{plant_name_fn(plant_id)} Voltage (kV)",
         ),
     )
+
+    p_setpoint_added = False
+    q_setpoint_added = False
 
     if schedule_df is not None and not schedule_df.empty:
         schedule_plot_df = schedule_df
@@ -119,6 +127,7 @@ def create_plant_figure(
             row=1,
             col=1,
         )
+        p_setpoint_added = True
 
         if "reactive_power_setpoint_kvar" in schedule_plot_df.columns:
             fig.add_trace(
@@ -133,6 +142,7 @@ def create_plant_figure(
                 row=3,
                 col=1,
             )
+            q_setpoint_added = True
 
     if measurements_df is not None and not measurements_df.empty:
         df = measurements_df.copy()
@@ -148,6 +158,34 @@ def create_plant_figure(
             df = df.loc[df["datetime"] < x_window_end]
 
         if not df.empty:
+            if not p_setpoint_added and "p_setpoint_kw" in df.columns:
+                fig.add_trace(
+                    go.Scatter(
+                        x=df["datetime"],
+                        y=df["p_setpoint_kw"],
+                        mode="lines",
+                        line_shape="hv",
+                        name=f"{plant_name_fn(plant_id)} P Setpoint",
+                        line=dict(color=trace_colors["p_setpoint"], width=2),
+                    ),
+                    row=1,
+                    col=1,
+                )
+                p_setpoint_added = True
+            if not q_setpoint_added and "q_setpoint_kvar" in df.columns:
+                fig.add_trace(
+                    go.Scatter(
+                        x=df["datetime"],
+                        y=df["q_setpoint_kvar"],
+                        mode="lines",
+                        line_shape="hv",
+                        name=f"{plant_name_fn(plant_id)} Q Setpoint",
+                        line=dict(color=trace_colors["q_setpoint"], width=2),
+                    ),
+                    row=3,
+                    col=1,
+                )
+                q_setpoint_added = True
             fig.add_trace(
                 go.Scatter(
                     x=df["datetime"],
@@ -207,18 +245,58 @@ def create_plant_figure(
                 row=3,
                 col=1,
             )
+            if "v_poi_kV" in df.columns:
+                voltage_series = pd.to_numeric(df["v_poi_kV"], errors="coerce")
+                fig.add_trace(
+                    go.Scatter(
+                        x=df["datetime"],
+                        y=df["v_poi_kV"],
+                        mode="lines",
+                        name=f"{plant_name_fn(plant_id)} Voltage",
+                        line=dict(color=trace_colors["v_poi"], width=2),
+                    ),
+                    row=4,
+                    col=1,
+                )
+                try:
+                    voltage_padding = float(voltage_autorange_padding_kv)
+                except (TypeError, ValueError):
+                    voltage_padding = None
+                if voltage_padding is not None and voltage_padding > 0.0:
+                    v_min = voltage_series.min(skipna=True)
+                    v_max = voltage_series.max(skipna=True)
+                    try:
+                        fig.update_yaxes(
+                            range=[float(v_min) - voltage_padding, float(v_max) + voltage_padding],
+                            row=4,
+                            col=1,
+                        )
+                    except Exception:
+                        pass
 
     apply_figure_theme(
         fig,
         plot_theme,
-        height=480,
+        height=640,
         margin=dict(l=50, r=20, t=90, b=30),
         uirevision=uirevision_key,
     )
+    if time_indicator_ts is not None:
+        for row in (1, 2, 3, 4):
+            fig.add_vline(
+                x=time_indicator_ts,
+                row=row,
+                col=1,
+                line_dash="dash",
+                line_width=1,
+                line_color=plot_theme["muted"],
+                opacity=0.8,
+            )
     fig.update_yaxes(title_text="kW", row=1, col=1)
     fig.update_yaxes(title_text="pu", row=2, col=1)
     fig.update_yaxes(title_text="kvar", row=3, col=1)
-    fig.update_xaxes(title_text="Time", row=3, col=1)
+    fig.update_yaxes(title_text="kV", row=4, col=1)
+    fig.update_xaxes(title_text="Time", row=4, col=1)
     return fig
 
 

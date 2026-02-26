@@ -40,8 +40,9 @@ The system closes the operational gap between market/control schedules and plant
 - API measurement posting toggle gates posting of actual measurements regardless of manual override usage.
 - Status tab (renamed from `Status & Plots`) keeps inline API summary with today/tomorrow fetched-point counts for both plants.
 - Status tab plant-state controls/status now render from cached runtime-published plant observed state (no direct dashboard Modbus polling for control/status paths).
-- Status tab live plots are intentionally limited to immediate context (local current day + next day) for both schedule and measurements.
-- Plots tab provides historical measurement browsing from `data/*.csv` with a full-range timeline, range slider, and per-plant CSV/PNG exports.
+- Status tab live plots are intentionally limited to immediate context (local current day + next day) for both schedule and measurements; plant figures include a current-time vertical marker for operator orientation.
+- Plant figures now include a dedicated voltage subplot (`kV`) in both Status and historical `Plots` tabs.
+- Historical `Plots` tab provides measurement browsing from `data/*.csv` with a full-range timeline, range slider, per-plant CSV/PNG exports, and recorded P/Q setpoint overlays from measurement rows.
 - Logs tab exposes a live `Today` view (tail of the current date log file) and selectable historical log files.
 
 ## UX Intent
@@ -51,6 +52,7 @@ The system closes the operational gap between market/control schedules and plant
 4. Stable plot interactions during periodic refresh.
 5. Historical browsing controls should preserve context (range selection) while new files appear.
 6. Status-tab plots should avoid long-running-session clutter and present only the immediate past/future operating window.
+7. Voltage trends for low-voltage assets should remain readable without manual zoom (tight y-scale around observed values).
 
 ## Critical Workflows
 ### Start Plant Dispatch

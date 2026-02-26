@@ -2,6 +2,7 @@ import base64
 import io
 import json
 import logging
+import math
 import os
 import threading
 import time
@@ -101,6 +102,17 @@ def dashboard_agent(config, shared_data):
 
     def plant_name(plant_id):
         return str((plants_cfg.get(plant_id, {}) or {}).get("name", plant_id.upper()))
+
+    def _voltage_padding_kv_for_plant(plant_id):
+        plant_cfg = (plants_cfg.get(plant_id, {}) or {})
+        model_cfg = (plant_cfg.get("model", {}) or {})
+        try:
+            nominal_kv = float(model_cfg.get("poi_voltage_kv"))
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(nominal_kv) or nominal_kv <= 0.0 or nominal_kv >= 10.0:
+            return None
+        return nominal_kv * 0.05
 
     def _manual_window_bounds(now_value=None):
         now_value = normalize_timestamp_value(now_value or now_tz(config), tz)
@@ -338,6 +350,7 @@ def dashboard_agent(config, shared_data):
             tz=tz,
             plot_theme=plot_theme,
             trace_colors=trace_colors,
+            voltage_autorange_padding_kv=_voltage_padding_kv_for_plant(plant_id),
         )
         fig.add_annotation(text=message, xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
         return fig
@@ -1624,6 +1637,8 @@ def dashboard_agent(config, shared_data):
             trace_colors=trace_colors,
             x_window_start=status_window_start,
             x_window_end=status_window_end,
+            time_indicator_ts=status_now,
+            voltage_autorange_padding_kv=_voltage_padding_kv_for_plant("lib"),
         )
         vrfb_fig = create_plant_figure(
             "vrfb",
@@ -1636,6 +1651,8 @@ def dashboard_agent(config, shared_data):
             trace_colors=trace_colors,
             x_window_start=status_window_start,
             x_window_end=status_window_end,
+            time_indicator_ts=status_now,
+            voltage_autorange_padding_kv=_voltage_padding_kv_for_plant("vrfb"),
         )
 
         lib_controls = get_plant_control_labels_and_disabled(
@@ -1796,6 +1813,7 @@ def dashboard_agent(config, shared_data):
                 tz=tz,
                 plot_theme=plot_theme,
                 trace_colors=trace_colors,
+                voltage_autorange_padding_kv=_voltage_padding_kv_for_plant(plant_id),
             )
 
         return build_plant_fig("lib"), build_plant_fig("vrfb")

@@ -52,6 +52,9 @@
 - API connection runtime `Error` state is now runtime-owned and published from agent health (`fetch_health` + `posting_health`) into `api_connection_runtime`; dashboard renders API state/error directly from that runtime contract,
 - API status and posting health, including inline today/tomorrow per-plant fetch counts in Status tab,
 - Status-tab plots intentionally show only local current-day + next-day schedule/measurement data (immediate context) and now render the merged effective schedule; historical inspection stays on `Plots`,
+- shared plant plots (Status + historical `Plots`) now include a dedicated voltage subplot (`v_poi_kV`), while Status plots also render a vertical dashed current-time indicator,
+- historical `Plots` tab plant figures now show recorded P/Q setpoints from measurement rows when no schedule dataframe is supplied (with duplicate-prevention when schedule traces are present),
+- low-voltage plant voltage axes (nominal `< 10 kV`) now use explicit y-padding equal to `5%` of configured nominal voltage; higher-voltage plants use Plotly autorange,
 - logs tab with live `Today` (current date file tail) and selectable historical files,
 - branded UI theme (tokenized CSS, local font assets, flatter visual treatment, minimal corner radius, menu-style tab strip, full-width tab content cards, white page background).
 6. Automated validation now includes:
@@ -65,7 +68,7 @@
  - targeted config-loader regression coverage for `tomorrow_poll_start_time` normalization and legacy `poll_start_time` rejection.
  - targeted data fetcher regression coverage for next-day gate timing, partial/complete tomorrow fetch status, and rollover promotion (environment-dependent on local pandas install).
  - targeted data fetcher regression coverage for API schedule pruning/retention and bounded tomorrow merges.
- - targeted plot-helper regression coverage for status-window x-range cropping in `tests/test_dashboard_plotting.py` (environment-dependent on local pandas install).
+ - targeted plot-helper regression coverage for status-window x-range cropping, voltage subplot/time-indicator behavior, historical setpoint fallback, and voltage-axis padding in `tests/test_dashboard_plotting.py` (environment-dependent on local pandas install).
  - compression-gap config-loader regression now validates schema/typing (not a fixed `max_kept_gap_s` value) so config tuning does not cause CI failures.
 - targeted measurement-storage SoC lookup regressions (`tests/test_measurement_storage_latest_soc.py`) and plant-agent local SoC seed request regressions (`tests/test_plant_agent_soc_seed_requests.py`).
  - targeted scheduler merged-dispatch regressions (`tests/test_scheduler_source_switch.py`) covering manual override priority and stale API base fallback behavior.
@@ -84,7 +87,7 @@
 ## In Progress
 1. Remote transport smoke coverage design (repeatable unattended checks).
 2. Log retention policy definition and implementation scope.
-3. Manual validation pass for new historical `Plots` tab behavior on larger data directories.
+3. Manual validation pass for new historical `Plots` tab behavior on larger data directories (including low-voltage voltage-axis padding/readability).
 4. Manual Schedule editor UX polish / layout tuning validation on different viewport widths (including new per-series `Update` flow).
 5. Evaluate per-plant queue architecture vs global queue after observing control queue + new settings queue usage on real workloads.
 

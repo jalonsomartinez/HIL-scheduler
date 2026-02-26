@@ -25,6 +25,21 @@
 
 ## Rolling Change Log (Compressed, 30-Day Window)
 
+### 2026-02-26
+- Updated shared dashboard plant plotting (`dashboard_plotting.py`) used by both `Status` and historical `Plots` tabs:
+  - expanded plant figures from 3 to 4 rows to include a dedicated voltage subplot (`v_poi_kV` in kV),
+  - added measurement-recorded setpoint fallback traces (`p_setpoint_kw`, `q_setpoint_kvar`) for historical plots when no schedule dataframe is supplied,
+  - added optional current-time vertical dashed line support; Status-tab plant figures now pass a live `now` marker while historical plots do not.
+- Added voltage-axis scaling refinement for low-voltage plants in dashboard callbacks:
+  - per-plant voltage y-padding is derived from `plants.*.model.poi_voltage_kv` (`5%` of nominal),
+  - custom voltage y-range padding is only applied when nominal voltage is `< 10 kV` (for example `vrfb`); higher-voltage plants fall back to Plotly autorange,
+  - invalid computed voltage min/max now leaves Plotly autorange in control (no forced fallback range).
+- Expanded `tests/test_dashboard_plotting.py` coverage for:
+  - voltage trace rendering,
+  - historical setpoint fallback and duplicate prevention,
+  - Status-tab time indicator vertical-line shapes,
+  - explicit voltage-axis range behavior (padding/no-padding/missing voltage/flatline voltage).
+
 ### 2026-02-25
 - Continued internal refactor cleanup without behavior changes:
   - extracted generic command lifecycle bookkeeping into `command_runtime.py` and reduced `control_command_runtime.py` / `settings_command_runtime.py` to thin wrappers,

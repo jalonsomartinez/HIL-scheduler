@@ -28,7 +28,7 @@
 - `dashboard_layout.py`: Dash layout builder; Status top card now includes control-engine/queue health summary placeholders in addition to API inline status.
 - `manual_schedule_manager.py`: manual override series metadata, editor breakpoint row conversions/validation, relative CSV load/save parsing, and manual-series rebuild/sanitization helpers.
 - `dashboard_history.py`: historical plots helper utilities (file scan/index, slider range helpers, CSV crop/export serialization).
-- `dashboard_plotting.py`: shared Plotly figure/theme helpers for status and historical plant plots, including optional x-window cropping used by Status-tab immediate-context plots.
+- `dashboard_plotting.py`: shared Plotly figure/theme helpers for status and historical plant plots, including optional x-window cropping, Status-tab current-time indicator lines, historical setpoint fallback from measurement rows, and optional voltage y-range padding override.
 - `dashboard_control.py`: safe-stop/transport-switch control-flow helpers reused by control engine.
 - `assets/custom.css`: dashboard design tokens, responsive rules, control/tab/modal/log styling.
 - `assets/brand/fonts/*`: locally served dashboard fonts (DM Sans files + OFL license).
@@ -129,7 +129,9 @@ Per-plant config includes:
 - Dashboard visual state is primarily class-driven in `dashboard_agent.py` and styled in `assets/custom.css`; a small number of inline style dictionaries remain in log/posting render helpers.
 - Plot styling in `dashboard_agent.py` uses shared figure-theme helpers for consistent axes/grid/legend presentation without altering control callbacks.
 - Historical `Plots` tab reuses the same figure helper/theme as Status plots for visual consistency; PNG downloads use client-side Plotly export (`window.Plotly.downloadImage`) and do not require `kaleido`.
-- Status-tab figures call the same helper with an explicit local `today..day+2` x-window so live plots remain focused on immediate context while preserving historical browsing in `Plots`.
+- Shared plant figures are now 4-row plots (P / SoC / Q / Voltage) and can render P/Q setpoint traces from recorded measurement columns when no schedule dataframe is supplied (used by historical `Plots`).
+- Status-tab figures call the same helper with an explicit local `today..day+2` x-window and a current-time vertical dashed line so live plots remain focused on immediate context while preserving historical browsing in `Plots`.
+- Dashboard callbacks derive optional voltage y-padding from `plants.*.model.poi_voltage_kv`; custom voltage y-range is only applied for low-voltage plants (`< 10 kV`) using `5%` nominal padding, otherwise Plotly autorange is used.
 - Manual Schedule tab now uses a responsive split layout (plots + compact editor), with dense operator-focused controls and compact breakpoint-row inputs.
 - Manual per-series plots now overlay staged editor and applied server schedules (`Staged (Editor)` vs `Applied (Server)`) so command-driven activation/update differences are visible in the UI.
 - Historical `Plots` tab range selection is resilient to stale/default slider values: helper clamping treats fully out-of-domain selections (including the layout placeholder `[0, 1]`) as invalid and restores full discovered history span.
