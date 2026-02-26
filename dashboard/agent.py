@@ -44,7 +44,8 @@ from dashboard.plotting import (
     create_manual_series_figure,
 )
 from dashboard.ui_state import (
-    get_plant_control_labels_and_disabled,
+    get_plant_power_toggle_state,
+    get_recording_toggle_state,
     resolve_click_feedback_transition_state,
     resolve_runtime_transition_state,
 )
@@ -252,10 +253,17 @@ def dashboard_agent(config, shared_data):
         )
         return status
 
-    def _manual_toggle_classes(enabled):
-        if bool(enabled):
-            return "toggle-option active", "toggle-option"
-        return "toggle-option", "toggle-option active"
+    def _binary_toggle_classes(active_side, *, semantic=True):
+        positive = ["toggle-option"]
+        negative = ["toggle-option"]
+        if semantic:
+            positive.append("toggle-option--positive")
+            negative.append("toggle-option--negative")
+        if active_side == "positive":
+            positive.append("active")
+        elif active_side == "negative":
+            negative.append("active")
+        return " ".join(positive), " ".join(negative)
 
     def _epoch_ms_to_ts(epoch_ms):
         return normalize_timestamp_value(pd.to_datetime(int(epoch_ms), unit="ms", utc=True), tz)
@@ -534,7 +542,9 @@ def dashboard_agent(config, shared_data):
     @app.callback(
         [
             Output("api-posting-toggle-store", "data"),
+            Output("api-posting-enable-btn", "children"),
             Output("api-posting-enable-btn", "className"),
+            Output("api-posting-disable-btn", "children"),
             Output("api-posting-disable-btn", "className"),
             Output("api-posting-enable-btn", "disabled"),
             Output("api-posting-disable-btn", "disabled"),
@@ -548,11 +558,6 @@ def dashboard_agent(config, shared_data):
         prevent_initial_call=False,
     )
     def render_api_posting_toggle(_n_intervals, _action_token, enable_click_ts_ms, disable_click_ts_ms):
-        def classes_for(enabled):
-            if enabled:
-                return "toggle-option active", "toggle-option"
-            return "toggle-option", "toggle-option active"
-
         config_default = bool(config.get("ISTENTORE_POST_MEASUREMENTS_IN_API_MODE", True))
         posting_runtime = snapshot_locked(
             shared_data,
@@ -571,10 +576,12 @@ def dashboard_agent(config, shared_data):
         display_state = posting_display_state(server_state, feedback_state)
         controls = posting_controls_state(display_state)
         visual_enabled = display_state in {"enabled", "enabling"}
-        enable_class, disable_class = classes_for(visual_enabled)
+        enable_class, disable_class = _binary_toggle_classes("positive" if visual_enabled else "negative")
         return (
             bool(policy_enabled),
+            controls["enable_label"],
             enable_class,
+            controls["disable_label"],
             disable_class,
             bool(controls["enable_disabled"]),
             bool(controls["disable_disabled"]),
@@ -599,8 +606,10 @@ def dashboard_agent(config, shared_data):
     @app.callback(
         [
             Output("set-password-btn", "children"),
+            Output("set-password-btn", "className"),
             Output("set-password-btn", "disabled"),
             Output("disconnect-api-btn", "children"),
+            Output("disconnect-api-btn", "className"),
             Output("disconnect-api-btn", "disabled"),
         ],
         [
@@ -629,10 +638,14 @@ def dashboard_agent(config, shared_data):
         )
         display_state = api_connection_display_state(api_runtime.get("state"), feedback_state)
         controls = api_connection_controls_state(display_state)
+        active_side = "positive" if display_state in {"connected", "connecting"} else "negative"
+        connect_class, disconnect_class = _binary_toggle_classes(active_side)
         return (
             controls["connect_label"],
+            connect_class,
             bool(controls["connect_disabled"]),
             controls["disconnect_label"],
+            disconnect_class,
             bool(controls["disconnect_disabled"]),
         )
 
@@ -856,7 +869,7 @@ def dashboard_agent(config, shared_data):
             has_draft_rows = not msm.normalize_manual_series_df(draft_df, timezone_name=config.get("TIMEZONE_NAME")).empty
             is_dirty = _manual_series_is_dirty(key, draft_df, applied_df)
             control_state = manual_series_controls_state(display_state, has_draft_rows=has_draft_rows, is_dirty=is_dirty)
-            active_cls, inactive_cls = _manual_toggle_classes(bool(control_state["active_visual"]))
+            active_cls, inactive_cls = _binary_toggle_classes("positive" if bool(control_state["active_visual"]) else "negative")
             outputs.extend(
                 [
                     control_state["activate_label"],
@@ -1593,24 +1606,40 @@ def dashboard_agent(config, shared_data):
             Output("graph-lib", "figure"),
             Output("graph-vrfb", "figure"),
             Output("start-lib", "children"),
+            Output("start-lib", "className"),
             Output("start-lib", "disabled"),
             Output("stop-lib", "children"),
+            Output("stop-lib", "className"),
             Output("stop-lib", "disabled"),
+            Output("dispatch-enable-lib", "children"),
             Output("dispatch-enable-lib", "className"),
+            Output("dispatch-enable-lib", "disabled"),
+            Output("dispatch-disable-lib", "children"),
             Output("dispatch-disable-lib", "className"),
+            Output("dispatch-disable-lib", "disabled"),
             Output("record-lib", "children"),
+            Output("record-lib", "className"),
             Output("record-lib", "disabled"),
             Output("record-stop-lib", "children"),
+            Output("record-stop-lib", "className"),
             Output("record-stop-lib", "disabled"),
             Output("start-vrfb", "children"),
+            Output("start-vrfb", "className"),
             Output("start-vrfb", "disabled"),
             Output("stop-vrfb", "children"),
+            Output("stop-vrfb", "className"),
             Output("stop-vrfb", "disabled"),
+            Output("dispatch-enable-vrfb", "children"),
             Output("dispatch-enable-vrfb", "className"),
+            Output("dispatch-enable-vrfb", "disabled"),
+            Output("dispatch-disable-vrfb", "children"),
             Output("dispatch-disable-vrfb", "className"),
+            Output("dispatch-disable-vrfb", "disabled"),
             Output("record-vrfb", "children"),
+            Output("record-vrfb", "className"),
             Output("record-vrfb", "disabled"),
             Output("record-stop-vrfb", "children"),
+            Output("record-stop-vrfb", "className"),
             Output("record-stop-vrfb", "disabled"),
         ],
         [
@@ -1618,8 +1647,16 @@ def dashboard_agent(config, shared_data):
             Input("control-action", "data"),
             Input("start-lib", "n_clicks_timestamp"),
             Input("stop-lib", "n_clicks_timestamp"),
+            Input("dispatch-enable-lib", "n_clicks_timestamp"),
+            Input("dispatch-disable-lib", "n_clicks_timestamp"),
+            Input("record-lib", "n_clicks_timestamp"),
+            Input("record-stop-lib", "n_clicks_timestamp"),
             Input("start-vrfb", "n_clicks_timestamp"),
             Input("stop-vrfb", "n_clicks_timestamp"),
+            Input("dispatch-enable-vrfb", "n_clicks_timestamp"),
+            Input("dispatch-disable-vrfb", "n_clicks_timestamp"),
+            Input("record-vrfb", "n_clicks_timestamp"),
+            Input("record-stop-vrfb", "n_clicks_timestamp"),
         ],
     )
     def update_status_and_graphs(
@@ -1627,8 +1664,16 @@ def dashboard_agent(config, shared_data):
         control_action,
         start_lib_click_ts_ms,
         stop_lib_click_ts_ms,
+        dispatch_enable_lib_click_ts_ms,
+        dispatch_disable_lib_click_ts_ms,
+        record_lib_click_ts_ms,
+        record_stop_lib_click_ts_ms,
         start_vrfb_click_ts_ms,
         stop_vrfb_click_ts_ms,
+        dispatch_enable_vrfb_click_ts_ms,
+        dispatch_disable_vrfb_click_ts_ms,
+        record_vrfb_click_ts_ms,
+        record_stop_vrfb_click_ts_ms,
     ):
         with shared_data["lock"]:
             transport_mode = shared_data.get("transport_mode", "local")
@@ -1677,6 +1722,38 @@ def dashboard_agent(config, shared_data):
             "vrfb": resolve_click_feedback_transition_state(
                 start_click_ts_ms=start_vrfb_click_ts_ms,
                 stop_click_ts_ms=stop_vrfb_click_ts_ms,
+                now_ts=status_now,
+                hold_seconds=ui_transition_feedback_hold_s,
+            ),
+        }
+        record_click_feedback_by_plant = {
+            "lib": resolve_click_feedback_transition_state(
+                start_click_ts_ms=record_lib_click_ts_ms,
+                stop_click_ts_ms=record_stop_lib_click_ts_ms,
+                now_ts=status_now,
+                hold_seconds=ui_transition_feedback_hold_s,
+            ),
+            "vrfb": resolve_click_feedback_transition_state(
+                start_click_ts_ms=record_vrfb_click_ts_ms,
+                stop_click_ts_ms=record_stop_vrfb_click_ts_ms,
+                now_ts=status_now,
+                hold_seconds=ui_transition_feedback_hold_s,
+            ),
+        }
+        dispatch_click_feedback_by_plant = {
+            "lib": resolve_command_click_feedback_state(
+                positive_click_ts_ms=dispatch_enable_lib_click_ts_ms,
+                negative_click_ts_ms=dispatch_disable_lib_click_ts_ms,
+                positive_state="starting",
+                negative_state="pausing",
+                now_ts=status_now,
+                hold_seconds=ui_transition_feedback_hold_s,
+            ),
+            "vrfb": resolve_command_click_feedback_state(
+                positive_click_ts_ms=dispatch_enable_vrfb_click_ts_ms,
+                negative_click_ts_ms=dispatch_disable_vrfb_click_ts_ms,
+                positive_state="starting",
+                negative_state="pausing",
                 now_ts=status_now,
                 hold_seconds=ui_transition_feedback_hold_s,
             ),
@@ -1770,16 +1847,58 @@ def dashboard_agent(config, shared_data):
             voltage_autorange_padding_kv=_voltage_padding_kv_for_plant("vrfb"),
         )
 
-        lib_controls = get_plant_control_labels_and_disabled(
-            runtime_state_by_plant.get("lib", "unknown"),
+        def _dispatch_toggle_state(dispatch_enabled, click_feedback_state=None):
+            feedback = str(click_feedback_state or "").lower()
+            if feedback == "starting":
+                return {
+                    "positive_label": "Starting...",
+                    "negative_label": "Pause",
+                    "positive_disabled": True,
+                    "negative_disabled": True,
+                    "active_side": "positive",
+                }
+            if feedback == "pausing":
+                return {
+                    "positive_label": "Send",
+                    "negative_label": "Pausing...",
+                    "positive_disabled": True,
+                    "negative_disabled": True,
+                    "active_side": "negative",
+                }
+            enabled = bool(dispatch_enabled)
+            return {
+                "positive_label": "Sending" if enabled else "Send",
+                "negative_label": "Pause" if enabled else "Paused",
+                "positive_disabled": enabled,
+                "negative_disabled": not enabled,
+                "active_side": "positive" if enabled else "negative",
+            }
+
+        lib_power_controls = get_plant_power_toggle_state(runtime_state_by_plant.get("lib", "unknown"))
+        lib_record_controls = get_recording_toggle_state(
             bool(recording_files.get("lib")),
+            click_feedback_state=record_click_feedback_by_plant.get("lib"),
         )
-        lib_dispatch_classes = _manual_toggle_classes(bool(scheduler_running.get("lib", False)))
-        vrfb_controls = get_plant_control_labels_and_disabled(
-            runtime_state_by_plant.get("vrfb", "unknown"),
+        lib_dispatch_controls = _dispatch_toggle_state(
+            scheduler_running.get("lib", False),
+            click_feedback_state=dispatch_click_feedback_by_plant.get("lib"),
+        )
+        lib_power_classes = _binary_toggle_classes(lib_power_controls["active_side"])
+        lib_dispatch_classes = _binary_toggle_classes(lib_dispatch_controls["active_side"])
+        lib_record_classes = _binary_toggle_classes(lib_record_controls["active_side"])
+
+        vrfb_power_controls = get_plant_power_toggle_state(runtime_state_by_plant.get("vrfb", "unknown"))
+        vrfb_record_controls = get_recording_toggle_state(
             bool(recording_files.get("vrfb")),
+            click_feedback_state=record_click_feedback_by_plant.get("vrfb"),
         )
-        vrfb_dispatch_classes = _manual_toggle_classes(bool(scheduler_running.get("vrfb", False)))
+        vrfb_dispatch_controls = _dispatch_toggle_state(
+            scheduler_running.get("vrfb", False),
+            click_feedback_state=dispatch_click_feedback_by_plant.get("vrfb"),
+        )
+        vrfb_power_classes = _binary_toggle_classes(vrfb_power_controls["active_side"])
+        vrfb_dispatch_classes = _binary_toggle_classes(vrfb_dispatch_controls["active_side"])
+        vrfb_record_classes = _binary_toggle_classes(vrfb_record_controls["active_side"])
 
         return (
             api_inline,
@@ -1789,26 +1908,42 @@ def dashboard_agent(config, shared_data):
             plant_status_text("vrfb"),
             lib_fig,
             vrfb_fig,
-            lib_controls[0],
-            lib_controls[1],
-            lib_controls[2],
-            lib_controls[3],
+            lib_power_controls["positive_label"],
+            lib_power_classes[0],
+            bool(lib_power_controls["positive_disabled"]),
+            lib_power_controls["negative_label"],
+            lib_power_classes[1],
+            bool(lib_power_controls["negative_disabled"]),
+            lib_dispatch_controls["positive_label"],
             lib_dispatch_classes[0],
+            bool(lib_dispatch_controls["positive_disabled"]),
+            lib_dispatch_controls["negative_label"],
             lib_dispatch_classes[1],
-            lib_controls[4],
-            lib_controls[5],
-            lib_controls[6],
-            lib_controls[7],
-            vrfb_controls[0],
-            vrfb_controls[1],
-            vrfb_controls[2],
-            vrfb_controls[3],
+            bool(lib_dispatch_controls["negative_disabled"]),
+            lib_record_controls["positive_label"],
+            lib_record_classes[0],
+            bool(lib_record_controls["positive_disabled"]),
+            lib_record_controls["negative_label"],
+            lib_record_classes[1],
+            bool(lib_record_controls["negative_disabled"]),
+            vrfb_power_controls["positive_label"],
+            vrfb_power_classes[0],
+            bool(vrfb_power_controls["positive_disabled"]),
+            vrfb_power_controls["negative_label"],
+            vrfb_power_classes[1],
+            bool(vrfb_power_controls["negative_disabled"]),
+            vrfb_dispatch_controls["positive_label"],
             vrfb_dispatch_classes[0],
+            bool(vrfb_dispatch_controls["positive_disabled"]),
+            vrfb_dispatch_controls["negative_label"],
             vrfb_dispatch_classes[1],
-            vrfb_controls[4],
-            vrfb_controls[5],
-            vrfb_controls[6],
-            vrfb_controls[7],
+            bool(vrfb_dispatch_controls["negative_disabled"]),
+            vrfb_record_controls["positive_label"],
+            vrfb_record_classes[0],
+            bool(vrfb_record_controls["positive_disabled"]),
+            vrfb_record_controls["negative_label"],
+            vrfb_record_classes[1],
+            bool(vrfb_record_controls["negative_disabled"]),
         )
 
     @app.callback(

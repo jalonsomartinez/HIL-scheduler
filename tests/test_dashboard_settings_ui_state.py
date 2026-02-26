@@ -33,7 +33,7 @@ class DashboardSettingsUiStateTests(unittest.TestCase):
         self.assertTrue(controls["activate_disabled"])
         self.assertFalse(controls["inactivate_disabled"])
         self.assertEqual(controls["activate_label"], "Active")
-        self.assertEqual(controls["inactivate_label"], "Inactive")
+        self.assertEqual(controls["inactivate_label"], "Inactivate")
 
     def test_manual_controls_disable_update_when_inactive(self):
         controls = manual_series_controls_state("inactive", has_draft_rows=True, is_dirty=True)
@@ -70,9 +70,19 @@ class DashboardSettingsUiStateTests(unittest.TestCase):
 
     def test_posting_controls_states(self):
         self.assertEqual(posting_display_state("enabled", None), "enabled")
-        controls = posting_controls_state("disabling")
-        self.assertTrue(controls["enable_disabled"])
-        self.assertTrue(controls["disable_disabled"])
+        disabling = posting_controls_state("disabling")
+        self.assertEqual(disabling["enable_label"], "Enable")
+        self.assertEqual(disabling["disable_label"], "Disabling...")
+        self.assertTrue(disabling["enable_disabled"])
+        self.assertTrue(disabling["disable_disabled"])
+
+        enabled = posting_controls_state("enabled")
+        self.assertEqual(enabled["enable_label"], "Enabled")
+        self.assertEqual(enabled["disable_label"], "Disable")
+
+        disabled = posting_controls_state("disabled")
+        self.assertEqual(disabled["enable_label"], "Enable")
+        self.assertEqual(disabled["disable_label"], "Disabled")
 
 
 if __name__ == "__main__":

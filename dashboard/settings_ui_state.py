@@ -70,10 +70,10 @@ def manual_series_controls_state(display_state, *, has_draft_rows, is_dirty):
 
     if inactivating:
         inactivate_label = "Inactivating..."
-    elif inactive:
+    elif inactive or activating:
         inactivate_label = "Inactive"
     else:
-        inactivate_label = "Inactive"
+        inactivate_label = "Inactivate"
     return {
         "activate_disabled": bool(activate_disabled),
         "inactivate_disabled": bool(inactivate_disabled),
@@ -127,7 +127,10 @@ def posting_controls_state(display_state):
     enabling = state == "enabling"
     disabling = state == "disabling"
     enabled = state == "enabled"
+    disabled = state == "disabled"
     return {
+        "enable_label": "Enabling..." if enabling else ("Enabled" if enabled else "Enable"),
+        "disable_label": "Disabling..." if disabling else ("Disabled" if disabled else "Disable"),
         "enable_disabled": enabling or disabling or enabled,
-        "disable_disabled": enabling or disabling or (state == "disabled"),
+        "disable_disabled": enabling or disabling or disabled,
     }

@@ -134,8 +134,13 @@ def build_dashboard_layout(
                                             html.Div(
                                                 className="control-group plant-control-group",
                                                 children=[
-                                                    html.Button("Start", id="start-lib", className="control-btn control-btn-start", n_clicks=0, disabled=False),
-                                                    html.Button("Stopped", id="stop-lib", className="control-btn control-btn-stop", n_clicks=0, disabled=True),
+                                                    html.Div(
+                                                        className="compact-toggle",
+                                                        children=[
+                                                            html.Button("Run", id="start-lib", className="toggle-option toggle-option--positive", n_clicks=0, disabled=False),
+                                                            html.Button("Stopped", id="stop-lib", className="toggle-option toggle-option--negative active", n_clicks=0, disabled=True),
+                                                        ],
+                                                    ),
                                                 ],
                                             ),
                                             html.Div(className="control-separator"),
@@ -146,8 +151,8 @@ def build_dashboard_layout(
                                                     html.Div(
                                                         className="compact-toggle",
                                                         children=[
-                                                            html.Button("Sending", id="dispatch-enable-lib", className="toggle-option", n_clicks=0),
-                                                            html.Button("Paused", id="dispatch-disable-lib", className="toggle-option active", n_clicks=0),
+                                                            html.Button("Send", id="dispatch-enable-lib", className="toggle-option toggle-option--positive", n_clicks=0, disabled=False),
+                                                            html.Button("Paused", id="dispatch-disable-lib", className="toggle-option toggle-option--negative active", n_clicks=0, disabled=True),
                                                         ],
                                                     ),
                                                 ],
@@ -156,8 +161,13 @@ def build_dashboard_layout(
                                             html.Div(
                                                 className="control-group record-control-group",
                                                 children=[
-                                                    html.Button("Record", id="record-lib", className="control-btn control-btn-record", n_clicks=0, disabled=False),
-                                                    html.Button("Record Stopped", id="record-stop-lib", className="control-btn control-btn-record-stop", n_clicks=0, disabled=True),
+                                                    html.Div(
+                                                        className="compact-toggle",
+                                                        children=[
+                                                            html.Button("Record", id="record-lib", className="toggle-option toggle-option--positive", n_clicks=0, disabled=False),
+                                                            html.Button("Stopped", id="record-stop-lib", className="toggle-option toggle-option--negative active", n_clicks=0, disabled=True),
+                                                        ],
+                                                    ),
                                                 ],
                                             ),
                                         ],
@@ -176,8 +186,13 @@ def build_dashboard_layout(
                                             html.Div(
                                                 className="control-group plant-control-group",
                                                 children=[
-                                                    html.Button("Start", id="start-vrfb", className="control-btn control-btn-start", n_clicks=0, disabled=False),
-                                                    html.Button("Stopped", id="stop-vrfb", className="control-btn control-btn-stop", n_clicks=0, disabled=True),
+                                                    html.Div(
+                                                        className="compact-toggle",
+                                                        children=[
+                                                            html.Button("Run", id="start-vrfb", className="toggle-option toggle-option--positive", n_clicks=0, disabled=False),
+                                                            html.Button("Stopped", id="stop-vrfb", className="toggle-option toggle-option--negative active", n_clicks=0, disabled=True),
+                                                        ],
+                                                    ),
                                                 ],
                                             ),
                                             html.Div(className="control-separator"),
@@ -188,8 +203,8 @@ def build_dashboard_layout(
                                                     html.Div(
                                                         className="compact-toggle",
                                                         children=[
-                                                            html.Button("Sending", id="dispatch-enable-vrfb", className="toggle-option", n_clicks=0),
-                                                            html.Button("Paused", id="dispatch-disable-vrfb", className="toggle-option active", n_clicks=0),
+                                                            html.Button("Send", id="dispatch-enable-vrfb", className="toggle-option toggle-option--positive", n_clicks=0, disabled=False),
+                                                            html.Button("Paused", id="dispatch-disable-vrfb", className="toggle-option toggle-option--negative active", n_clicks=0, disabled=True),
                                                         ],
                                                     ),
                                                 ],
@@ -198,8 +213,13 @@ def build_dashboard_layout(
                                             html.Div(
                                                 className="control-group record-control-group",
                                                 children=[
-                                                    html.Button("Record", id="record-vrfb", className="control-btn control-btn-record", n_clicks=0, disabled=False),
-                                                    html.Button("Record Stopped", id="record-stop-vrfb", className="control-btn control-btn-record-stop", n_clicks=0, disabled=True),
+                                                    html.Div(
+                                                        className="compact-toggle",
+                                                        children=[
+                                                            html.Button("Record", id="record-vrfb", className="toggle-option toggle-option--positive", n_clicks=0, disabled=False),
+                                                            html.Button("Stopped", id="record-stop-vrfb", className="toggle-option toggle-option--negative active", n_clicks=0, disabled=True),
+                                                        ],
+                                                    ),
                                                 ],
                                             ),
                                         ],
@@ -330,8 +350,8 @@ def build_dashboard_layout(
                                                                             html.Div(
                                                                                 className="compact-toggle",
                                                                                 children=[
-                                                                                    html.Button("Activate", id="manual-toggle-lib-p-enable-btn", className="toggle-option", n_clicks=0),
-                                                                                    html.Button("Inactivated", id="manual-toggle-lib-p-disable-btn", className="toggle-option active", n_clicks=0),
+                                                                                    html.Button("Activate", id="manual-toggle-lib-p-enable-btn", className="toggle-option toggle-option--positive", n_clicks=0),
+                                                                                    html.Button("Inactive", id="manual-toggle-lib-p-disable-btn", className="toggle-option toggle-option--negative active", n_clicks=0),
                                                                                 ],
                                                                             ),
                                                                             html.Button("Update", id="manual-toggle-lib-p-update-btn", className="btn btn-secondary", n_clicks=0),
@@ -353,8 +373,8 @@ def build_dashboard_layout(
                                                                             html.Div(
                                                                                 className="compact-toggle",
                                                                                 children=[
-                                                                                    html.Button("Activate", id="manual-toggle-lib-q-enable-btn", className="toggle-option", n_clicks=0),
-                                                                                    html.Button("Inactivated", id="manual-toggle-lib-q-disable-btn", className="toggle-option active", n_clicks=0),
+                                                                                    html.Button("Activate", id="manual-toggle-lib-q-enable-btn", className="toggle-option toggle-option--positive", n_clicks=0),
+                                                                                    html.Button("Inactive", id="manual-toggle-lib-q-disable-btn", className="toggle-option toggle-option--negative active", n_clicks=0),
                                                                                 ],
                                                                             ),
                                                                             html.Button("Update", id="manual-toggle-lib-q-update-btn", className="btn btn-secondary", n_clicks=0),
@@ -376,8 +396,8 @@ def build_dashboard_layout(
                                                                             html.Div(
                                                                                 className="compact-toggle",
                                                                                 children=[
-                                                                                    html.Button("Activate", id="manual-toggle-vrfb-p-enable-btn", className="toggle-option", n_clicks=0),
-                                                                                    html.Button("Inactivated", id="manual-toggle-vrfb-p-disable-btn", className="toggle-option active", n_clicks=0),
+                                                                                    html.Button("Activate", id="manual-toggle-vrfb-p-enable-btn", className="toggle-option toggle-option--positive", n_clicks=0),
+                                                                                    html.Button("Inactive", id="manual-toggle-vrfb-p-disable-btn", className="toggle-option toggle-option--negative active", n_clicks=0),
                                                                                 ],
                                                                             ),
                                                                             html.Button("Update", id="manual-toggle-vrfb-p-update-btn", className="btn btn-secondary", n_clicks=0),
@@ -399,8 +419,8 @@ def build_dashboard_layout(
                                                                             html.Div(
                                                                                 className="compact-toggle",
                                                                                 children=[
-                                                                                    html.Button("Activate", id="manual-toggle-vrfb-q-enable-btn", className="toggle-option", n_clicks=0),
-                                                                                    html.Button("Inactivated", id="manual-toggle-vrfb-q-disable-btn", className="toggle-option active", n_clicks=0),
+                                                                                    html.Button("Activate", id="manual-toggle-vrfb-q-enable-btn", className="toggle-option toggle-option--positive", n_clicks=0),
+                                                                                    html.Button("Inactive", id="manual-toggle-vrfb-q-disable-btn", className="toggle-option toggle-option--negative active", n_clicks=0),
                                                                                 ],
                                                                             ),
                                                                             html.Button("Update", id="manual-toggle-vrfb-q-update-btn", className="btn btn-secondary", n_clicks=0),
@@ -527,8 +547,13 @@ def build_dashboard_layout(
                                         className="form-row api-credentials-row",
                                         children=[
                                             dcc.Input(id="api-password", type="password", placeholder="API password", className="form-control api-password-input"),
-                                            html.Button("Connect", id="set-password-btn", className="btn btn-primary", n_clicks=0),
-                                            html.Button("Disconnect", id="disconnect-api-btn", className="btn btn-danger", n_clicks=0),
+                                            html.Div(
+                                                className="compact-toggle",
+                                                children=[
+                                                    html.Button("Connect", id="set-password-btn", className="toggle-option toggle-option--positive", n_clicks=0),
+                                                    html.Button("Disconnected", id="disconnect-api-btn", className="toggle-option toggle-option--negative active", n_clicks=0),
+                                                ],
+                                            ),
                                         ],
                                     ),
                                     html.Div(
@@ -542,15 +567,23 @@ def build_dashboard_layout(
                                                         className="compact-toggle",
                                                         children=[
                                                             html.Button(
-                                                                "Enabled",
+                                                                "Enabled" if initial_posting_enabled else "Enable",
                                                                 id="api-posting-enable-btn",
-                                                                className="toggle-option active" if initial_posting_enabled else "toggle-option",
+                                                                className=(
+                                                                    "toggle-option toggle-option--positive active"
+                                                                    if initial_posting_enabled
+                                                                    else "toggle-option toggle-option--positive"
+                                                                ),
                                                                 n_clicks=0,
                                                             ),
                                                             html.Button(
-                                                                "Disabled",
+                                                                "Disable" if initial_posting_enabled else "Disabled",
                                                                 id="api-posting-disable-btn",
-                                                                className="toggle-option" if initial_posting_enabled else "toggle-option active",
+                                                                className=(
+                                                                    "toggle-option toggle-option--negative"
+                                                                    if initial_posting_enabled
+                                                                    else "toggle-option toggle-option--negative active"
+                                                                ),
                                                                 n_clicks=0,
                                                             ),
                                                         ],

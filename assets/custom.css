@@ -234,6 +234,28 @@ a {
     box-shadow: 0 2px 8px rgba(5, 7, 8, 0.18);
 }
 
+.toggle-option.active.toggle-option--positive {
+    color: #ffffff;
+    background: var(--success);
+    border-color: #008a52;
+}
+
+.toggle-option.active.toggle-option--negative {
+    color: #ffffff;
+    background: var(--danger);
+    border-color: #cb2d2d;
+}
+
+.toggle-option:disabled {
+    opacity: 0.56;
+    cursor: not-allowed;
+}
+
+.toggle-option:not(.active):hover:disabled {
+    color: #204739;
+    background: transparent;
+}
+
 .status-text {
     color: var(--text-muted);
     font-size: 0.79rem;
@@ -413,6 +435,10 @@ a {
 .api-credentials-row .btn {
     flex: 0 0 auto;
     width: auto;
+}
+
+.api-credentials-row .compact-toggle {
+    flex: 0 0 auto;
 }
 
 .form-group {

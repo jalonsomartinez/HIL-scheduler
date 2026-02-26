@@ -1,7 +1,12 @@
 import unittest
 from datetime import datetime, timezone
 
-from dashboard.ui_state import resolve_click_feedback_transition_state, resolve_runtime_transition_state
+from dashboard.ui_state import (
+    get_plant_power_toggle_state,
+    get_recording_toggle_state,
+    resolve_click_feedback_transition_state,
+    resolve_runtime_transition_state,
+)
 
 
 class DashboardUiStateTests(unittest.TestCase):
@@ -42,6 +47,69 @@ class DashboardUiStateTests(unittest.TestCase):
                 hold_seconds=1.5,
             )
         )
+
+    def test_plant_power_toggle_states(self):
+        stopped = get_plant_power_toggle_state("stopped")
+        self.assertEqual(stopped["positive_label"], "Run")
+        self.assertEqual(stopped["negative_label"], "Stopped")
+        self.assertFalse(stopped["positive_disabled"])
+        self.assertTrue(stopped["negative_disabled"])
+        self.assertEqual(stopped["active_side"], "negative")
+
+        starting = get_plant_power_toggle_state("starting")
+        self.assertEqual(starting["positive_label"], "Starting...")
+        self.assertEqual(starting["negative_label"], "Stop")
+        self.assertTrue(starting["positive_disabled"])
+        self.assertTrue(starting["negative_disabled"])
+        self.assertEqual(starting["active_side"], "positive")
+
+        running = get_plant_power_toggle_state("running")
+        self.assertEqual(running["positive_label"], "Running")
+        self.assertEqual(running["negative_label"], "Stop")
+        self.assertTrue(running["positive_disabled"])
+        self.assertFalse(running["negative_disabled"])
+        self.assertEqual(running["active_side"], "positive")
+
+        stopping = get_plant_power_toggle_state("stopping")
+        self.assertEqual(stopping["positive_label"], "Run")
+        self.assertEqual(stopping["negative_label"], "Stopping...")
+        self.assertEqual(stopping["active_side"], "negative")
+
+        unknown = get_plant_power_toggle_state("unknown")
+        self.assertEqual(unknown["positive_label"], "Run")
+        self.assertEqual(unknown["negative_label"], "Stop")
+        self.assertFalse(unknown["positive_disabled"])
+        self.assertTrue(unknown["negative_disabled"])
+        self.assertIsNone(unknown["active_side"])
+
+    def test_recording_toggle_states(self):
+        idle = get_recording_toggle_state(False)
+        self.assertEqual(idle["positive_label"], "Record")
+        self.assertEqual(idle["negative_label"], "Stopped")
+        self.assertEqual(idle["active_side"], "negative")
+        self.assertFalse(idle["positive_disabled"])
+        self.assertTrue(idle["negative_disabled"])
+
+        starting = get_recording_toggle_state(False, click_feedback_state="starting")
+        self.assertEqual(starting["positive_label"], "Starting...")
+        self.assertEqual(starting["negative_label"], "Stop")
+        self.assertEqual(starting["active_side"], "positive")
+        self.assertTrue(starting["positive_disabled"])
+        self.assertTrue(starting["negative_disabled"])
+
+        active = get_recording_toggle_state(True)
+        self.assertEqual(active["positive_label"], "Recording")
+        self.assertEqual(active["negative_label"], "Stop")
+        self.assertEqual(active["active_side"], "positive")
+        self.assertTrue(active["positive_disabled"])
+        self.assertFalse(active["negative_disabled"])
+
+        stopping = get_recording_toggle_state(True, click_feedback_state="stopping")
+        self.assertEqual(stopping["positive_label"], "Record")
+        self.assertEqual(stopping["negative_label"], "Stopping...")
+        self.assertEqual(stopping["active_side"], "negative")
+        self.assertTrue(stopping["positive_disabled"])
+        self.assertTrue(stopping["negative_disabled"])
 
 
 if __name__ == "__main__":
