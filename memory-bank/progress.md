@@ -26,15 +26,16 @@
  - Plant model nominal voltage is now `plants.*.model.poi_voltage_kv`.
  - API schedule fetcher next-day polling gate uses normalized `istentore_api.tomorrow_poll_start_time` (flattened `ISTENTORE_TOMORROW_POLL_START_TIME`) with explicit today/tomorrow fetch intent logging and partial-window warning/error visibility.
 5. Dashboard provides:
-- per-plant Start/Stop + Record/Stop controls,
+- per-plant `Run/Stop` + `Record/Stopped` controls (segmented toggles with stateful labels),
 - top-card `Start All` / `Stop All` controls with confirmation modal for high-impact actions,
-- transport switching with confirmation and safe-stop,
+- transport switching with confirmation and safe-stop (now via the shared confirmable-toggle modal flow and target-specific `Switching to ...` transition labels),
 - control-path UI/engine separation for start/stop/record/fleet/transport actions:
   - dashboard callbacks enqueue normalized control intents instead of executing Modbus/control flows,
   - `control/engine_agent.py` serially executes commands and owns control-path Modbus I/O,
   - shared command lifecycle status/history is tracked in bounded shared-state maps/queue,
 - cached plant observed-state publication (`enable`, `p_battery`, `q_battery`, stale/error metadata) for Status-tab control/status rendering (no direct dashboard Modbus polling on those paths),
 - independent per-plant dispatch-send toggles (`Sending` / `Paused`) in Status cards, command-driven through the control engine (`plant.dispatch_enable` / `plant.dispatch_disable`) and mapped to `scheduler_running_by_plant`,
+- standardized segmented-toggle UI pattern across Status/API/Manual binary controls with semantic positive/negative active colors (green/red) for start/stop and enable/disable semantics; transport remains neutral-colored,
 - physical plant-state cache (`plant_operating_state_by_plant`) derived from observed Modbus enable state and shown separately from control transition state,
 - per-plant dispatch write status cache (`dispatch_write_status_by_plant`) with latest attempted/successful P/Q, timestamp, source, status, and error, rendered in Status cards as sent-setpoint observability,
 - scheduler-originated dispatch status now carries readback reconciliation telemetry in `last_scheduler_context`, and the existing dispatch status line shows a compact inline `RB P/Q=...` hint when the latest attempt source is `scheduler`,
@@ -43,13 +44,14 @@
   - top-card queue summary (queued/running/recent failed, backlog-high hint),
   - per-plant Modbus diagnostics (link state/read error/freshness age/failure count/last error),
   - primary plant status line now separates physical plant state, control transition state, and recording status; dispatch send state and last write status/PQ are shown in dedicated lines below,
-- immediate click-feedback transition overlay (`starting`/`stopping`) followed by server-owned transition state and Modbus-confirmed `running`/`stopped` (dispatch send state is separate and independently toggleable),
+- immediate optimistic transition overlays for binary toggles; confirmable toggles (transport + plant power) now use confirm-triggered server-handoff-aware min/max hold timing (derived from `MEASUREMENT_PERIOD_S`) before falling back to server state,
 - `Status` tab (formerly `Status & Plots`) live status + control plots,
 - `Plots` tab historical measurement browsing from `data/*.csv` with full-range timeline + range slider,
 - `Plots` tab range slider now defaults to the full detected history span when the current value is a stale/placeholder out-of-domain range (avoids first-load collapsed selection),
 - compacted `Plots` tab availability timeline (`LIB`/`VRFB`) to reduce vertical whitespace while preserving the top-range overview,
 - per-plant historical exports (cropped CSV and client-side PNG),
 - API-tab runtime posting toggle (`Enabled`/`Disabled`) for read-only tests,
+- API/Manual binary controls now share the same segmented-toggle UI pattern as Status controls (stateful labels + consistent active-state semantics),
 - Manual Schedule tab redesign with four always-visible manual override plots and a compact breakpoint editor for one selected series at a time,
 - dashboard-owned manual draft series plus per-series command-driven `Activate` / `Inactivate` / `Update` controls (server-owned activation state),
 - manual per-series controls now use a true two-button activation toggle + separate `Update` button, with stateful button labels and no redundant per-series status text,
@@ -67,6 +69,7 @@
 - low-voltage plant voltage axes (nominal `< 10 kV`) now use explicit y-padding equal to `5%` of configured nominal voltage; higher-voltage plants use Plotly autorange,
 - logs tab with live `Today` (current date file tail) and selectable historical files,
 - branded UI theme (tokenized CSS, local font assets, flatter visual treatment, minimal corner radius, menu-style tab strip, full-width tab content cards, white page background).
+- Fleet `Start All` now also enables dispatch-send gates (and dispatch status mirrors) before plant starts; `Stop All` safe-stop still clears dispatch gates and now also syncs dispatch status mirrors off before recording clear.
 - Balanced package layout is now in place for active runtime modules (`dashboard/`, `control/`, `settings/`, `measurement/`, `scheduling/`, `modbus/`, `runtime/`) while `hil_scheduler.py` remains the root launcher.
 - Dashboard explicitly pins Dash `assets_folder` to repo-root `assets/`, and dashboard log helpers resolve repo-root `logs/` even when called from the `dashboard/` package directory.
 - Shared repo-root path helpers now live in `runtime/paths.py`; dashboard/logging/control-engine paths use them for `assets/`, `logs/`, and key `data/` path generation.
@@ -92,6 +95,7 @@
 - targeted manual end-row/terminal-duplicate encoding regressions (`tests/test_manual_schedule_manager_end_rows.py`, `tests/test_schedule_runtime_end_times.py`) covering CSV roundtrip, auto-sanitized gaps, and end-cutoff merge behavior.
 - targeted posting telemetry regression coverage confirming posting gate no longer depends on `active_schedule_source`.
 - targeted command-runtime/control-engine regressions (`tests/test_control_command_runtime.py`, `tests/test_control_engine_agent.py`) and dashboard intent/UI-state/control-health helper regressions (`tests/test_dashboard_command_intents.py`, `tests/test_dashboard_ui_state.py`, `tests/test_dashboard_control_health.py`).
+- targeted control-engine fleet regressions now also verify fleet `Start All` dispatch enable ordering and fleet `Stop All` dispatch mirror-off state.
 - generic command-runtime helper extraction (`runtime/command_runtime.py`) keeps control/settings command-runtime wrappers thin and aligned.
 - shared engine command-cycle bookkeeping (`runtime/engine_command_cycle_runtime.py`) now drives control/settings lifecycle status updates and exception publication.
 - targeted settings-command/settings-engine regressions (`tests/test_settings_command_runtime.py`, `tests/test_settings_engine_agent.py`) and dashboard settings intent/UI-state helper regressions (`tests/test_dashboard_settings_intents.py`, `tests/test_dashboard_settings_ui_state.py`).
@@ -109,16 +113,17 @@
 1. Remote transport smoke coverage design (repeatable unattended checks).
 2. Log retention policy definition and implementation scope.
 3. Manual validation pass for new per-plant dispatch pause/resume semantics, scheduler readback reconciliation behavior, and Status-tab sent-setpoint/readback visibility on real remote plants.
-4. Manual Schedule editor UX polish / layout tuning validation on different viewport widths (including forced terminal `end` row readability and no-delete first row behavior).
-5. Manual validation pass for historical `Plots` tab behavior on larger data directories (including low-voltage voltage-axis padding/readability).
-6. Evaluate per-plant queue architecture vs global queue after observing control queue + new settings queue usage on real workloads.
+4. Manual validation pass for standardized segmented-toggle UX / labels / spacing (Status, API, Manual) and confirmable plant/transport toggle timing on real latency.
+5. Manual Schedule editor UX polish / layout tuning validation on different viewport widths (including forced terminal `end` row readability and no-delete first row behavior).
+6. Manual validation pass for historical `Plots` tab behavior on larger data directories (including low-voltage voltage-axis padding/readability).
+7. Evaluate per-plant queue architecture vs global queue after observing control queue + new settings queue usage on real workloads.
 
 ## Next
 1. Add repeatable remote transport smoke checks.
 2. Validate and document operator semantics for dispatch pause (`Paused` freezes last sent setpoint) in remote runs.
 3. Define and implement log retention/cleanup policy.
 4. Add lightweight dashboard visual regression/smoke checklist.
-5. Expand README operator runbook/troubleshooting sections (including control engine/settings engine semantics and the new dispatch toggle behavior).
+5. Expand README operator runbook/troubleshooting sections (including control engine/settings engine semantics, dispatch toggle behavior, and confirmable toggle flows for plant/transport).
 6. Decide whether to provide an optional offline recompression utility for historical dense CSV files.
 7. Continue lock-discipline cleanup in `measurement/agent.py` beyond the recently refactored aggregate/current-cache/flush paths (only if contention justifies it).
 8. Evaluate command cancellation/prioritization needs for long safe-stop/transport flows (if operator usage demands it).
@@ -132,10 +137,11 @@
 5. Manual schedule editor drafts are stored in shared runtime state (`manual_schedule_draft_series_df_by_key`), so concurrent dashboard sessions can conflict (single-operator assumption currently accepted; per-session isolation deferred).
 6. Operational runbook and incident handling guidance are still thin.
 7. UI styling changes are still validated manually; no screenshot/DOM snapshot checks in CI.
-8. Measurement-agent lock discipline improved in aggregate/current-cache/flush paths, but broader audit remains for lower-priority paths.
-9. Historical measurement files captured while compression was inactive remain dense by design (no automatic backfill).
-10. Historical `Plots` tab rescans/reads CSVs on demand and may need indexing/caching if `data/` grows large.
-11. Additional low-risk duplication remains (for example repeated runtime-state default shapes beyond measurement posting status and same-value per-engine tuning constants); intentionally deferred after the initial safe dedup passes.
+8. Confirmable-toggle optimistic timing (plant/transport) is tuned heuristically from `MEASUREMENT_PERIOD_S`; real remote latency validation is still pending.
+9. Measurement-agent lock discipline improved in aggregate/current-cache/flush paths, but broader audit remains for lower-priority paths.
+10. Historical measurement files captured while compression was inactive remain dense by design (no automatic backfill).
+11. Historical `Plots` tab rescans/reads CSVs on demand and may need indexing/caching if `data/` grows large.
+12. Additional low-risk duplication remains (for example repeated runtime-state default shapes beyond measurement posting status and same-value per-engine tuning constants); intentionally deferred after the initial safe dedup passes.
 
 ## Current Project Phase
 Runtime architecture is stable for dual-plant operation; current priority is reliability hardening of remaining high-risk paths and operational docs.

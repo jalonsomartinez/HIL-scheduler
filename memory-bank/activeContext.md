@@ -2,14 +2,15 @@
 
 ## Current Focus (Now)
 1. Keep memory bank and audit artifacts aligned with the current dual-plant runtime and refactor outcomes.
-2. Maintain robust plant control safety (per-plant transitions, guarded transport switching, and confirmation-gated fleet actions).
+2. Maintain robust plant control safety (per-plant transitions, guarded transport switching, confirmation-gated fleet actions, and confirmation-gated plant `Run/Stop` toggles).
 3. Stabilize and validate dashboard time-window semantics:
  - Status tab should show only immediate context (current day + next day),
  - Plots tab remains the path for historical inspection.
 4. Stabilize the new merged schedule dispatch model (API base + per-signal manual overrides) and the redesigned Manual Schedule editor UX, now split into dashboard-owned drafts + settings-engine activation/update commands.
-5. Validate the new per-plant dispatch send toggle semantics (`Sending`/`Paused`), scheduler readback reconciliation behavior, and Status-tab sent-setpoint/readback observability on real remote plants.
-6. Keep reliability guardrails green via automated regression tests and CI enforcement, including measurement compression, posting-gate semantics, schedule-window pruning behavior, and scheduler write-retry visibility.
-7. Prepare follow-up hardening for remaining high-risk paths (posting durability, remote smoke coverage, queue topology tradeoffs/prioritization).
+5. Validate the standardized binary-toggle UX (semantic colors/stateful labels), per-plant dispatch send semantics (`Sending`/`Paused`), and Status-tab sent-setpoint/readback observability on real remote plants.
+6. Validate confirmable-toggle server-handoff optimistic timing for plant power/transport after raising the config-loader default `MEASUREMENT_PERIOD_S` to `5s`.
+7. Keep reliability guardrails green via automated regression tests and CI enforcement, including measurement compression, posting-gate semantics, schedule-window pruning behavior, and scheduler write-retry visibility.
+8. Prepare follow-up hardening for remaining high-risk paths (posting durability, remote smoke coverage, queue topology tradeoffs/prioritization).
 
 ## Open Decisions and Risks
 1. Control-engine command queue is serialized and bounded; long safe-stop/transport operations can delay later commands (UI queue/backlog visibility now exists, but per-plant queue topology remains a deferred design decision).
@@ -20,7 +21,7 @@
 6. Lock-discipline target is improved but not complete; high-value measurement cache paths were refactored, and lower-priority measurement/cache paths still need audit.
 7. Historical dense measurement CSV files created while compression was inactive are intentionally not backfilled.
 8. Historical plots tab currently rescans and reloads CSV files on demand; performance may degrade with very large `data/` directories.
-9. Transition UX now combines immediate click-feedback overlay + server/runtime transition state + Modbus confirmation; hold-window tuning may need additional operator validation across remote latency conditions.
+9. Transition UX now combines optimistic overlay + server/runtime transition state + Modbus confirmation; confirmable toggles use server-handoff-aware min/max holds (floor tied to `MEASUREMENT_PERIOD_S`), and timing still needs operator validation across remote latency conditions.
 10. Modbus error strings are now surfaced to operators; message wording/aggregation may need refinement to avoid noisy UI on unstable links.
 11. Manual schedule editor drafts are stored in shared runtime state (`manual_schedule_draft_series_df_by_key`), so concurrent dashboard sessions can overwrite each other's draft edits (per-session isolation deferred; single-operator assumption currently accepted).
 12. Dispatch pause semantics intentionally freeze the last setpoint on the plant (no zeroing on pause); operator validation and runbook wording are needed to avoid misuse.
@@ -28,6 +29,25 @@
 ## Rolling Change Log (Compressed, 30-Day Window)
 
 ### 2026-02-26
+- Standardized dashboard binary state controls to segmented toggles across Status/API/Manual UI:
+  - converted plant power, recording, API connect/disconnect, API posting, and manual activate/inactivate controls to a common segmented-toggle pattern,
+  - added semantic positive/negative selected-state colors (green/red) for start/stop and enable/disable style toggles (transport intentionally remains neutral),
+  - normalized stateful labels (for example `Run/Running`, `Record/Recording/Stopped`, `Send/Sending`, `Pause/Paused`, API `Connect/Connected`, posting `Enable/Enabled`, manual `Inactivate`).
+- Added generic confirmable-toggle infrastructure in dashboard UI for high-impact toggles:
+  - reusable toggle confirmation modal + stores (`toggle-confirm-request`, `toggle-confirm-action`),
+  - transport and plant power (`Run/Stop`) now use the generic confirmation flow with no pre-confirm target preview,
+  - transport toggle now shows target-specific transition labels (`Switching to Local...` / `Switching to Remote...`).
+- Improved confirmable-toggle optimistic transition handoff to reduce flicker:
+  - plant power and transport optimistic transitions now wait for a minimum hold plus next server-state change before falling back (with max-hold fallback),
+  - min/max hold bounds are derived from `MEASUREMENT_PERIOD_S`.
+- Updated config-loader timing default:
+  - `timing.measurement_period_s` / `MEASUREMENT_PERIOD_S` default changed from `1s` to `5s` when omitted from `config.yaml`.
+- Updated fleet control-engine runtime behavior:
+  - `fleet.start_all` now enables dispatch-send gates and dispatch status mirrors for both plants before starting each plant (in addition to enabling recording),
+  - `fleet.stop_all` now explicitly syncs dispatch-send status mirrors to `False` after safe-stop before clearing recording flags.
+- Added/updated targeted regressions for:
+  - dashboard toggle/ui-state/settings-state and intent/wiring behavior during toggle standardization + confirmable-toggle refactor,
+  - control-engine fleet start/stop behavior to cover dispatch gate/mirror updates and fleet start ordering.
 - Completed a second safe dedup pass (targets #1 and #2 from the duplicate audit; no behavior/schema changes):
   - centralized measurement posting-status default shape builders in `runtime/defaults.py` (`default_measurement_post_status`, `default_measurement_post_status_by_plant`) and reused them from `hil_scheduler.py` shared-state init and `measurement/agent.py` runtime status normalization,
   - removed the remaining exact cross-file helper clone for manual editor `end`-row detection by reusing `scheduling.manual_schedule_manager._is_end_editor_row` in the dashboard callback path,

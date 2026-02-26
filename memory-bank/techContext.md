@@ -24,14 +24,15 @@
 - `runtime/paths.py`: shared repo-root path resolution helpers (`get_project_root`, `get_assets_dir`, `get_logs_dir`, `get_data_dir`) used to avoid package-move path regressions.
 - `runtime/defaults.py`: lightweight shared defaults module (timezone default, measurement compression defaults, and small shared runtime default-shape builders such as measurement posting-status defaults) used to avoid cross-module drift.
 - `runtime/parsing.py`: lightweight shared coercion helpers (currently shared boolean parsing).
-- `dashboard/command_intents.py`: pure dashboard trigger->command intent mapping helpers for UI callbacks.
+- `dashboard/command_intents.py`: pure dashboard trigger->command intent mapping helpers for UI callbacks, including confirmed-toggle request routing (`confirmed_toggle_intent_from_request`).
 - `dashboard/settings_intents.py`: pure dashboard trigger->settings-command mapping helpers (manual/API/posting).
 - `dashboard/settings_ui_state.py`: pure UI transition/button-state helpers for manual/API/posting commanded resources.
 - `dashboard/control_health.py`: pure Status-tab health formatting helpers for control-engine queue/runtime summaries, per-plant Modbus diagnostics, and dispatch-write status lines (including compact scheduler readback hints when scheduler telemetry is available).
 - `config_loader.py`: validates/normalizes YAML into runtime dict.
 - `config_loader.py` now imports shared defaults/parsing from `runtime/defaults.py` and `runtime/parsing.py` for timezone and recording-compression fallback consistency (no schema behavior change).
-- `dashboard/agent.py`: UI layout and callbacks; enqueues control + settings intents (including per-plant dispatch pause/resume), renders status from shared state/cached plant observations, applies short click-feedback transition overlays, and keeps manual editor drafts dashboard-owned.
-- `dashboard/layout.py`: Dash layout builder; Status plant cards include independent per-plant dispatch toggles (`Sending` / `Paused`) in addition to start/stop and recording controls.
+- `config_loader.py` uses a `5s` fallback for `timing.measurement_period_s` (`MEASUREMENT_PERIOD_S`) when the key is omitted.
+- `dashboard/agent.py`: UI layout and callbacks; enqueues control + settings intents (including per-plant dispatch pause/resume), renders status from shared state/cached plant observations, applies standardized segmented-toggle state rendering, and supports a generic confirmable-toggle modal flow (currently transport + plant power) with server-handoff-aware optimistic transitions for confirmable toggles.
+- `dashboard/layout.py`: Dash layout builder; Status/API/Manual binary controls use standardized segmented toggles, and the layout includes a reusable toggle confirmation modal + stores (`toggle-confirm-request`, `toggle-confirm-action`) in addition to the existing bulk-action confirmation modal.
 - `scheduling/manual_schedule_manager.py`: manual override series metadata, editor breakpoint row conversions/auto-sanitization, relative CSV load/save parsing, terminal `end` row <-> stored duplicate-row encoding, and manual-series rebuild/sanitization helpers.
 - `dashboard/history.py`: historical plots helper utilities (file scan/index, slider range helpers, CSV crop/export serialization).
 - `dashboard/plotting.py`: shared Plotly figure/theme helpers for status and historical plant plots, including optional x-window cropping, Status-tab current-time indicator lines, historical setpoint fallback from measurement rows, and optional voltage y-range padding override.
@@ -66,6 +67,7 @@ Notes:
 - `startup.schedule_source` is still parsed for compatibility, but dispatch no longer uses source switching (merged API base + manual overrides is always active).
 - `istentore_api.tomorrow_poll_start_time` is the canonical next-day polling gate key for API day-ahead fetches; legacy `istentore_api.poll_start_time` is intentionally rejected (breaking rename, no alias).
 - `recording.compression.*` is parsed and applied by `measurement/agent.py` for tolerance-based in-memory row compaction, configurable keep-gap retention (`max_kept_gap_s`), and periodic flush tail retention.
+- `timing.measurement_period_s` loader default is `5s` when omitted from `config.yaml`.
 - Legacy flat alias keys from `config_loader.py` are disabled by default and are only emitted when `HIL_ENABLE_LEGACY_CONFIG_ALIASES=1`.
 
 Per-plant config includes:
@@ -85,6 +87,7 @@ Per-plant config includes:
 - Timing/posting/settings flattened for agents (for example `SCHEDULER_PERIOD_S`, `ISTENTORE_*`).
 - API fetcher next-day poll gate is exposed as normalized `ISTENTORE_TOMORROW_POLL_START_TIME` (`HH:MM`).
 - Recording compression settings are flattened for agents, including `MEASUREMENT_COMPRESSION_ENABLED`, `MEASUREMENT_COMPRESSION_TOLERANCES`, and `MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S`.
+- `MEASUREMENT_PERIOD_S` is normalized/flattened from `timing.measurement_period_s` with a loader default of `5.0`.
 
 ## Modbus and Unit Conventions
 - Modbus runtime contract is schema-driven per endpoint/point (`config.yaml`) and uses holding registers only.
@@ -142,6 +145,7 @@ Per-plant config includes:
 - Brand assets are served from Dash `assets/` (logo PNGs + local font files).
 - `dashboard/agent.py` now sets Dash `assets_folder` explicitly via `runtime/paths.py` to the repo-root `assets/` directory so styling and brand assets continue loading after package moves.
 - Dashboard visual state is primarily class-driven in `dashboard/agent.py` and styled in `assets/custom.css`; a small number of inline style dictionaries remain in log/posting render helpers.
+- Binary toggle controls share a segmented-toggle CSS pattern with semantic positive/negative active-state colors (green/red) for start/stop and enable/disable semantics; transport remains neutral-colored.
 - Plot styling in `dashboard/agent.py` uses shared figure-theme helpers for consistent axes/grid/legend presentation without altering control callbacks.
 - Historical `Plots` tab reuses the same figure helper/theme as Status plots for visual consistency; PNG downloads use client-side Plotly export (`window.Plotly.downloadImage`) and do not require `kaleido`.
 - Shared plant figures are now 4-row plots (P / SoC / Q / Voltage) and can render P/Q setpoint traces from recorded measurement columns when no schedule dataframe is supplied (used by historical `Plots`).
@@ -175,6 +179,7 @@ Per-plant config includes:
 - Local SoC restore handshake is best-effort by design: control-engine start waits briefly for plant-agent ack and logs timeout, but still proceeds with plant enable/start sequence.
 - Control command execution is serialized through a bounded FIFO queue in shared state; high-latency stop/transport flows can delay later queued commands by design in this first pass.
 - Dashboard status controls now depend on control-engine observed-state cache freshness (`stale` marker) rather than direct Modbus reads; stale cache displays `Unknown` for Modbus enable.
+- Confirmable toggles (transport + plant power) use server-handoff-aware optimistic transition feedback with min/max hold bounds derived from `MEASUREMENT_PERIOD_S`; other toggles currently use a fixed optimistic hold window.
 - Dashboard Status tab health lines are server-published-state-only (control engine + observed-state cache) and include queue/backlog and per-plant Modbus reachability/read-error diagnostics.
 - Dashboard Status plant cards now also depend on `dispatch_write_status_by_plant` and `scheduler_running_by_plant` to render independent dispatch send/paused state and last write info.
 - Scheduler-originated dispatch write status attempts now include readback reconciliation telemetry in `last_scheduler_context` (compare source, readback ok/mismatch flags); current dashboard summary displays a compact inline `RB P/Q=...` hint only when the latest dispatch attempt source is `scheduler`.

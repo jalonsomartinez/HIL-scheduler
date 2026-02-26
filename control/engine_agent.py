@@ -619,6 +619,9 @@ def _execute_command(config, shared_data, command, *, plant_ids, tz, now_fn=now_
         per_plant = {}
         any_failed = False
         for pid in plant_ids:
+            with shared_data["lock"]:
+                shared_data["scheduler_running_by_plant"][pid] = True
+            set_dispatch_sending_enabled(shared_data, pid, True)
             sub = dict(start_one_plant_fn(pid) or {})
             per_plant[pid] = sub
             sub_state = str(sub.get("state", "failed"))
@@ -635,6 +638,8 @@ def _execute_command(config, shared_data, command, *, plant_ids, tz, now_fn=now_
 
     if kind == "fleet.stop_all":
         results = dict(safe_stop_all_fn() or {})
+        for pid in plant_ids:
+            set_dispatch_sending_enabled(shared_data, pid, False)
         with shared_data["lock"]:
             for pid in plant_ids:
                 shared_data["measurements_filename_by_plant"][pid] = None

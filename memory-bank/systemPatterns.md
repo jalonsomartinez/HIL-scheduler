@@ -163,7 +163,7 @@ shared_data = {
 - `measurement/agent.py`: measurement sampling, recording, cache updates, API posting queue/telemetry.
 - `control/engine_agent.py`: consumes UI command queue, executes start/stop/fleet/transport/record/dispatch-toggle control flows, owns control-path Modbus I/O, and publishes cached plant observed + physical state.
 - `settings/engine_agent.py`: consumes settings command queue and executes manual activation/update/inactivation, API connect/disconnect, and posting policy enable/disable.
-- `dashboard/agent.py`: UI layout/callbacks, command enqueueing, manual override editor/plots, status plots, logs, and short-lived click-feedback transition overlay.
+- `dashboard/agent.py`: UI layout/callbacks, command enqueueing, manual override editor/plots, status plots, logs, and standardized segmented-toggle rendering/feedback (including generic confirmable-toggle modal flow for transport and plant power).
 - `runtime/dispatch_write_runtime.py`: shared helpers to publish per-plant dispatch write attempt/success status and current dispatch-send enabled mirror.
 - `dashboard/history.py`: helper functions for dashboard historical measurement scan/index, range clamping, file loading/cropping, and CSV serialization.
 - `control/flows.py`: shared safe-stop + transport-switch control-flow helpers reused by control engine execution.
@@ -183,22 +183,25 @@ shared_data = {
 ### Transport Switching
 - Transport switch is modal-confirmed and safety-gated.
 - Confirm path:
-  1. Dashboard enqueues transport-switch intent.
-  2. Control engine sets transport switching flag.
-  3. Control engine safe-stops both plants.
-  4. Control engine applies transport selector update.
-  5. Control engine clears switching flag.
+  1. User clicks transport target; dashboard opens the generic toggle confirmation modal (server state remains displayed until confirm).
+  2. On confirm, dashboard enqueues transport-switch intent and shows target-specific optimistic transition feedback in the toggle.
+  3. Control engine sets transport switching flag.
+  4. Control engine safe-stops both plants.
+  5. Control engine applies transport selector update.
+  6. Control engine clears switching flag.
 
 ### Fleet Start/Stop Actions
 - Status tab top card provides confirmation-gated bulk controls.
 - `Start All` sequence:
   1. Dashboard enqueues fleet-start intent after confirmation.
   2. Control engine enables recording for both plants (`measurements_filename_by_plant[*]`).
-  3. Control engine triggers each plant start flow (enable command, initial setpoint send only if the per-plant dispatch gate is already on).
+  3. Control engine enables dispatch-send gates for both plants (`scheduler_running_by_plant[*] = True`) and updates dispatch-send status mirrors.
+  4. Control engine triggers each plant start flow (enable command, initial setpoint send can now proceed immediately because dispatch is enabled first).
 - `Stop All` sequence:
   1. Dashboard enqueues fleet-stop intent after confirmation.
   2. Control engine safe-stops both plants.
-  3. Control engine clears recording flags for both plants.
+  3. Control engine syncs dispatch-send status mirrors to `False` (dispatch gates are already cleared by safe-stop).
+  4. Control engine clears recording flags for both plants.
 
 ### Control Command Execution and Status Cache
 - Dashboard control callbacks enqueue normalized commands (`plant.start`, `plant.stop`, `plant.dispatch_enable`, `plant.dispatch_disable`, `plant.record_start`, `plant.record_stop`, `fleet.start_all`, `fleet.stop_all`, `transport.switch`) into `control_command_queue`.
@@ -217,7 +220,19 @@ shared_data = {
   - `starting` / `stopping` are authoritative runtime transition states owned by the control engine (`plant_transition_by_plant`).
   - Physical plant `running` / `stopped` are derived from observed Modbus `enable` (`plant_operating_state_by_plant`).
   - Scheduler dispatch send state is independently controlled by `scheduler_running_by_plant` and can differ from physical plant state.
-  - Dashboard applies a short immediate click-feedback overlay (`starting`/`stopping`) for control transitions before falling back to server/runtime transition state.
+  - Dashboard applies optimistic transition overlays for control transitions before falling back to server/runtime transition state.
+  - Plant power and transport toggles are confirmable toggles: optimistic transition feedback starts on confirm (not on initial click) and persists until a minimum hold elapses and the next server-state change is observed (with a max-hold fallback).
+
+### Dashboard Binary Toggle Pattern
+- Status/API/Manual binary controls use a common segmented-toggle visual pattern (`compact-toggle` + `toggle-option`) with semantic active colors for enable/disable or start/stop style actions (green positive, red negative).
+- Transport (`Local` / `Remote`) remains visually neutral (mode selector), but now uses the same toggle lifecycle pattern with optional confirmation enabled.
+- Toggle lifecycle pattern (UI):
+  1. Render server-owned state.
+  2. Optional full-disable guard.
+  3. Optional confirmation modal (transport + plant power currently enabled); server state remains displayed while modal is open.
+  4. On command/confirm, render optimistic transition label/disabled state for a short window.
+  5. Fall back to server state.
+- Confirmable toggles (transport + plant power) use a server-handoff-aware optimistic timeout with bounds derived from `MEASUREMENT_PERIOD_S`; other toggles currently use the shared fixed optimistic hold window.
 
 ### Dispatch Pause/Resume and Setpoint Write Status
 - Per-plant dispatch send control is independent from plant enable/disable:

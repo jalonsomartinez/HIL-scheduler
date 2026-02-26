@@ -227,7 +227,18 @@ class ControlEngineAgentTests(unittest.TestCase):
         call_order = []
 
         def _start_one(plant_id):
-            call_order.append(("start", plant_id, dict(shared_data["measurements_filename_by_plant"])))
+            call_order.append(
+                (
+                    "start",
+                    plant_id,
+                    dict(shared_data["measurements_filename_by_plant"]),
+                    dict(shared_data["scheduler_running_by_plant"]),
+                    {
+                        "lib": dict(shared_data["dispatch_write_status_by_plant"]["lib"]),
+                        "vrfb": dict(shared_data["dispatch_write_status_by_plant"]["vrfb"]),
+                    },
+                )
+            )
             return {"state": "succeeded", "message": None, "result": {"plant_id": plant_id}}
 
         result = _execute_command(
@@ -244,16 +255,28 @@ class ControlEngineAgentTests(unittest.TestCase):
 
         self.assertEqual(result["state"], "succeeded")
         self.assertEqual([item[0:2] for item in call_order], [("start", "lib"), ("start", "vrfb")])
-        for _, _, recording_map in call_order:
+        for _, plant_id, recording_map, dispatch_map, dispatch_status_map in call_order:
             self.assertEqual(recording_map["lib"], "data/lib.csv")
             self.assertEqual(recording_map["vrfb"], "data/vrfb.csv")
+            self.assertTrue(dispatch_map[plant_id])
+            self.assertTrue(dispatch_status_map[plant_id]["sending_enabled"])
+        self.assertTrue(call_order[-1][3]["lib"])
+        self.assertTrue(call_order[-1][3]["vrfb"])
+        self.assertTrue(call_order[-1][4]["lib"]["sending_enabled"])
+        self.assertTrue(call_order[-1][4]["vrfb"]["sending_enabled"])
 
     def test_fleet_stop_all_orders_safe_stop_before_recording_clear(self):
         shared_data = _shared_data()
         observed = {}
+        shared_data["scheduler_running_by_plant"]["lib"] = True
+        shared_data["scheduler_running_by_plant"]["vrfb"] = True
+        shared_data["dispatch_write_status_by_plant"]["lib"]["sending_enabled"] = True
+        shared_data["dispatch_write_status_by_plant"]["vrfb"]["sending_enabled"] = True
 
         def _safe_stop_all():
             observed["recording_before"] = dict(shared_data["measurements_filename_by_plant"])
+            shared_data["scheduler_running_by_plant"]["lib"] = False
+            shared_data["scheduler_running_by_plant"]["vrfb"] = False
             return {
                 "lib": {"threshold_reached": True, "disable_ok": True},
                 "vrfb": {"threshold_reached": True, "disable_ok": True},
@@ -272,6 +295,10 @@ class ControlEngineAgentTests(unittest.TestCase):
         self.assertIsNotNone(observed["recording_before"]["lib"])
         self.assertIsNone(shared_data["measurements_filename_by_plant"]["lib"])
         self.assertIsNone(shared_data["measurements_filename_by_plant"]["vrfb"])
+        self.assertFalse(shared_data["scheduler_running_by_plant"]["lib"])
+        self.assertFalse(shared_data["scheduler_running_by_plant"]["vrfb"])
+        self.assertFalse(shared_data["dispatch_write_status_by_plant"]["lib"]["sending_enabled"])
+        self.assertFalse(shared_data["dispatch_write_status_by_plant"]["vrfb"]["sending_enabled"])
 
     def test_transport_switch_noop_when_mode_matches(self):
         shared_data = _shared_data()
