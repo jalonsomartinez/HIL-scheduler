@@ -12,6 +12,7 @@
 ## Repository Runtime Modules
 - `hil_scheduler.py`: director, shared state initialization, thread startup/shutdown.
 - `control_engine_agent.py`: serial command execution engine for dashboard-issued control intents; owns control-path Modbus I/O and cached plant observed-state publication.
+- `dispatch_write_runtime.py`: shared helpers for per-plant dispatch write status publication (`last attempt/success`, source/status/error) and dispatch-send enabled mirrors.
 - `command_runtime.py`: generic shared-state command queue/lifecycle bookkeeping helpers used by control/settings wrappers.
 - `control_command_runtime.py`: shared-state command queue/lifecycle bookkeeping helpers (ID allocation, queued/running/terminal status updates, bounded history).
 - `settings_engine_agent.py`: serial settings command execution engine for manual activation/update/inactivation, API connect/disconnect, and posting policy commands.
@@ -23,9 +24,10 @@
 - `dashboard_settings_intents.py`: pure dashboard trigger->settings-command mapping helpers (manual/API/posting).
 - `dashboard_settings_ui_state.py`: pure UI transition/button-state helpers for manual/API/posting commanded resources.
 - `dashboard_control_health.py`: pure Status-tab health formatting helpers for control-engine queue/runtime summaries and per-plant Modbus diagnostics.
+- `dashboard_control_health.py`: pure Status-tab health formatting helpers for control-engine queue/runtime summaries, per-plant Modbus diagnostics, and dispatch-write status lines.
 - `config_loader.py`: validates/normalizes YAML into runtime dict.
-- `dashboard_agent.py`: UI layout and callbacks; enqueues control + settings intents, renders status from shared state/cached plant observations, applies short click-feedback transition overlays, and keeps manual editor drafts dashboard-owned.
-- `dashboard_layout.py`: Dash layout builder; Status top card now includes control-engine/queue health summary placeholders in addition to API inline status.
+- `dashboard_agent.py`: UI layout and callbacks; enqueues control + settings intents (including per-plant dispatch pause/resume), renders status from shared state/cached plant observations, applies short click-feedback transition overlays, and keeps manual editor drafts dashboard-owned.
+- `dashboard_layout.py`: Dash layout builder; Status plant cards include independent per-plant dispatch toggles (`Sending` / `Paused`) in addition to start/stop and recording controls.
 - `manual_schedule_manager.py`: manual override series metadata, editor breakpoint row conversions/auto-sanitization, relative CSV load/save parsing, terminal `end` row <-> stored duplicate-row encoding, and manual-series rebuild/sanitization helpers.
 - `dashboard_history.py`: historical plots helper utilities (file scan/index, slider range helpers, CSV crop/export serialization).
 - `dashboard_plotting.py`: shared Plotly figure/theme helpers for status and historical plant plots, including optional x-window cropping, Status-tab current-time indicator lines, historical setpoint fallback from measurement rows, and optional voltage y-range padding override.
@@ -33,7 +35,7 @@
 - `assets/custom.css`: dashboard design tokens, responsive rules, control/tab/modal/log styling.
 - `assets/brand/fonts/*`: locally served dashboard fonts (DM Sans files + OFL license).
 - `data_fetcher_agent.py`: day-ahead API polling and status updates.
-- `scheduler_agent.py`: per-plant setpoint dispatch.
+- `scheduler_agent.py`: per-plant setpoint dispatch plus dispatch-write status publication/retry-aware dedupe behavior.
 - `plant_agent.py`: local dual-server plant emulation.
 - `measurement_agent.py`: sampling, recording, cache, API posting queue.
 - `measurement_storage.py`: measurement normalization, CSV read/write helpers, latest persisted per-plant SoC lookup helper, and row-similarity primitives for compression.
@@ -122,7 +124,9 @@ Per-plant config includes:
   - `today` reads tail of current date file for live refresh,
   - historical log browsing reads selectable files from `logs/*.log`.
 - Control engine publishes `plant_observed_state_by_plant` (cached `enable`, `p_battery`, `q_battery`, freshness/error metadata including `read_status` / `last_error` / `consecutive_failures`) so dashboard status callbacks avoid direct control-path Modbus polling.
+- Control engine also publishes `plant_operating_state_by_plant` (physical `running|stopped|unknown` derived from observed enable) so dashboard can separate physical plant state from control transition state.
 - Control engine also publishes `control_engine_status` (loop liveness/timestamps, queue metrics, active command metadata, last loop exception/last finished command) for Status-tab operator visibility.
+- Scheduler and control-engine setpoint-write paths publish `dispatch_write_status_by_plant` (latest attempted/successful P/Q, source/status/error) for Status-tab sent-setpoint observability.
 - Settings engine publishes manual/API/posting server-owned runtime states and `settings_engine_status` for command execution observability (currently mainly consumed by callbacks/tests; not yet surfaced in Status tab).
 
 ## Dashboard Styling Conventions
@@ -162,6 +166,9 @@ Per-plant config includes:
 - Control command execution is serialized through a bounded FIFO queue in shared state; high-latency stop/transport flows can delay later queued commands by design in this first pass.
 - Dashboard status controls now depend on control-engine observed-state cache freshness (`stale` marker) rather than direct Modbus reads; stale cache displays `Unknown` for Modbus enable.
 - Dashboard Status tab health lines are server-published-state-only (control engine + observed-state cache) and include queue/backlog and per-plant Modbus reachability/read-error diagnostics.
+- Dashboard Status plant cards now also depend on `dispatch_write_status_by_plant` and `scheduler_running_by_plant` to render independent dispatch send/paused state and last write info.
+- Plant start (`plant.start`) no longer auto-enables `scheduler_running_by_plant`; per-plant dispatch send control is independent and command-driven (`plant.dispatch_enable` / `plant.dispatch_disable`).
+- Dispatch pause semantics intentionally freeze the last plant setpoint (scheduler stops writing; no automatic zeroing on pause).
 - Manual schedule editor persists draft series in dashboard-owned runtime draft maps; scheduler dispatch uses server-applied manual series activated through settings commands.
 - Manual settings command payloads serialize the full numeric manual series (including terminal duplicate row) and do not carry a separate end timestamp field.
 - Manual draft maps are shared across dashboard sessions (single-operator assumption in current runtime; per-session draft isolation deferred).

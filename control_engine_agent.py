@@ -10,6 +10,7 @@ from pyModbusTCP.client import ModbusClient
 
 import manual_schedule_manager as msm
 from control_command_runtime import mark_command_finished, mark_command_running
+from dispatch_write_runtime import publish_dispatch_write_status, set_dispatch_sending_enabled
 from dashboard_control import (
     perform_transport_switch as perform_transport_switch_flow,
     safe_stop_all_plants as safe_stop_all_plants_flow,
@@ -156,6 +157,15 @@ def _publish_observed_state(shared_data, plant_id, values, *, error=None, now_va
             stale = True
         current["stale"] = bool(stale)
         state_map[plant_id] = current
+        plant_operating_state_map = shared_data.setdefault("plant_operating_state_by_plant", {})
+        if bool(current["stale"]):
+            plant_operating_state_map[plant_id] = "unknown"
+        elif current.get("enable_state") == 1:
+            plant_operating_state_map[plant_id] = "running"
+        elif current.get("enable_state") == 0:
+            plant_operating_state_map[plant_id] = "stopped"
+        else:
+            plant_operating_state_map[plant_id] = "unknown"
         return dict(current)
 
 
@@ -347,10 +357,26 @@ def _get_latest_schedule_setpoint(config, shared_data, plant_id, tz):
 
 
 def _safe_stop_plant(config, shared_data, plant_id, *, threshold_kw=1.0, timeout_s=30):
+    def _send_and_publish(pid, p_kw, q_kvar):
+        ok = bool(_send_setpoints(config, shared_data, pid, p_kw, q_kvar))
+        gate = snapshot_locked(shared_data, lambda data: bool((data.get("scheduler_running_by_plant", {}) or {}).get(pid, False)))
+        publish_dispatch_write_status(
+            shared_data,
+            pid,
+            sending_enabled=gate,
+            attempted_at=now_tz(config),
+            p_kw=p_kw,
+            q_kvar=q_kvar,
+            source="control_engine.safe_stop",
+            status="ok" if ok else "failed",
+            error=None if ok else "setpoint_write_failed",
+        )
+        return ok
+
     return safe_stop_plant_flow(
         shared_data,
         plant_id,
-        send_setpoints=lambda pid, p_kw, q_kvar: _send_setpoints(config, shared_data, pid, p_kw, q_kvar),
+        send_setpoints=_send_and_publish,
         wait_until_battery_power_below_threshold=lambda pid, threshold_kw=1.0, timeout_s=30: _wait_until_battery_power_below_threshold(
             config,
             shared_data,
@@ -398,10 +424,10 @@ def _start_one_plant(
 
     with shared_data["lock"]:
         transition_state = shared_data.get("plant_transition_by_plant", {}).get(plant_id, "stopped")
+        dispatch_enabled = bool(shared_data.get("scheduler_running_by_plant", {}).get(plant_id, False))
         if transition_state in {"starting", "running"}:
             logging.info("ControlEngine: %s start ignored (state=%s).", plant_id.upper(), transition_state)
             return {"state": "rejected", "message": "already_running", "result": {"transition_state": transition_state}}
-        shared_data["scheduler_running_by_plant"][plant_id] = True
         shared_data["plant_transition_by_plant"][plant_id] = "starting"
 
     seed_result = None
@@ -418,7 +444,6 @@ def _start_one_plant(
     if not enabled:
         logging.error("ControlEngine: %s start failed while enabling plant.", plant_id.upper())
         with shared_data["lock"]:
-            shared_data["scheduler_running_by_plant"][plant_id] = False
             shared_data["plant_transition_by_plant"][plant_id] = "stopped"
         return {
             "state": "failed",
@@ -429,21 +454,53 @@ def _start_one_plant(
                 "initial_p_kw": 0.0,
                 "initial_q_kvar": 0.0,
                 "seed_result": seed_result,
+                "dispatch_enabled": bool(dispatch_enabled),
             },
         }
 
     p_kw, q_kvar = get_latest_schedule_setpoint_fn(plant_id)
-    send_ok = bool(send_setpoints_fn(plant_id, p_kw, q_kvar))
-    if send_ok:
-        logging.info(
-            "ControlEngine: %s initial setpoints sent (P=%.3f kW Q=%.3f kvar).",
-            plant_id.upper(),
-            p_kw,
-            q_kvar,
+    if dispatch_enabled:
+        send_ok = bool(send_setpoints_fn(plant_id, p_kw, q_kvar))
+        publish_dispatch_write_status(
+            shared_data,
+            plant_id,
+            sending_enabled=True,
+            attempted_at=now_fn(config),
+            p_kw=p_kw,
+            q_kvar=q_kvar,
+            source="control_engine.start",
+            status="ok" if send_ok else "failed",
+            error=None if send_ok else "setpoint_write_failed",
         )
+        if send_ok:
+            logging.info(
+                "ControlEngine: %s initial setpoints sent (P=%.3f kW Q=%.3f kvar).",
+                plant_id.upper(),
+                p_kw,
+                q_kvar,
+            )
+        else:
+            logging.warning(
+                "ControlEngine: %s initial setpoint write failed (P=%.3f kW Q=%.3f kvar).",
+                plant_id.upper(),
+                p_kw,
+                q_kvar,
+            )
     else:
-        logging.warning(
-            "ControlEngine: %s initial setpoint write failed (P=%.3f kW Q=%.3f kvar).",
+        send_ok = False
+        publish_dispatch_write_status(
+            shared_data,
+            plant_id,
+            sending_enabled=False,
+            attempted_at=now_fn(config),
+            p_kw=p_kw,
+            q_kvar=q_kvar,
+            source="control_engine.start",
+            status="skipped",
+            error="dispatch_paused",
+        )
+        logging.info(
+            "ControlEngine: %s initial setpoint write skipped because dispatch is paused (P=%.3f kW Q=%.3f kvar).",
             plant_id.upper(),
             p_kw,
             q_kvar,
@@ -461,6 +518,8 @@ def _start_one_plant(
             "initial_p_kw": float(p_kw),
             "initial_q_kvar": float(q_kvar),
             "seed_result": seed_result,
+            "dispatch_enabled": bool(dispatch_enabled),
+            "initial_setpoint_write_skipped": (not bool(dispatch_enabled)),
         },
     }
 
@@ -514,6 +573,22 @@ def _execute_command(config, shared_data, command, *, plant_ids, tz, now_fn=now_
     if kind == "plant.stop":
         plant_id = str(payload.get("plant_id", ""))
         return stop_one_plant_fn(plant_id)
+
+    if kind == "plant.dispatch_enable":
+        plant_id = str(payload.get("plant_id", ""))
+        with shared_data["lock"]:
+            previous = bool(shared_data.get("scheduler_running_by_plant", {}).get(plant_id, False))
+            shared_data["scheduler_running_by_plant"][plant_id] = True
+        set_dispatch_sending_enabled(shared_data, plant_id, True)
+        return {"state": "succeeded", "message": None, "result": {"previous": previous, "current": True}}
+
+    if kind == "plant.dispatch_disable":
+        plant_id = str(payload.get("plant_id", ""))
+        with shared_data["lock"]:
+            previous = bool(shared_data.get("scheduler_running_by_plant", {}).get(plant_id, False))
+            shared_data["scheduler_running_by_plant"][plant_id] = False
+        set_dispatch_sending_enabled(shared_data, plant_id, False)
+        return {"state": "succeeded", "message": None, "result": {"previous": previous, "current": False}}
 
     if kind == "plant.record_start":
         plant_id = str(payload.get("plant_id", ""))

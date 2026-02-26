@@ -110,3 +110,25 @@ def summarize_plant_modbus_health(plant_observed_state, now_ts):
         error_code = str(last_error.get("code") or read_status.lower() or "error").upper()
         lines.append(f"Error ({error_code}): {_truncate(error_message, max_chars=120)}")
     return lines
+
+
+def summarize_dispatch_write_status(dispatch_write_state, *, dispatch_enabled):
+    state = dict(dispatch_write_state or {})
+    enabled_text = "Sending" if bool(dispatch_enabled) else "Paused"
+    attempt_status = str(state.get("last_attempt_status") or "none").upper()
+    attempt_at_text = _format_time(state.get("last_attempt_at")) if state.get("last_attempt_at") else "n/a"
+    line1 = f"Dispatch: {enabled_text} | Last write: {attempt_status} @ {attempt_at_text}"
+
+    if state.get("last_attempt_p_kw") is None or state.get("last_attempt_q_kvar") is None:
+        line2 = "Last P/Q: n/a | Source: n/a"
+    else:
+        source = str(state.get("last_attempt_source") or "unknown")
+        line2 = (
+            f"Last P/Q: P={float(state.get('last_attempt_p_kw')):.3f} kW, "
+            f"Q={float(state.get('last_attempt_q_kvar')):.3f} kvar | Source: {source}"
+        )
+
+    lines = [line1, line2]
+    if state.get("last_error"):
+        lines.append(f"Dispatch error: {_truncate(state.get('last_error'), max_chars=120)}")
+    return lines

@@ -59,6 +59,11 @@ def _shared_data():
                 "stale": True,
             },
         },
+        "plant_operating_state_by_plant": {"lib": "unknown", "vrfb": "unknown"},
+        "dispatch_write_status_by_plant": {
+            "lib": {"sending_enabled": False},
+            "vrfb": {"sending_enabled": False},
+        },
         "control_engine_status": {
             "alive": False,
             "last_loop_start": None,
@@ -78,9 +83,10 @@ def _shared_data():
 
 
 class ControlEngineAgentTests(unittest.TestCase):
-    def test_start_one_plant_success_updates_gate_transition_and_result(self):
+    def test_start_one_plant_success_preserves_dispatch_gate_and_updates_transition(self):
         shared_data = _shared_data()
         calls = []
+        shared_data["scheduler_running_by_plant"]["lib"] = False
 
         result = _start_one_plant(
             {"STARTUP_INITIAL_SOC_PU": 0.5},
@@ -94,9 +100,34 @@ class ControlEngineAgentTests(unittest.TestCase):
 
         self.assertEqual(result["state"], "succeeded")
         self.assertTrue(result["result"]["enable_ok"])
-        self.assertTrue(result["result"]["initial_setpoint_write_ok"])
-        self.assertEqual(shared_data["scheduler_running_by_plant"]["lib"], True)
+        self.assertFalse(result["result"]["initial_setpoint_write_ok"])
+        self.assertTrue(result["result"]["initial_setpoint_write_skipped"])
+        self.assertFalse(result["result"]["dispatch_enabled"])
+        self.assertEqual(shared_data["scheduler_running_by_plant"]["lib"], False)
         self.assertEqual(shared_data["plant_transition_by_plant"]["lib"], "running")
+        self.assertEqual(calls[0], ("enable", "lib", 1))
+        self.assertEqual(len(calls), 1)
+
+    def test_start_one_plant_sends_initial_setpoints_when_dispatch_enabled(self):
+        shared_data = _shared_data()
+        calls = []
+        shared_data["scheduler_running_by_plant"]["lib"] = True
+
+        result = _start_one_plant(
+            {"STARTUP_INITIAL_SOC_PU": 0.5},
+            shared_data,
+            "lib",
+            tz=timezone.utc,
+            set_enable_fn=lambda plant_id, value: calls.append(("enable", plant_id, value)) or True,
+            send_setpoints_fn=lambda plant_id, p_kw, q_kvar: calls.append(("setpoints", plant_id, p_kw, q_kvar)) or True,
+            get_latest_schedule_setpoint_fn=lambda plant_id: (12.5, -3.0),
+        )
+
+        self.assertEqual(result["state"], "succeeded")
+        self.assertTrue(result["result"]["dispatch_enabled"])
+        self.assertTrue(result["result"]["initial_setpoint_write_ok"])
+        self.assertFalse(result["result"]["initial_setpoint_write_skipped"])
+        self.assertEqual(shared_data["scheduler_running_by_plant"]["lib"], True)
         self.assertEqual(calls[0], ("enable", "lib", 1))
         self.assertEqual(calls[1], ("setpoints", "lib", 12.5, -3.0))
 
@@ -117,6 +148,32 @@ class ControlEngineAgentTests(unittest.TestCase):
         self.assertEqual(result["message"], "enable_failed")
         self.assertFalse(shared_data["scheduler_running_by_plant"]["lib"])
         self.assertEqual(shared_data["plant_transition_by_plant"]["lib"], "stopped")
+
+    def test_dispatch_enable_disable_commands_mutate_only_scheduler_gate(self):
+        shared_data = _shared_data()
+        shared_data["plant_transition_by_plant"]["lib"] = "running"
+
+        out_enable = _execute_command(
+            {"PLANT_IDS": ("lib", "vrfb")},
+            shared_data,
+            {"kind": "plant.dispatch_enable", "payload": {"plant_id": "lib"}},
+            plant_ids=("lib", "vrfb"),
+            tz=timezone.utc,
+        )
+        self.assertEqual(out_enable["state"], "succeeded")
+        self.assertTrue(shared_data["scheduler_running_by_plant"]["lib"])
+        self.assertEqual(shared_data["plant_transition_by_plant"]["lib"], "running")
+
+        out_disable = _execute_command(
+            {"PLANT_IDS": ("lib", "vrfb")},
+            shared_data,
+            {"kind": "plant.dispatch_disable", "payload": {"plant_id": "lib"}},
+            plant_ids=("lib", "vrfb"),
+            tz=timezone.utc,
+        )
+        self.assertEqual(out_disable["state"], "succeeded")
+        self.assertFalse(shared_data["scheduler_running_by_plant"]["lib"])
+        self.assertEqual(shared_data["plant_transition_by_plant"]["lib"], "running")
 
     def test_stop_one_plant_success_uses_safe_stop_result(self):
         shared_data = _shared_data()

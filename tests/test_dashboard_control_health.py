@@ -5,6 +5,7 @@ from dashboard_control_health import (
     format_age_seconds,
     summarize_control_engine_status,
     summarize_control_queue_status,
+    summarize_dispatch_write_status,
     summarize_plant_modbus_health,
 )
 
@@ -96,6 +97,31 @@ class DashboardControlHealthTests(unittest.TestCase):
         self.assertIn("Failures: 6", err_lines[0])
         self.assertEqual(len(err_lines), 2)
         self.assertIn("Error (CONNECT_FAILED): socket timeout", err_lines[1])
+
+    def test_summarize_dispatch_write_status_formats_success_and_error(self):
+        lines = summarize_dispatch_write_status(
+            {
+                "last_attempt_status": "ok",
+                "last_attempt_at": datetime(2026, 2, 25, 12, 0, 5, tzinfo=timezone.utc),
+                "last_attempt_p_kw": 12.3,
+                "last_attempt_q_kvar": -4.5,
+                "last_attempt_source": "scheduler",
+                "last_error": None,
+            },
+            dispatch_enabled=True,
+        )
+        self.assertIn("Dispatch: Sending", lines[0])
+        self.assertIn("Last write: OK", lines[0])
+        self.assertIn("P=12.300 kW", lines[1])
+        self.assertIn("Source: scheduler", lines[1])
+
+        err_lines = summarize_dispatch_write_status(
+            {"last_attempt_status": "failed", "last_error": "timeout"},
+            dispatch_enabled=False,
+        )
+        self.assertIn("Dispatch: Paused", err_lines[0])
+        self.assertIn("FAILED", err_lines[0])
+        self.assertIn("Dispatch error: timeout", err_lines[-1])
 
 
 if __name__ == "__main__":

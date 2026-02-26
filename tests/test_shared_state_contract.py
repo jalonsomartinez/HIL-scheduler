@@ -45,6 +45,8 @@ class SharedStateContractTests(unittest.TestCase):
             "control_command_active_id",
             "control_command_next_id",
             "plant_observed_state_by_plant",
+            "plant_operating_state_by_plant",
+            "dispatch_write_status_by_plant",
             "control_engine_status",
             "settings_command_queue",
             "settings_command_status_by_id",
@@ -72,6 +74,8 @@ class SharedStateContractTests(unittest.TestCase):
         self.assertEqual(set(shared_data["local_emulator_soc_seed_request_by_plant"].keys()), set(plant_ids))
         self.assertEqual(set(shared_data["local_emulator_soc_seed_result_by_plant"].keys()), set(plant_ids))
         self.assertEqual(set(shared_data["plant_observed_state_by_plant"].keys()), set(plant_ids))
+        self.assertEqual(set(shared_data["plant_operating_state_by_plant"].keys()), set(plant_ids))
+        self.assertEqual(set(shared_data["dispatch_write_status_by_plant"].keys()), set(plant_ids))
         self.assertIsInstance(shared_data["control_engine_status"], dict)
         self.assertIsInstance(shared_data["settings_command_queue"], queue.Queue)
         self.assertIsInstance(shared_data["settings_engine_status"], dict)
@@ -81,8 +85,28 @@ class SharedStateContractTests(unittest.TestCase):
             all(result.get("status") == "idle" for result in shared_data["local_emulator_soc_seed_result_by_plant"].values())
         )
         self.assertTrue(all(state.get("stale") is True for state in shared_data["plant_observed_state_by_plant"].values()))
+        self.assertTrue(all(state in {"unknown"} for state in shared_data["plant_operating_state_by_plant"].values()))
         self.assertTrue(all("read_status" in state for state in shared_data["plant_observed_state_by_plant"].values()))
         self.assertTrue(all("consecutive_failures" in state for state in shared_data["plant_observed_state_by_plant"].values()))
+        self.assertTrue(
+            all(
+                {
+                    "sending_enabled",
+                    "last_attempt_at",
+                    "last_attempt_p_kw",
+                    "last_attempt_q_kvar",
+                    "last_attempt_source",
+                    "last_attempt_status",
+                    "last_success_at",
+                    "last_success_p_kw",
+                    "last_success_q_kvar",
+                    "last_success_source",
+                    "last_error",
+                    "last_scheduler_context",
+                }.issubset(entry.keys())
+                for entry in shared_data["dispatch_write_status_by_plant"].values()
+            )
+        )
         self.assertTrue(
             {
                 "alive",

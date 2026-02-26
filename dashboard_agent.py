@@ -24,6 +24,7 @@ from dashboard_settings_intents import (
 from dashboard_control_health import (
     summarize_control_engine_status,
     summarize_control_queue_status,
+    summarize_dispatch_write_status,
     summarize_plant_modbus_health,
 )
 from dashboard_history import (
@@ -697,10 +698,14 @@ def dashboard_agent(config, shared_data):
         [
             Input("start-lib", "n_clicks"),
             Input("stop-lib", "n_clicks"),
+            Input("dispatch-enable-lib", "n_clicks"),
+            Input("dispatch-disable-lib", "n_clicks"),
             Input("record-lib", "n_clicks"),
             Input("record-stop-lib", "n_clicks"),
             Input("start-vrfb", "n_clicks"),
             Input("stop-vrfb", "n_clicks"),
+            Input("dispatch-enable-vrfb", "n_clicks"),
+            Input("dispatch-disable-vrfb", "n_clicks"),
             Input("record-vrfb", "n_clicks"),
             Input("record-stop-vrfb", "n_clicks"),
             Input("bulk-control-confirm", "n_clicks"),
@@ -1584,6 +1589,8 @@ def dashboard_agent(config, shared_data):
             Output("start-lib", "disabled"),
             Output("stop-lib", "children"),
             Output("stop-lib", "disabled"),
+            Output("dispatch-enable-lib", "className"),
+            Output("dispatch-disable-lib", "className"),
             Output("record-lib", "children"),
             Output("record-lib", "disabled"),
             Output("record-stop-lib", "children"),
@@ -1592,6 +1599,8 @@ def dashboard_agent(config, shared_data):
             Output("start-vrfb", "disabled"),
             Output("stop-vrfb", "children"),
             Output("stop-vrfb", "disabled"),
+            Output("dispatch-enable-vrfb", "className"),
+            Output("dispatch-disable-vrfb", "className"),
             Output("record-vrfb", "children"),
             Output("record-vrfb", "disabled"),
             Output("record-stop-vrfb", "children"),
@@ -1618,8 +1627,10 @@ def dashboard_agent(config, shared_data):
             transport_mode = shared_data.get("transport_mode", "local")
             scheduler_running = dict(shared_data.get("scheduler_running_by_plant", {}))
             transition_by_plant = dict(shared_data.get("plant_transition_by_plant", {}))
+            plant_operating_state_by_plant = dict(shared_data.get("plant_operating_state_by_plant", {}))
             recording_files = dict(shared_data.get("measurements_filename_by_plant", {}))
             observed_state_by_plant = dict(shared_data.get("plant_observed_state_by_plant", {}))
+            dispatch_write_status_by_plant = dict(shared_data.get("dispatch_write_status_by_plant", {}))
             control_engine_status = dict(shared_data.get("control_engine_status", {}))
             status = shared_data.get("data_fetcher_status", {}).copy()
             api_schedule_map = {
@@ -1689,17 +1700,23 @@ def dashboard_agent(config, shared_data):
         def plant_status_text(plant_id):
             recording = recording_files.get(plant_id)
             runtime_state = runtime_state_by_plant.get(plant_id, "unknown")
+            physical_state = str(plant_operating_state_by_plant.get(plant_id, runtime_state) or "unknown")
+            dispatch_enabled = bool(scheduler_running.get(plant_id, False))
             rec_text = f"Recording: On ({os.path.basename(recording)})" if recording else "Recording: Off"
             observed = dict(observed_state_by_plant.get(plant_id, {}) or {})
+            dispatch_write_state = dict(dispatch_write_status_by_plant.get(plant_id, {}) or {})
             health_lines = summarize_plant_modbus_health(observed, status_now)
+            dispatch_lines = summarize_dispatch_write_status(dispatch_write_state, dispatch_enabled=dispatch_enabled)
             rows = [
                 html.Div(
                     (
-                        f"{plant_name(plant_id)} | Plant State: {runtime_state.capitalize()} | {rec_text}"
+                        f"{plant_name(plant_id)} | Plant: {physical_state.capitalize()} | "
+                        f"Control: {runtime_state.capitalize()} | {rec_text}"
                     ),
                     className="status-text",
                 )
             ]
+            rows.extend(html.Div(text, className="status-text") for text in dispatch_lines)
             rows.extend(html.Div(text, className="status-text") for text in health_lines)
             return rows
 
@@ -1750,10 +1767,12 @@ def dashboard_agent(config, shared_data):
             runtime_state_by_plant.get("lib", "unknown"),
             bool(recording_files.get("lib")),
         )
+        lib_dispatch_classes = _manual_toggle_classes(bool(scheduler_running.get("lib", False)))
         vrfb_controls = get_plant_control_labels_and_disabled(
             runtime_state_by_plant.get("vrfb", "unknown"),
             bool(recording_files.get("vrfb")),
         )
+        vrfb_dispatch_classes = _manual_toggle_classes(bool(scheduler_running.get("vrfb", False)))
 
         return (
             api_inline,
@@ -1767,6 +1786,8 @@ def dashboard_agent(config, shared_data):
             lib_controls[1],
             lib_controls[2],
             lib_controls[3],
+            lib_dispatch_classes[0],
+            lib_dispatch_classes[1],
             lib_controls[4],
             lib_controls[5],
             lib_controls[6],
@@ -1775,6 +1796,8 @@ def dashboard_agent(config, shared_data):
             vrfb_controls[1],
             vrfb_controls[2],
             vrfb_controls[3],
+            vrfb_dispatch_classes[0],
+            vrfb_dispatch_classes[1],
             vrfb_controls[4],
             vrfb_controls[5],
             vrfb_controls[6],

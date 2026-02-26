@@ -140,6 +140,20 @@ def build_dashboard_layout(
                                             ),
                                             html.Div(className="control-separator"),
                                             html.Div(
+                                                className="control-section",
+                                                children=[
+                                                    html.Span("Dispatch", className="toggle-label"),
+                                                    html.Div(
+                                                        className="compact-toggle",
+                                                        children=[
+                                                            html.Button("Sending", id="dispatch-enable-lib", className="toggle-option", n_clicks=0),
+                                                            html.Button("Paused", id="dispatch-disable-lib", className="toggle-option active", n_clicks=0),
+                                                        ],
+                                                    ),
+                                                ],
+                                            ),
+                                            html.Div(className="control-separator"),
+                                            html.Div(
                                                 className="control-group record-control-group",
                                                 children=[
                                                     html.Button("Record", id="record-lib", className="control-btn control-btn-record", n_clicks=0, disabled=False),
@@ -164,6 +178,20 @@ def build_dashboard_layout(
                                                 children=[
                                                     html.Button("Start", id="start-vrfb", className="control-btn control-btn-start", n_clicks=0, disabled=False),
                                                     html.Button("Stopped", id="stop-vrfb", className="control-btn control-btn-stop", n_clicks=0, disabled=True),
+                                                ],
+                                            ),
+                                            html.Div(className="control-separator"),
+                                            html.Div(
+                                                className="control-section",
+                                                children=[
+                                                    html.Span("Dispatch", className="toggle-label"),
+                                                    html.Div(
+                                                        className="compact-toggle",
+                                                        children=[
+                                                            html.Button("Sending", id="dispatch-enable-vrfb", className="toggle-option", n_clicks=0),
+                                                            html.Button("Paused", id="dispatch-disable-vrfb", className="toggle-option active", n_clicks=0),
+                                                        ],
+                                                    ),
                                                 ],
                                             ),
                                             html.Div(className="control-separator"),

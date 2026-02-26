@@ -13,6 +13,14 @@ class DashboardCommandIntentsTests(unittest.TestCase):
             command_intent_from_control_trigger("record-stop-vrfb"),
             {"kind": "plant.record_stop", "payload": {"plant_id": "vrfb"}},
         )
+        self.assertEqual(
+            command_intent_from_control_trigger("dispatch-enable-lib"),
+            {"kind": "plant.dispatch_enable", "payload": {"plant_id": "lib"}},
+        )
+        self.assertEqual(
+            command_intent_from_control_trigger("dispatch-disable-vrfb"),
+            {"kind": "plant.dispatch_disable", "payload": {"plant_id": "vrfb"}},
+        )
 
     def test_bulk_confirm_mappings(self):
         self.assertEqual(

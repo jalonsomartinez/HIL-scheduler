@@ -6,10 +6,14 @@ def command_intent_from_control_trigger(trigger_id, *, bulk_request=None):
     action_map = {
         "start-lib": ("plant.start", {"plant_id": "lib"}),
         "stop-lib": ("plant.stop", {"plant_id": "lib"}),
+        "dispatch-enable-lib": ("plant.dispatch_enable", {"plant_id": "lib"}),
+        "dispatch-disable-lib": ("plant.dispatch_disable", {"plant_id": "lib"}),
         "record-lib": ("plant.record_start", {"plant_id": "lib"}),
         "record-stop-lib": ("plant.record_stop", {"plant_id": "lib"}),
         "start-vrfb": ("plant.start", {"plant_id": "vrfb"}),
         "stop-vrfb": ("plant.stop", {"plant_id": "vrfb"}),
+        "dispatch-enable-vrfb": ("plant.dispatch_enable", {"plant_id": "vrfb"}),
+        "dispatch-disable-vrfb": ("plant.dispatch_disable", {"plant_id": "vrfb"}),
         "record-vrfb": ("plant.record_start", {"plant_id": "vrfb"}),
         "record-stop-vrfb": ("plant.record_stop", {"plant_id": "vrfb"}),
     }

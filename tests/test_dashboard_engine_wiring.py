@@ -50,6 +50,8 @@ def _control_shared():
             }
             for plant_id in ("lib", "vrfb")
         },
+        "plant_operating_state_by_plant": {"lib": "unknown", "vrfb": "unknown"},
+        "dispatch_write_status_by_plant": {"lib": {"sending_enabled": False}, "vrfb": {"sending_enabled": False}},
         "control_engine_status": {},
     }
 
@@ -114,6 +116,33 @@ class DashboardEngineWiringTests(unittest.TestCase):
             final_status = dict(shared["control_command_status_by_id"][status["id"]])
             self.assertEqual(final_status["state"], "succeeded")
             self.assertEqual(shared["control_engine_status"]["last_finished_command"]["id"], status["id"])
+
+    def test_dispatch_toggle_intent_enqueue_and_engine_cycle_mutates_scheduler_gate(self):
+        shared = _control_shared()
+        config = {"PLANT_IDS": ("lib", "vrfb")}
+        now_value = datetime(2026, 2, 25, 12, 0, tzinfo=timezone.utc)
+
+        intent = command_intent_from_control_trigger("dispatch-enable-lib")
+        status = enqueue_control_command(
+            shared,
+            kind=intent["kind"],
+            payload=intent["payload"],
+            source="dashboard",
+            now_fn=lambda: now_value,
+        )
+
+        _run_single_engine_cycle(
+            config,
+            shared,
+            plant_ids=("lib", "vrfb"),
+            tz=timezone.utc,
+            deps={"refresh_all_observed_state_fn": lambda: None},
+            now_fn=lambda _cfg: now_value,
+        )
+
+        with shared["lock"]:
+            self.assertTrue(shared["scheduler_running_by_plant"]["lib"])
+            self.assertEqual(shared["control_command_status_by_id"][status["id"]]["state"], "succeeded")
 
     def test_settings_intent_enqueue_and_engine_cycle_mutates_runtime(self):
         shared = _settings_shared()

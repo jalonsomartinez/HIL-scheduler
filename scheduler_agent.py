@@ -4,6 +4,7 @@ import time
 import pandas as pd
 from pyModbusTCP.client import ModbusClient
 
+from dispatch_write_runtime import publish_dispatch_write_status, set_dispatch_sending_enabled
 import manual_schedule_manager as msm
 from modbus_codec import write_point_internal
 from runtime_contracts import resolve_modbus_endpoint
@@ -111,6 +112,7 @@ def scheduler_agent(config, shared_data):
                         continue
 
                 is_running = bool(scheduler_running.get(plant_id, False))
+                set_dispatch_sending_enabled(shared_data, plant_id, is_running)
                 if not is_running:
                     previous_p[plant_id] = None
                     previous_q[plant_id] = None
@@ -147,20 +149,74 @@ def scheduler_agent(config, shared_data):
                     and (manual_p_end_time is None or pd.Timestamp(loop_now) < pd.Timestamp(manual_p_end_time))
                 ):
                     p_setpoint = manual_p_value
+                    manual_p_applied = True
+                else:
+                    manual_p_applied = False
                 if (
                     bool(manual_merge_enabled.get(q_key, False))
                     and manual_q_has
                     and (manual_q_end_time is None or pd.Timestamp(loop_now) < pd.Timestamp(manual_q_end_time))
                 ):
                     q_setpoint = manual_q_value
+                    manual_q_applied = True
+                else:
+                    manual_q_applied = False
+
+                p_write_ok = None
+                q_write_ok = None
+                attempted_any = False
 
                 if previous_p[plant_id] != p_setpoint:
-                    write_point_internal(client, endpoint, "p_setpoint", p_setpoint)
-                    previous_p[plant_id] = p_setpoint
+                    attempted_any = True
+                    p_write_ok = bool(write_point_internal(client, endpoint, "p_setpoint", p_setpoint))
+                    if p_write_ok:
+                        previous_p[plant_id] = p_setpoint
 
                 if previous_q[plant_id] != q_setpoint:
-                    write_point_internal(client, endpoint, "q_setpoint", q_setpoint)
-                    previous_q[plant_id] = q_setpoint
+                    attempted_any = True
+                    q_write_ok = bool(write_point_internal(client, endpoint, "q_setpoint", q_setpoint))
+                    if q_write_ok:
+                        previous_q[plant_id] = q_setpoint
+
+                if attempted_any:
+                    attempted_results = [value for value in (p_write_ok, q_write_ok) if value is not None]
+                    ok_count = sum(1 for value in attempted_results if value is True)
+                    fail_count = sum(1 for value in attempted_results if value is False)
+                    if fail_count == 0:
+                        attempt_status = "ok"
+                        error_text = None
+                    elif ok_count > 0:
+                        attempt_status = "partial"
+                        error_text = "setpoint_write_partial_failure"
+                    else:
+                        attempt_status = "failed"
+                        error_text = "setpoint_write_failed"
+                    publish_dispatch_write_status(
+                        shared_data,
+                        plant_id,
+                        sending_enabled=True,
+                        attempted_at=loop_now,
+                        p_kw=p_setpoint,
+                        q_kvar=q_setpoint,
+                        source="scheduler",
+                        status=attempt_status,
+                        error=error_text,
+                        scheduler_context={
+                            "api_stale": bool(is_stale),
+                            "manual_p_applied": bool(manual_p_applied),
+                            "manual_q_applied": bool(manual_q_applied),
+                        },
+                    )
+                    if fail_count > 0:
+                        logging.warning(
+                            "Scheduler: %s setpoint write %s (P=%s ok=%s, Q=%s ok=%s).",
+                            plant_id.upper(),
+                            attempt_status,
+                            f"{p_setpoint:.3f}",
+                            p_write_ok,
+                            f"{q_setpoint:.3f}",
+                            q_write_ok,
+                        )
 
             except Exception as exc:
                 logging.error("Scheduler error for %s: %s", plant_id.upper(), exc)

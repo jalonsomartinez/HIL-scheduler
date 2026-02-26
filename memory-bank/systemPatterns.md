@@ -15,13 +15,17 @@
   - Settings engine applies/activates server-owned manual series into `manual_schedule_series_df_by_key` + merge flags via commands.
   - Per-series booleans control whether each manual series overwrites the corresponding API signal in dispatch.
 - Per-plant runtime gates:
-  - `scheduler_running_by_plant[plant_id]`.
+  - `scheduler_running_by_plant[plant_id]` (dispatch-send gate only; independent from plant enable/disable).
   - `measurements_filename_by_plant[plant_id]` (`None` means recording off).
 - Runtime control command channel:
   - FIFO `control_command_queue` for UI-issued operator intents.
   - command lifecycle tracking via `control_command_status_by_id`, `control_command_history_ids`, `control_command_active_id`.
 - Runtime plant observed-state cache:
   - `plant_observed_state_by_plant[plant_id]` publishes cached `enable`, `p_battery`, `q_battery`, freshness timestamps, and stale/error markers.
+- Runtime plant operating-state cache:
+  - `plant_operating_state_by_plant[plant_id]` publishes physical plant state derived from observed Modbus enable (`running|stopped|unknown`).
+- Runtime dispatch-write status cache:
+  - `dispatch_write_status_by_plant[plant_id]` publishes latest attempted/successful P/Q command write values, timestamps, source, status, and last error for Status-tab observability.
 - Runtime control-engine health cache:
   - `control_engine_status` publishes loop liveness/timestamps, queue metrics, active command metadata, last finished command, and last loop exception for UI observability.
 - Normalized per-plant Modbus endpoints expose:
@@ -54,6 +58,7 @@ shared_data = {
 
     "scheduler_running_by_plant": {"lib": False, "vrfb": False},
     "plant_transition_by_plant": {"lib": "stopped", "vrfb": "stopped"},
+    "plant_operating_state_by_plant": {"lib": "unknown", "vrfb": "unknown"},
 
     "measurements_filename_by_plant": {"lib": None, "vrfb": None},
     "current_file_path_by_plant": {"lib": None, "vrfb": None},
@@ -122,6 +127,16 @@ shared_data = {
             "read_status": "unknown", "last_error": None, "consecutive_failures": 0, "stale": True,
         },
     },
+    "dispatch_write_status_by_plant": {
+        "lib": {
+            "sending_enabled": False,
+            "last_attempt_at": None, "last_attempt_p_kw": None, "last_attempt_q_kvar": None,
+            "last_attempt_source": None, "last_attempt_status": None,
+            "last_success_at": None, "last_success_p_kw": None, "last_success_q_kvar": None,
+            "last_success_source": None, "last_error": None, "last_scheduler_context": None,
+        },
+        "vrfb": { ...same shape... },
+    },
     "control_engine_status": {
         "alive": False, "last_loop_start": None, "last_loop_end": None, "last_observed_refresh": None,
         "last_exception": None, "active_command_id": None, "active_command_kind": None,
@@ -146,9 +161,10 @@ shared_data = {
 - `scheduler_agent.py`: dispatches P/Q setpoints per plant from merged effective schedule (API base + enabled manual overrides) and per-plant gate.
 - `plant_agent.py`: local emulation server for each logical plant with SoC and power limit behavior.
 - `measurement_agent.py`: measurement sampling, recording, cache updates, API posting queue/telemetry.
-- `control_engine_agent.py`: consumes UI command queue, executes start/stop/fleet/transport/record control flows, owns control-path Modbus I/O, and publishes cached plant observed state.
+- `control_engine_agent.py`: consumes UI command queue, executes start/stop/fleet/transport/record/dispatch-toggle control flows, owns control-path Modbus I/O, and publishes cached plant observed + physical state.
 - `settings_engine_agent.py`: consumes settings command queue and executes manual activation/update/inactivation, API connect/disconnect, and posting policy enable/disable.
 - `dashboard_agent.py`: UI layout/callbacks, command enqueueing, manual override editor/plots, status plots, logs, and short-lived click-feedback transition overlay.
+- `dispatch_write_runtime.py`: shared helpers to publish per-plant dispatch write attempt/success status and current dispatch-send enabled mirror.
 - `dashboard_history.py`: helper functions for dashboard historical measurement scan/index, range clamping, file loading/cropping, and CSV serialization.
 - `dashboard_control.py`: shared safe-stop + transport-switch control-flow helpers reused by control engine execution.
 
@@ -178,14 +194,14 @@ shared_data = {
 - `Start All` sequence:
   1. Dashboard enqueues fleet-start intent after confirmation.
   2. Control engine enables recording for both plants (`measurements_filename_by_plant[*]`).
-  3. Control engine triggers each plant start flow (gate on, enable command, initial setpoint send).
+  3. Control engine triggers each plant start flow (enable command, initial setpoint send only if the per-plant dispatch gate is already on).
 - `Stop All` sequence:
   1. Dashboard enqueues fleet-stop intent after confirmation.
   2. Control engine safe-stops both plants.
   3. Control engine clears recording flags for both plants.
 
 ### Control Command Execution and Status Cache
-- Dashboard control callbacks enqueue normalized commands (`plant.start`, `plant.stop`, `plant.record_start`, `plant.record_stop`, `fleet.start_all`, `fleet.stop_all`, `transport.switch`) into `control_command_queue`.
+- Dashboard control callbacks enqueue normalized commands (`plant.start`, `plant.stop`, `plant.dispatch_enable`, `plant.dispatch_disable`, `plant.record_start`, `plant.record_stop`, `fleet.start_all`, `fleet.stop_all`, `transport.switch`) into `control_command_queue`.
 - `control_engine_agent.py` processes commands serially (FIFO) and updates command lifecycle status:
   - `queued` -> `running` -> terminal (`succeeded` / `failed` / `rejected`).
 - Queue overflow is handled as a terminal rejected status (`message="queue_full"`), preserving UI responsiveness.
@@ -195,11 +211,24 @@ shared_data = {
 ### Plant Observed-State Cache and UI Transition Semantics
 - Control engine performs periodic best-effort Modbus reads for `enable`, `p_battery`, and `q_battery` and publishes `plant_observed_state_by_plant`.
 - Cache entries track `last_attempt`, `last_success`, `error`, `read_status`, `last_error`, `consecutive_failures`, and `stale`.
+- Control engine also publishes `plant_operating_state_by_plant` from observed enable level and staleness.
 - Dashboard Status tab consumes this cache and does not perform direct Modbus polling for control/status paths.
 - Plant state semantics in UI/runtime:
   - `starting` / `stopping` are authoritative runtime transition states owned by the control engine (`plant_transition_by_plant`).
-  - `running` / `stopped` are confirmed when Modbus `enable` reflects `1` / `0`.
-  - Dashboard applies a short immediate click-feedback overlay (`starting`/`stopping`) before falling back to server transition state, then Modbus-confirmed state.
+  - Physical plant `running` / `stopped` are derived from observed Modbus `enable` (`plant_operating_state_by_plant`).
+  - Scheduler dispatch send state is independently controlled by `scheduler_running_by_plant` and can differ from physical plant state.
+  - Dashboard applies a short immediate click-feedback overlay (`starting`/`stopping`) for control transitions before falling back to server/runtime transition state.
+
+### Dispatch Pause/Resume and Setpoint Write Status
+- Per-plant dispatch send control is independent from plant enable/disable:
+  - `plant.dispatch_enable` / `plant.dispatch_disable` mutate `scheduler_running_by_plant[plant_id]` only.
+  - Disabling dispatch pauses scheduler writes and intentionally leaves the last commanded plant setpoint active (no automatic zeroing).
+- Start semantics:
+  - Plant start no longer auto-enables the scheduler dispatch gate.
+  - If dispatch is paused, initial setpoint send is skipped and this skip is published in `dispatch_write_status_by_plant`.
+- Dispatch write observability:
+  - Scheduler publishes combined per-cycle P/Q write attempt status (`ok|partial|failed`) with scheduler context (API stale/manual override applied flags).
+  - Control-engine setpoint writes (for example safe-stop zero commands) also publish into the same per-plant status cache using control-path source labels.
 
 ### Control-Engine Health Surfacing
 - Control engine publishes `control_engine_status` every loop so dashboard UI can render queue/backlog and runtime health without scanning raw command status maps.
@@ -249,7 +278,7 @@ shared_data = {
   - Manual overrides are resolved per signal using the manual series maps (`*_p`, `*_q`) and as-of lookup.
   - Manual override end is inferred from the terminal duplicate row timestamp in the corresponding manual series; override applies only while `now < end_ts`.
   - If `manual_schedule_merge_enabled_by_key[series_key]` is `True` and a manual as-of value exists, it overwrites the corresponding API signal (`P` or `Q`) only.
-- Per-plant dispatch gate behavior and Modbus write deduping are unchanged.
+- Per-plant dispatch gate remains the scheduler send gate, but failed Modbus setpoint writes are no longer cached as sent; scheduler retries on later loops.
 
 ### Manual Override Schedule Sanitization and Editor Pattern
 - Manual overrides are stored as four independent absolute-time series (`setpoint` column, datetime index); non-empty stored series include a terminal duplicate-value row that represents manual override end time.

@@ -9,12 +9,13 @@ The system closes the operational gap between market/control schedules and plant
 
 ## Core User Outcomes
 1. Start and stop dispatch safely per plant.
-2. Record clean per-plant measurement sessions without mixed datasets.
-3. Adjust manual overrides without disrupting API base schedule ingestion; switch transport mode with guarded transitions.
-4. See real-time status for schedule freshness and API posting health.
-5. Trigger high-impact fleet-wide start/stop actions with explicit confirmation.
-6. Run API-connected read-only tests by disabling measurement posting at runtime.
-7. Browse historical recorded measurements across days and export cropped data/plots for analysis.
+2. Pause/resume scheduler setpoint sending per plant without necessarily stopping the plant.
+3. Record clean per-plant measurement sessions without mixed datasets.
+4. Adjust manual overrides without disrupting API base schedule ingestion; switch transport mode with guarded transitions.
+5. See real-time status for schedule freshness, API posting health, and commanded setpoint write outcomes.
+6. Trigger high-impact fleet-wide start/stop actions with explicit confirmation.
+7. Run API-connected read-only tests by disabling measurement posting at runtime.
+8. Browse historical recorded measurements across days and export cropped data/plots for analysis.
 
 ## Product Behavior
 ### Scheduling
@@ -25,9 +26,11 @@ The system closes the operational gap between market/control schedules and plant
 
 ### Dispatch
 - Dispatch enable is per plant through `scheduler_running_by_plant`.
+- Dispatch send control is now independently exposed in the Status tab (`Sending` / `Paused`) and only controls whether scheduler setpoints are written.
 - Dashboard start/stop controls submit intents; runtime control engine executes the flow.
-- Start enables plant and applies immediate setpoint selection.
-- Immediate setpoint selection uses the merged effective schedule (API base + enabled manual overrides).
+- Start enables/stops the plant control path but does not auto-enable scheduler sending.
+- Start resolves immediate setpoint selection from the merged effective schedule (API base + enabled manual overrides); the initial write is sent only if dispatch sending is enabled, otherwise it is skipped and surfaced in status.
+- Pausing dispatch intentionally freezes the last setpoint already in the plant (no automatic zeroing on pause).
 - Stop executes safe-stop flow (gate off, zero setpoints, decay wait, disable).
 
 ### Recording
@@ -41,13 +44,15 @@ The system closes the operational gap between market/control schedules and plant
 - API measurement posting toggle gates posting of actual measurements regardless of manual override usage.
 - Status tab (renamed from `Status & Plots`) keeps inline API summary with today/tomorrow fetched-point counts for both plants.
 - Status tab plant-state controls/status now render from cached runtime-published plant observed state (no direct dashboard Modbus polling for control/status paths).
+- Status tab now separates physical plant state, control transition state, and dispatch send/paused state per plant.
+- Status tab now shows the latest commanded/sent setpoint write info per plant (P/Q, timestamp, source, status/error) from runtime-published dispatch-write status cache.
 - Status tab live plots are intentionally limited to immediate context (local current day + next day) for both schedule and measurements; plant figures include a current-time vertical marker for operator orientation.
 - Plant figures now include a dedicated voltage subplot (`kV`) in both Status and historical `Plots` tabs.
 - Historical `Plots` tab provides measurement browsing from `data/*.csv` with a full-range timeline, range slider, per-plant CSV/PNG exports, and recorded P/Q setpoint overlays from measurement rows.
 - Logs tab exposes a live `Today` view (tail of the current date log file) and selectable historical log files.
 
 ## UX Intent
-1. Clear separation between dispatch control and recording control.
+1. Clear separation between plant control, dispatch-send control, and recording control.
 2. Explicit transition states (`starting`, `running`, `stopping`, `stopped`, `unknown`) with immediate click feedback and server-authoritative transition persistence until Modbus confirmation.
 3. Safe confirmation flows before transport changes and fleet actions; manual override edits should be direct and low-friction.
 4. Stable plot interactions during periodic refresh.
@@ -59,9 +64,15 @@ The system closes the operational gap between market/control schedules and plant
 ### Start Plant Dispatch
 1. User starts plant card.
 2. Dashboard immediately shows a temporary `starting` feedback state and enqueues a start command.
-3. Control engine sets runtime transition to `starting`, enables plant, and sends immediate setpoint.
-4. Scheduler loop continues dispatch while the plant gate is true.
-5. Transition resolves to `running` on observed Modbus enable state.
+3. Control engine sets runtime transition to `starting`, enables plant, and conditionally sends the immediate setpoint only if dispatch sending is enabled for that plant.
+4. Scheduler loop dispatches only while the per-plant dispatch-send gate is true.
+5. Transition resolves to `running` on observed Modbus enable state (physical state is shown separately from dispatch send state).
+
+### Pause/Resume Dispatch Sending
+1. User toggles a plant Status card dispatch control (`Sending` / `Paused`).
+2. Dashboard enqueues a dispatch enable/disable command intent.
+3. Control engine updates the per-plant scheduler send gate without enabling/disabling the plant.
+4. Status card reflects the new dispatch state and continues to show the last commanded/sent setpoint write info.
 
 ### Stop Plant Dispatch
 1. User stops plant card.
@@ -90,7 +101,7 @@ The system closes the operational gap between market/control schedules and plant
 1. User requests fleet action from the Status top card.
 2. Dashboard opens confirmation modal before execution.
 3. On confirm, dashboard enqueues the fleet action command.
-4. `Start All`: control engine enables recording for both plants, then plant start sequences execute.
+4. `Start All`: control engine enables recording for both plants, then plant start sequences execute (dispatch send gates are preserved; not auto-enabled).
 5. `Stop All`: control engine safe-stops both plants, then recording is stopped for both plants.
 
 ### Browse Historical Plots

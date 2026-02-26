@@ -7,8 +7,9 @@
  - Status tab should show only immediate context (current day + next day),
  - Plots tab remains the path for historical inspection.
 4. Stabilize the new merged schedule dispatch model (API base + per-signal manual overrides) and the redesigned Manual Schedule editor UX, now split into dashboard-owned drafts + settings-engine activation/update commands.
-5. Keep reliability guardrails green via automated regression tests and CI enforcement, including measurement compression, posting-gate semantics, and schedule-window pruning behavior.
-6. Prepare follow-up hardening for remaining high-risk paths (posting durability, remote smoke coverage, queue topology tradeoffs/prioritization).
+5. Validate the new per-plant dispatch send toggle semantics (`Sending`/`Paused`) and the Status-tab sent-setpoint observability on real remote plants.
+6. Keep reliability guardrails green via automated regression tests and CI enforcement, including measurement compression, posting-gate semantics, schedule-window pruning behavior, and scheduler write-retry visibility.
+7. Prepare follow-up hardening for remaining high-risk paths (posting durability, remote smoke coverage, queue topology tradeoffs/prioritization).
 
 ## Open Decisions and Risks
 1. Control-engine command queue is serialized and bounded; long safe-stop/transport operations can delay later commands (UI queue/backlog visibility now exists, but per-plant queue topology remains a deferred design decision).
@@ -22,10 +23,24 @@
 9. Transition UX now combines immediate click-feedback overlay + server/runtime transition state + Modbus confirmation; hold-window tuning may need additional operator validation across remote latency conditions.
 10. Modbus error strings are now surfaced to operators; message wording/aggregation may need refinement to avoid noisy UI on unstable links.
 11. Manual schedule editor drafts are stored in shared runtime state (`manual_schedule_draft_series_df_by_key`), so concurrent dashboard sessions can overwrite each other's draft edits (per-session isolation deferred; single-operator assumption currently accepted).
+12. Dispatch pause semantics intentionally freeze the last setpoint on the plant (no zeroing on pause); operator validation and runbook wording are needed to avoid misuse.
 
 ## Rolling Change Log (Compressed, 30-Day Window)
 
 ### 2026-02-26
+- Implemented per-plant dispatch send control and sent-setpoint observability:
+  - added independent Status-tab dispatch toggle (`Sending` / `Paused`) per plant that controls only `scheduler_running_by_plant` (no plant enable/disable side effects),
+  - start flow now preserves the existing dispatch gate (no auto-enable of scheduler sending); if paused, initial setpoint write is skipped and published as `skipped`,
+  - stop/safe-stop flows still force dispatch gate off and now publish control-path setpoint write outcomes (`control_engine.safe_stop`) to shared dispatch-write runtime state,
+  - added authoritative shared runtime caches `plant_operating_state_by_plant` (physical `running|stopped|unknown`) and `dispatch_write_status_by_plant` (last attempt/success P/Q, timestamps, source, status, error, scheduler context),
+  - scheduler now publishes combined per-cycle P/Q write attempt status (`ok|partial|failed`) and no longer caches failed writes as sent (failed writes retry next loop),
+  - Status-tab plant status lines now show separate physical plant state + control transition state + dispatch sending/paused state and latest sent/attempted P/Q setpoint info.
+- Added targeted regression coverage for:
+  - new dispatch toggle command intents and control-engine command handling,
+  - shared-state contract keys/defaults for plant operating state + dispatch write status,
+  - dispatch status formatting helpers,
+  - dashboard engine wiring for dispatch toggle intents,
+  - scheduler failed-write retry + dispatch-write-status publication (`tests/test_scheduler_dispatch_write_status.py`).
 - Refined Manual Schedule end-of-override semantics and editor UX:
   - replaced separate manual end-time runtime/payload contract with canonical terminal duplicate-row encoding in stored manual series (UI/CSV still represent terminal row as `end`),
   - scheduler and merged effective-schedule helpers now derive manual override end cutoff from terminal manual-series row timestamp (`now < end_ts`),

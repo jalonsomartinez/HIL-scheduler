@@ -6,6 +6,7 @@ import time
 import pandas as pd
 
 from api_runtime_state import default_api_connection_runtime
+from dispatch_write_runtime import default_dispatch_write_status_by_plant
 from engine_status_runtime import default_engine_status
 import manual_schedule_manager as msm
 from config_loader import load_config
@@ -77,6 +78,10 @@ def _default_plant_observed_state_by_plant(plant_ids):
         }
         for plant_id in plant_ids
     }
+
+
+def _default_plant_operating_state_by_plant(plant_ids):
+    return {plant_id: "unknown" for plant_id in plant_ids}
 
 
 def _default_control_engine_status():
@@ -175,6 +180,8 @@ def build_initial_shared_data(config):
         "control_command_active_id": None,
         "control_command_next_id": 1,
         "plant_observed_state_by_plant": _default_plant_observed_state_by_plant(plant_ids),
+        "plant_operating_state_by_plant": _default_plant_operating_state_by_plant(plant_ids),
+        "dispatch_write_status_by_plant": default_dispatch_write_status_by_plant(plant_ids),
         "control_engine_status": _default_control_engine_status(),
         "settings_command_queue": queue.Queue(maxsize=128),
         "settings_command_status_by_id": {},
