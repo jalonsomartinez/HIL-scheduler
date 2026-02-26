@@ -14,6 +14,7 @@ import scheduling.manual_schedule_manager as msm
 from measurement.storage import MEASUREMENT_VALUE_COLUMNS
 from measurement.agent import measurement_agent
 from plant_agent import plant_agent
+from runtime.paths import get_project_root
 from scheduling.agent import scheduler_agent
 from time_utils import now_tz
 
@@ -164,7 +165,8 @@ class LocalRuntimeSmokeTests(unittest.TestCase):
         with TemporaryDirectory() as tmpdir:
             with chdir(tmpdir):
                 _FakeModbusRegistry.clear()
-                config = load_config("/home/jaime/HIL-scheduler/config.yaml")
+                repo_config_path = os.path.join(get_project_root(__file__), "config.yaml")
+                config = load_config(repo_config_path)
                 config["SCHEDULER_PERIOD_S"] = 0.2
                 config["MEASUREMENT_PERIOD_S"] = 0.2
                 config["MEASUREMENTS_WRITE_PERIOD_S"] = 0.2
