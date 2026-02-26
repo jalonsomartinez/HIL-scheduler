@@ -124,7 +124,7 @@ plants:
           v_poi: {address: 29, format: uint16, access: r, unit: V, eng_per_count: 1.0}
           enable: {address: 7, format: uint16, access: rw, unit: raw, eng_per_count: 1.0}
           soc: {address: 22, format: uint16, access: r, unit: pu, eng_per_count: 0.0001} # pc is percentage
-          start_command: {address: 0, format: uint16, access: w, unit: raw, eng_per_count: 1.0} # 2: start, 0: stop. Este registro debe estar a 2 para permitir la operación normal de la batería. Si se pone a 0, la batería se detiene y no responde a comandos de potencia.
+          start_command: {address: 5, format: uint16, access: w, unit: raw, eng_per_count: 1.0} # 2: start, 0: stop. Este registro debe estar a 2 para permitir la operación normal de la batería. Si se pone a 0, la batería se detiene y no responde a comandos de potencia.
       remote:
         host: "10.117.133.26"
         port: 502
@@ -140,7 +140,7 @@ plants:
           v_poi: {address: 29, format: uint16, access: r, unit: V, eng_per_count: 1.0}
           enable: {address: 7, format: uint16, access: rw, unit: raw, eng_per_count: 1.0}
           soc: {address: 22, format: uint16, access: r, unit: pu, eng_per_count: 0.0001} # pc is percentage
-          start_command: {address: 0, format: uint16, access: w, unit: raw, eng_per_count: 1.0} # 2: start, 0: stop. Este registro debe estar a 2 para permitir la operación normal de la batería. Si se pone a 0, la batería se detiene y no responde a comandos de potencia.
+          start_command: {address: 5, format: uint16, access: w, unit: raw, eng_per_count: 1.0} # 2: start, 0: stop. Este registro debe estar a 2 para permitir la operación normal de la batería. Si se pone a 0, la batería se detiene y no responde a comandos de potencia.
     measurement_series:
       soc: 5
       p: 11
