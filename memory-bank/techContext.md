@@ -21,6 +21,7 @@
 - `runtime/api_runtime_state.py`: shared API connection runtime-state publisher/recompute helpers (connect intent/state + fetch/posting sub-health -> authoritative API state).
 - `runtime/engine_status_runtime.py`: shared engine queue/command-status summary publisher helpers reused by control and settings engines.
 - `runtime/engine_command_cycle_runtime.py`: shared command lifecycle execution bookkeeping helper (`running`/`finished`/exception->status publication) reused by control and settings engines.
+- `runtime/paths.py`: shared repo-root path resolution helpers (`get_project_root`, `get_assets_dir`, `get_logs_dir`, `get_data_dir`) used to avoid package-move path regressions.
 - `dashboard/command_intents.py`: pure dashboard trigger->command intent mapping helpers for UI callbacks.
 - `dashboard/settings_intents.py`: pure dashboard trigger->settings-command mapping helpers (manual/API/posting).
 - `dashboard/settings_ui_state.py`: pure UI transition/button-state helpers for manual/API/posting commanded resources.
@@ -35,6 +36,7 @@
 - `control/flows.py`: safe-stop/transport-switch control-flow helpers reused by control engine.
 - `assets/custom.css`: dashboard design tokens, responsive rules, control/tab/modal/log styling.
 - `assets/brand/fonts/*`: locally served dashboard fonts (DM Sans files + OFL license).
+- `api-docs-examples/README.md`: marks API-doc examples/scripts as legacy/reference material (not active runtime code).
 - `data_fetcher_agent.py`: day-ahead API polling and status updates.
 - `scheduling/agent.py`: per-plant setpoint dispatch plus dispatch-write status publication/retry-aware dedupe behavior, with readback reconciliation against plant `p_setpoint`/`q_setpoint` registers using register-exact compare and cache fallback on read failure.
 - `plant_agent.py`: local dual-server plant emulation.
@@ -119,6 +121,7 @@ Per-plant config includes:
 - `data_fetcher_agent.py` logs explicit API fetch intent (`today` vs `tomorrow`), local request windows, and next-day gate state transitions (`waiting` / `eligible`) to reduce ambiguity around missing schedules.
 - `data_fetcher_agent.py` now also prunes `api_schedule_df_by_plant` to the local current-day + next-day retention window so long-running sessions do not accumulate stale API schedule rows indefinitely.
 - `scheduling/agent.py` also prunes manual override series to the local current-day + next-day window on day rollover; dashboard manual editor paths prune after each write/load.
+- `logger_config.py` and dashboard log browsing now resolve `logs/` through `runtime/paths.py` so runtime and dashboard keep using repo-root log files after module/package moves.
 - Manual override storage now encodes end-of-override using a terminal duplicate-value row; scheduler/effective-schedule helpers derive the exclusive manual end timestamp from that terminal row (no separate manual end-time shared-state maps).
 - Dashboard logs tab behavior:
   - default selector is `today`,
@@ -133,7 +136,7 @@ Per-plant config includes:
 
 ## Dashboard Styling Conventions
 - Brand assets are served from Dash `assets/` (logo PNGs + local font files).
-- `dashboard/agent.py` now sets Dash `assets_folder` explicitly to the repo-root `assets/` directory so styling and brand assets continue loading after the dashboard module moved under `dashboard/`.
+- `dashboard/agent.py` now sets Dash `assets_folder` explicitly via `runtime/paths.py` to the repo-root `assets/` directory so styling and brand assets continue loading after package moves.
 - Dashboard visual state is primarily class-driven in `dashboard/agent.py` and styled in `assets/custom.css`; a small number of inline style dictionaries remain in log/posting render helpers.
 - Plot styling in `dashboard/agent.py` uses shared figure-theme helpers for consistent axes/grid/legend presentation without altering control callbacks.
 - Historical `Plots` tab reuses the same figure helper/theme as Status plots for visual consistency; PNG downloads use client-side Plotly export (`window.Plotly.downloadImage`) and do not require `kaleido`.
@@ -180,6 +183,7 @@ Per-plant config includes:
 - `api_connection_runtime.state` (including `error`) is now runtime-owned and recomputed from command transitions plus `fetch_health` / `posting_health`; dashboard API UI renders this state directly.
 - Measurement posting queue is in-memory only; it does not persist across restarts.
 - Measurement compression applies only to new runtime writes; no automatic backfill is performed for historical dense CSV files.
+- `.gitignore` now excludes common Python/cache artifacts (`**/__pycache__/`, `*.pyc`, `.DS_Store`, tool caches) in addition to runtime `data/` and `logs/` directories to reduce repo noise after the package reorg.
 - Historical plots tab reads `data/*.csv` directly on demand; large datasets may increase dashboard callback latency because there is no persistent history index/cache yet.
 - API schedule runtime retention and manual override runtime retention are both bounded to a local two-day window (`current day + next day`) during active runtime.
 - The dashboard assumes both logical plants are always present in runtime state.

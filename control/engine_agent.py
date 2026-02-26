@@ -27,6 +27,7 @@ from runtime.engine_status_runtime import default_engine_status, update_engine_s
 from measurement.storage import find_latest_persisted_soc_for_plant
 from modbus.codec import read_point_internal
 from runtime.contracts import resolve_modbus_endpoint, sanitize_plant_name
+from runtime.paths import get_data_dir
 from scheduling.runtime import build_effective_schedule_frame, resolve_schedule_setpoint
 from runtime.shared_state import snapshot_locked
 from time_utils import get_config_tz, now_tz
@@ -229,7 +230,7 @@ def _refresh_all_observed_state(
 def _get_daily_recording_file_path(config, plant_id):
     safe_name = sanitize_plant_name(_plant_name(config, plant_id), plant_id)
     date_str = now_tz(config).strftime("%Y%m%d")
-    return os.path.join("data", f"{date_str}_{safe_name}.csv")
+    return os.path.join(get_data_dir(__file__), f"{date_str}_{safe_name}.csv")
 
 
 def _clamp_soc_pu(value, fallback):
@@ -244,7 +245,7 @@ def _clamp_soc_pu(value, fallback):
 
 def _resolve_local_start_soc_seed(config, shared_data, plant_id, tz):
     startup_initial_soc_pu = float(config.get("STARTUP_INITIAL_SOC_PU", 0.5))
-    latest = find_latest_persisted_soc_for_plant("data", _plant_name(config, plant_id), plant_id, tz)
+    latest = find_latest_persisted_soc_for_plant(get_data_dir(__file__), _plant_name(config, plant_id), plant_id, tz)
     if latest is not None:
         logging.info(
             "ControlEngine: %s local start SoC seed from disk %.4f pu (%s @ %s).",
@@ -592,7 +593,7 @@ def _execute_command(config, shared_data, command, *, plant_ids, tz, now_fn=now_
 
     if kind == "plant.record_start":
         plant_id = str(payload.get("plant_id", ""))
-        os.makedirs("data", exist_ok=True)
+        os.makedirs(get_data_dir(__file__), exist_ok=True)
         file_path = get_daily_recording_file_path_fn(plant_id)
         with shared_data["lock"]:
             current = shared_data.get("measurements_filename_by_plant", {}).get(plant_id)
@@ -611,7 +612,7 @@ def _execute_command(config, shared_data, command, *, plant_ids, tz, now_fn=now_
         return {"state": "succeeded", "message": None, "result": {"noop": False}}
 
     if kind == "fleet.start_all":
-        os.makedirs("data", exist_ok=True)
+        os.makedirs(get_data_dir(__file__), exist_ok=True)
         with shared_data["lock"]:
             for pid in plant_ids:
                 shared_data["measurements_filename_by_plant"][pid] = get_daily_recording_file_path_fn(pid)

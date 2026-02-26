@@ -41,8 +41,11 @@ class DashboardLogsTests(unittest.TestCase):
     def test_get_logs_dir_accepts_dashboard_package_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             os.makedirs(os.path.join(tmpdir, "assets"), exist_ok=True)
+            os.makedirs(os.path.join(tmpdir, "memory-bank"), exist_ok=True)
             dashboard_dir = os.path.join(tmpdir, "dashboard")
             os.makedirs(dashboard_dir, exist_ok=True)
+            with open(os.path.join(tmpdir, "config.yaml"), "w", encoding="utf-8") as handle:
+                handle.write("general: {}\\n")
 
             self.assertEqual(get_logs_dir(dashboard_dir), os.path.join(tmpdir, "logs"))
 

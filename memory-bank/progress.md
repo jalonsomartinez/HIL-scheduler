@@ -67,8 +67,10 @@
 - low-voltage plant voltage axes (nominal `< 10 kV`) now use explicit y-padding equal to `5%` of configured nominal voltage; higher-voltage plants use Plotly autorange,
 - logs tab with live `Today` (current date file tail) and selectable historical files,
 - branded UI theme (tokenized CSS, local font assets, flatter visual treatment, minimal corner radius, menu-style tab strip, full-width tab content cards, white page background).
- - Balanced package layout is now in place for active runtime modules (`dashboard/`, `control/`, `settings/`, `measurement/`, `scheduling/`, `modbus/`, `runtime/`) while `hil_scheduler.py` remains the root launcher.
- - Dashboard explicitly pins Dash `assets_folder` to repo-root `assets/`, and dashboard log helpers resolve repo-root `logs/` even when called from the `dashboard/` package directory.
+- Balanced package layout is now in place for active runtime modules (`dashboard/`, `control/`, `settings/`, `measurement/`, `scheduling/`, `modbus/`, `runtime/`) while `hil_scheduler.py` remains the root launcher.
+- Dashboard explicitly pins Dash `assets_folder` to repo-root `assets/`, and dashboard log helpers resolve repo-root `logs/` even when called from the `dashboard/` package directory.
+- Shared repo-root path helpers now live in `runtime/paths.py`; dashboard/logging/control-engine paths use them for `assets/`, `logs/`, and key `data/` path generation.
+- `api-docs-examples/README.md` now marks that folder as legacy/reference material (not active runtime code).
 6. Automated validation now includes:
 - module compile checks (`python3 -m py_compile *.py dashboard/*.py control/*.py settings/*.py measurement/*.py scheduling/*.py modbus/*.py runtime/*.py`),
 - unit/smoke regression suite (`python -m unittest discover -s tests -v`, `170` tests in latest full run),
@@ -92,6 +94,7 @@
 - targeted settings-command/settings-engine regressions (`tests/test_settings_command_runtime.py`, `tests/test_settings_engine_agent.py`) and dashboard settings intent/UI-state helper regressions (`tests/test_dashboard_settings_intents.py`, `tests/test_dashboard_settings_ui_state.py`).
 - targeted control/settings integration wiring regressions (`tests/test_dashboard_engine_wiring.py`) cover intent helper -> enqueue -> engine single-cycle -> shared-state mutation happy paths.
 - new targeted scheduler dispatch-write status regression (`tests/test_scheduler_dispatch_write_status.py`) covers failed-write retry, readback reconciliation (match/mismatch/fallback), and dispatch status publication/formatting.
+- targeted repo-path helper regressions in `tests/test_runtime_paths.py` cover project-root resolution from repo/test and `dashboard/` package anchors.
 7. Dashboard control flow is now separated into `control/flows.py` with dedicated tests for safe-stop and transport switch semantics (source-switch helper removed from active dashboard flow).
 8. Runtime shared-state initialization contract is centralized in `build_initial_shared_data(config)` with schema tests.
  - Shared-state contract now includes local emulator SoC seed request/result maps for dashboard->plant-agent local-start coordination.

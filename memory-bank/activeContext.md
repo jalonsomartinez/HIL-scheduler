@@ -40,6 +40,13 @@
   - compile check updated for package layout and passed,
   - full unittest suite passed (`170` tests),
   - launcher smoke confirmed startup/import wiring; sandbox prevented socket operations (expected in this environment).
+- Added follow-up project-structure hygiene after the package reorg:
+  - introduced `runtime/paths.py` to centralize repo-root path resolution (`assets/`, `logs/`, `data/`) and removed duplicated path heuristics in dashboard/logging code,
+  - wired dashboard/logging/control-engine path usage to the shared helper (keeps dashboard styling/log browsing and recording path generation robust to package/module moves),
+  - tightened `.gitignore` for Python/cache/tooling artifacts (`**/__pycache__/`, `*.pyc`, `.DS_Store`, `.pytest_cache/`, `.mypy_cache/`),
+  - added `api-docs-examples/README.md` to explicitly mark examples as legacy/reference (not active runtime code).
+- Added targeted regression coverage for repo path resolution:
+  - `tests/test_runtime_paths.py` validates project-root and `assets/`/`logs/`/`data/` path helper behavior from both repo/test and `dashboard/` package anchor contexts.
 - Implemented per-plant dispatch send control and sent-setpoint observability:
   - added independent Status-tab dispatch toggle (`Sending` / `Paused`) per plant that controls only `scheduler_running_by_plant` (no plant enable/disable side effects),
   - start flow now preserves the existing dispatch gate (no auto-enable of scheduler sending); if paused, initial setpoint write is skipped and published as `skipped`,

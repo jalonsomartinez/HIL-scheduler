@@ -60,6 +60,7 @@ from dashboard.settings_ui_state import (
 import scheduling.manual_schedule_manager as msm
 from measurement.storage import MEASUREMENT_COLUMNS
 from runtime.contracts import sanitize_plant_name
+from runtime.paths import get_assets_dir, get_data_dir, get_project_root
 from scheduling.runtime import build_effective_schedule_frame
 from settings.command_runtime import enqueue_settings_command
 from runtime.shared_state import snapshot_locked
@@ -74,7 +75,9 @@ def dashboard_agent(config, shared_data):
     log.setLevel(logging.ERROR)
 
     base_dir = os.path.dirname(__file__)
-    assets_dir = os.path.join(os.path.dirname(base_dir), "assets")
+    project_dir = get_project_root(base_dir)
+    assets_dir = get_assets_dir(project_dir)
+    data_dir = get_data_dir(project_dir)
     app = Dash(
         __name__,
         suppress_callback_exceptions=True,
@@ -1828,7 +1831,7 @@ def dashboard_agent(config, shared_data):
             raise PreventUpdate
 
         plant_suffix_by_id = {plant_id: sanitize_plant_name(plant_name(plant_id), plant_id) for plant_id in plant_ids}
-        index_data = scan_measurement_history_index("data", plant_suffix_by_id, tz)
+        index_data = scan_measurement_history_index(data_dir, plant_suffix_by_id, tz)
 
         if not index_data.get("has_data"):
             return (
@@ -1984,8 +1987,8 @@ def dashboard_agent(config, shared_data):
     )
     def update_log_file_options(n_intervals):
         options = [{"label": "Today", "value": "today"}]
-        logs_dir = get_logs_dir(base_dir)
-        today_path = os.path.abspath(get_today_log_file_path(base_dir, tz))
+        logs_dir = get_logs_dir(project_dir)
+        today_path = os.path.abspath(get_today_log_file_path(project_dir, tz))
         try:
             if os.path.exists(logs_dir):
                 log_files = []
@@ -2029,7 +2032,7 @@ def dashboard_agent(config, shared_data):
             raise PreventUpdate
 
         if selected == "today":
-            log_file_path = get_today_log_file_path(base_dir, tz)
+            log_file_path = get_today_log_file_path(project_dir, tz)
             today_file_exists = os.path.exists(log_file_path)
             file_content = read_log_tail(log_file_path, max_lines=1000)
             formatted = parse_and_format_historical_logs(file_content)

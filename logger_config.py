@@ -12,6 +12,8 @@ import os
 from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from runtime.paths import get_logs_dir
+
 
 class SessionLogHandler(logging.Handler):
     """
@@ -122,7 +124,7 @@ def setup_logging(config, shared_data):
     date_format = '%Y-%m-%d %H:%M:%S'
     
     # Create logs directory if it doesn't exist
-    logs_dir = os.path.join(os.path.dirname(__file__), 'logs')
+    logs_dir = get_logs_dir(__file__)
     os.makedirs(logs_dir, exist_ok=True)
     
     # Configure root logger
