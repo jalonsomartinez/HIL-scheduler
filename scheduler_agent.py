@@ -7,7 +7,7 @@ from pyModbusTCP.client import ModbusClient
 import manual_schedule_manager as msm
 from modbus_codec import write_point_internal
 from runtime_contracts import resolve_modbus_endpoint
-from schedule_runtime import resolve_schedule_setpoint, resolve_series_setpoint_asof
+from schedule_runtime import resolve_schedule_setpoint, resolve_series_setpoint_asof, split_manual_override_series
 from shared_state import snapshot_locked
 from time_utils import get_config_tz, now_tz
 
@@ -138,10 +138,20 @@ def scheduler_agent(config, shared_data):
                 p_key, q_key = msm.manual_series_keys_for_plant(plant_id)
                 manual_p_value, manual_p_has = resolve_series_setpoint_asof(manual_series_map.get(p_key), loop_now, tz)
                 manual_q_value, manual_q_has = resolve_series_setpoint_asof(manual_series_map.get(q_key), loop_now, tz)
+                manual_p_end_time = split_manual_override_series(manual_series_map.get(p_key), tz).get("end_ts")
+                manual_q_end_time = split_manual_override_series(manual_series_map.get(q_key), tz).get("end_ts")
 
-                if bool(manual_merge_enabled.get(p_key, False)) and manual_p_has:
+                if (
+                    bool(manual_merge_enabled.get(p_key, False))
+                    and manual_p_has
+                    and (manual_p_end_time is None or pd.Timestamp(loop_now) < pd.Timestamp(manual_p_end_time))
+                ):
                     p_setpoint = manual_p_value
-                if bool(manual_merge_enabled.get(q_key, False)) and manual_q_has:
+                if (
+                    bool(manual_merge_enabled.get(q_key, False))
+                    and manual_q_has
+                    and (manual_q_end_time is None or pd.Timestamp(loop_now) < pd.Timestamp(manual_q_end_time))
+                ):
                     q_setpoint = manual_q_value
 
                 if previous_p[plant_id] != p_setpoint:

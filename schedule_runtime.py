@@ -55,6 +55,52 @@ def resolve_series_setpoint_asof(series_df, now_value, tz):
     return value, True
 
 
+def split_manual_override_series(series_df, tz):
+    """
+    Normalize a manual series and detect the terminal duplicate-row end marker.
+
+    Returns dict:
+      - series_df: normalized numeric dataframe (full stored series)
+      - end_ts: terminal timestamp if terminal duplicate marker is present, else None
+      - has_terminal_end: bool
+    """
+    normalized_df = normalize_schedule_index(series_df, tz)
+    if normalized_df.empty or "setpoint" not in normalized_df.columns:
+        return {"series_df": pd.DataFrame(columns=["setpoint"]), "end_ts": None, "has_terminal_end": False}
+
+    df = normalized_df[["setpoint"]].copy()
+    df["setpoint"] = pd.to_numeric(df["setpoint"], errors="coerce")
+    df = df.dropna(subset=["setpoint"]).sort_index()
+    if df.empty:
+        return {"series_df": pd.DataFrame(columns=["setpoint"]), "end_ts": None, "has_terminal_end": False}
+
+    has_terminal_end = False
+    end_ts = None
+    if len(df) >= 2:
+        prev_row = df.iloc[-2]
+        last_row = df.iloc[-1]
+        prev_ts = pd.Timestamp(df.index[-2])
+        last_ts = pd.Timestamp(df.index[-1])
+        try:
+            prev_value = float(prev_row.get("setpoint"))
+            last_value = float(last_row.get("setpoint"))
+        except (TypeError, ValueError):
+            prev_value = None
+            last_value = None
+        if (
+            prev_value is not None
+            and last_value is not None
+            and not pd.isna(prev_value)
+            and not pd.isna(last_value)
+            and last_ts > prev_ts
+            and last_value == prev_value
+        ):
+            has_terminal_end = True
+            end_ts = last_ts
+
+    return {"series_df": df, "end_ts": end_ts, "has_terminal_end": has_terminal_end}
+
+
 def _ffill_column_on_union(df, union_index, column_name):
     if df is None or df.empty or column_name not in df.columns:
         return pd.Series(index=union_index, dtype=float)
@@ -77,13 +123,21 @@ def build_effective_schedule_frame(
     Output columns: `power_setpoint_kw`, `reactive_power_setpoint_kvar`.
     """
     api_norm = normalize_schedule_index(api_df, tz)
-    p_norm = normalize_schedule_index(manual_p_df, tz)
-    q_norm = normalize_schedule_index(manual_q_df, tz)
+    p_parts = split_manual_override_series(manual_p_df, tz)
+    q_parts = split_manual_override_series(manual_q_df, tz)
+    p_norm = p_parts["series_df"]
+    q_norm = q_parts["series_df"]
+    p_end_ts = p_parts["end_ts"]
+    q_end_ts = q_parts["end_ts"]
 
     union_index = pd.DatetimeIndex([])
     for df in (api_norm, p_norm, q_norm):
         if df is not None and not df.empty:
             union_index = union_index.union(df.index)
+    if p_end_ts is not None:
+        union_index = union_index.union(pd.DatetimeIndex([pd.Timestamp(p_end_ts)]))
+    if q_end_ts is not None:
+        union_index = union_index.union(pd.DatetimeIndex([pd.Timestamp(q_end_ts)]))
     union_index = union_index.sort_values()
     if len(union_index) == 0:
         return pd.DataFrame()
@@ -94,11 +148,17 @@ def build_effective_schedule_frame(
 
     if manual_p_enabled and p_norm is not None and not p_norm.empty and "setpoint" in p_norm.columns:
         p_override = pd.to_numeric(p_norm["setpoint"], errors="coerce").reindex(union_index).ffill()
-        effective.loc[p_override.notna(), "power_setpoint_kw"] = p_override[p_override.notna()]
+        p_mask = p_override.notna()
+        if p_end_ts is not None:
+            p_mask = p_mask & (effective.index < pd.Timestamp(p_end_ts))
+        effective.loc[p_mask, "power_setpoint_kw"] = p_override[p_mask]
 
     if manual_q_enabled and q_norm is not None and not q_norm.empty and "setpoint" in q_norm.columns:
         q_override = pd.to_numeric(q_norm["setpoint"], errors="coerce").reindex(union_index).ffill()
-        effective.loc[q_override.notna(), "reactive_power_setpoint_kvar"] = q_override[q_override.notna()]
+        q_mask = q_override.notna()
+        if q_end_ts is not None:
+            q_mask = q_mask & (effective.index < pd.Timestamp(q_end_ts))
+        effective.loc[q_mask, "reactive_power_setpoint_kvar"] = q_override[q_mask]
 
     effective["power_setpoint_kw"] = pd.to_numeric(effective["power_setpoint_kw"], errors="coerce").fillna(0.0)
     effective["reactive_power_setpoint_kvar"] = (

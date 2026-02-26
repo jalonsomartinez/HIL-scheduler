@@ -26,7 +26,7 @@
 - `config_loader.py`: validates/normalizes YAML into runtime dict.
 - `dashboard_agent.py`: UI layout and callbacks; enqueues control + settings intents, renders status from shared state/cached plant observations, applies short click-feedback transition overlays, and keeps manual editor drafts dashboard-owned.
 - `dashboard_layout.py`: Dash layout builder; Status top card now includes control-engine/queue health summary placeholders in addition to API inline status.
-- `manual_schedule_manager.py`: manual override series metadata, editor breakpoint row conversions/validation, relative CSV load/save parsing, and manual-series rebuild/sanitization helpers.
+- `manual_schedule_manager.py`: manual override series metadata, editor breakpoint row conversions/auto-sanitization, relative CSV load/save parsing, terminal `end` row <-> stored duplicate-row encoding, and manual-series rebuild/sanitization helpers.
 - `dashboard_history.py`: historical plots helper utilities (file scan/index, slider range helpers, CSV crop/export serialization).
 - `dashboard_plotting.py`: shared Plotly figure/theme helpers for status and historical plant plots, including optional x-window cropping, Status-tab current-time indicator lines, historical setpoint fallback from measurement rows, and optional voltage y-range padding override.
 - `dashboard_control.py`: safe-stop/transport-switch control-flow helpers reused by control engine.
@@ -116,6 +116,7 @@ Per-plant config includes:
 - `data_fetcher_agent.py` logs explicit API fetch intent (`today` vs `tomorrow`), local request windows, and next-day gate state transitions (`waiting` / `eligible`) to reduce ambiguity around missing schedules.
 - `data_fetcher_agent.py` now also prunes `api_schedule_df_by_plant` to the local current-day + next-day retention window so long-running sessions do not accumulate stale API schedule rows indefinitely.
 - `scheduler_agent.py` also prunes manual override series to the local current-day + next-day window on day rollover; dashboard manual editor paths prune after each write/load.
+- Manual override storage now encodes end-of-override using a terminal duplicate-value row; scheduler/effective-schedule helpers derive the exclusive manual end timestamp from that terminal row (no separate manual end-time shared-state maps).
 - Dashboard logs tab behavior:
   - default selector is `today`,
   - `today` reads tail of current date file for live refresh,
@@ -134,6 +135,9 @@ Per-plant config includes:
 - Dashboard callbacks derive optional voltage y-padding from `plants.*.model.poi_voltage_kv`; custom voltage y-range is only applied for low-voltage plants (`< 10 kV`) using `5%` nominal padding, otherwise Plotly autorange is used.
 - Manual Schedule tab now uses a responsive split layout (plots + compact editor), with dense operator-focused controls and compact breakpoint-row inputs.
 - Manual per-series plots now overlay staged editor and applied server schedules (`Staged (Editor)` vs `Applied (Server)`) so command-driven activation/update differences are visible in the UI.
+- Manual editor forces a terminal `end` row for non-empty schedules; the `end` row setpoint is UI-only (`end` label) and is stored/sent as a terminal duplicate-value numeric row.
+- Manual editor row times are auto-clamped forward to maintain a minimum `60s` gap between rows (including terminal `end` row) instead of failing on non-increasing edits.
+- Empty manual editor selections default the start datetime to the next `10-minute` local boundary.
 - Historical `Plots` tab range selection is resilient to stale/default slider values: helper clamping treats fully out-of-domain selections (including the layout placeholder `[0, 1]`) as invalid and restores full discovered history span.
 - Historical `Plots` tab availability timeline (`LIB`/`VRFB`) is intentionally compacted (reduced figure height/margins, lower legend placement) to minimize vertical whitespace.
 - Current operator-requested theme constraints:
@@ -159,6 +163,7 @@ Per-plant config includes:
 - Dashboard status controls now depend on control-engine observed-state cache freshness (`stale` marker) rather than direct Modbus reads; stale cache displays `Unknown` for Modbus enable.
 - Dashboard Status tab health lines are server-published-state-only (control engine + observed-state cache) and include queue/backlog and per-plant Modbus reachability/read-error diagnostics.
 - Manual schedule editor persists draft series in dashboard-owned runtime draft maps; scheduler dispatch uses server-applied manual series activated through settings commands.
+- Manual settings command payloads serialize the full numeric manual series (including terminal duplicate row) and do not carry a separate end timestamp field.
 - Manual draft maps are shared across dashboard sessions (single-operator assumption in current runtime; per-session draft isolation deferred).
 - API connect/disconnect is no longer equivalent to setting/clearing `api_password`; password storage and connection runtime state are separate.
 - `api_connection_runtime.state` (including `error`) is now runtime-owned and recomputed from command transitions plus `fetch_health` / `posting_health`; dashboard API UI renders this state directly.

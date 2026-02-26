@@ -25,8 +25,10 @@ class DashboardSettingsIntentsTests(unittest.TestCase):
         )
         self.assertEqual(intent["kind"], "manual.activate")
         self.assertEqual(intent["payload"]["series_key"], "lib_p")
-        self.assertEqual(len(intent["payload"]["series_rows"]), 1)
+        self.assertEqual(len(intent["payload"]["series_rows"]), 2)
         self.assertIn("datetime", intent["payload"]["series_rows"][0])
+        self.assertEqual(intent["payload"]["series_rows"][0]["setpoint"], 1.0)
+        self.assertEqual(intent["payload"]["series_rows"][-1]["setpoint"], 1.0)
 
     def test_manual_inactivate_has_no_series_rows(self):
         intent = manual_settings_intent_from_trigger(
@@ -36,6 +38,21 @@ class DashboardSettingsIntentsTests(unittest.TestCase):
         )
         self.assertEqual(intent["kind"], "manual.inactivate")
         self.assertEqual(intent["payload"], {"series_key": "vrfb_q"})
+
+    def test_manual_update_serializes_terminal_duplicate_row(self):
+        tz = ZoneInfo("Europe/Madrid")
+        df = pd.DataFrame(
+            [{"datetime": datetime(2026, 2, 25, 10, 0, tzinfo=tz), "setpoint": 5.0}]
+        ).set_index("datetime")
+        intent = manual_settings_intent_from_trigger(
+            "manual-toggle-lib-q-update-btn",
+            draft_series_by_key={"lib_q": df},
+            tz=tz,
+        )
+        self.assertEqual(intent["kind"], "manual.update")
+        self.assertEqual(len(intent["payload"]["series_rows"]), 2)
+        self.assertEqual(intent["payload"]["series_rows"][0]["setpoint"], 5.0)
+        self.assertEqual(intent["payload"]["series_rows"][-1]["setpoint"], 5.0)
 
     def test_api_connect_uses_input_password_when_provided(self):
         intent = api_connection_intent_from_trigger("set-password-btn", password_value=" pw ")
@@ -55,4 +72,3 @@ class DashboardSettingsIntentsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

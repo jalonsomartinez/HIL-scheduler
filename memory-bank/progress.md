@@ -47,7 +47,10 @@
 - dashboard-owned manual draft series plus per-series command-driven `Activate` / `Inactivate` / `Update` controls (server-owned activation state),
 - manual per-series controls now use a true two-button activation toggle + separate `Update` button, with stateful button labels and no redundant per-series status text,
 - manual per-series plots overlay staged editor schedule and applied server schedule for resend/update visibility,
-- relative-row manual override CSV save/load (`hours, minutes, seconds, setpoint`) with first-row `00:00:00` validation,
+- relative-row manual override CSV save/load (`hours, minutes, seconds, setpoint`) with terminal `end` row support,
+- forced terminal `end` row for any non-empty manual editor schedule, displayed as `end` but stored/sent as a terminal duplicate-value numeric row,
+- manual editor row times auto-clamped forward to enforce a minimum `60s` gap (including terminal `end` row), and empty-series default editor start time rounds up to the next local `10-minute` boundary,
+- first manual breakpoint row no longer renders a delete button and delete requests for row 0 are rejected server-side,
 - API tab now uses command-driven `Connect` / `Disconnect` and posting enable/disable transitions (settings engine), with API connection state decoupled from password storage and posting policy shown separately from effective posting status; connect/disconnect buttons show terminal labels `Connected` / `Disconnected`,
 - API connection runtime `Error` state is now runtime-owned and published from agent health (`fetch_health` + `posting_health`) into `api_connection_runtime`; dashboard renders API state/error directly from that runtime contract,
 - API status and posting health, including inline today/tomorrow per-plant fetch counts in Status tab,
@@ -71,7 +74,8 @@
  - targeted plot-helper regression coverage for status-window x-range cropping, voltage subplot/time-indicator behavior, historical setpoint fallback, and voltage-axis padding in `tests/test_dashboard_plotting.py` (environment-dependent on local pandas install).
  - compression-gap config-loader regression now validates schema/typing (not a fixed `max_kept_gap_s` value) so config tuning does not cause CI failures.
 - targeted measurement-storage SoC lookup regressions (`tests/test_measurement_storage_latest_soc.py`) and plant-agent local SoC seed request regressions (`tests/test_plant_agent_soc_seed_requests.py`).
- - targeted scheduler merged-dispatch regressions (`tests/test_scheduler_source_switch.py`) covering manual override priority and stale API base fallback behavior.
+- targeted scheduler merged-dispatch regressions (`tests/test_scheduler_source_switch.py`) covering manual override priority and stale API base fallback behavior.
+- targeted manual end-row/terminal-duplicate encoding regressions (`tests/test_manual_schedule_manager_end_rows.py`, `tests/test_schedule_runtime_end_times.py`) covering CSV roundtrip, auto-sanitized gaps, and end-cutoff merge behavior.
 - targeted posting telemetry regression coverage confirming posting gate no longer depends on `active_schedule_source`.
 - targeted command-runtime/control-engine regressions (`tests/test_control_command_runtime.py`, `tests/test_control_engine_agent.py`) and dashboard intent/UI-state/control-health helper regressions (`tests/test_dashboard_command_intents.py`, `tests/test_dashboard_ui_state.py`, `tests/test_dashboard_control_health.py`).
 - generic command-runtime helper extraction (`command_runtime.py`) keeps control/settings command-runtime wrappers thin and aligned.
@@ -88,7 +92,7 @@
 1. Remote transport smoke coverage design (repeatable unattended checks).
 2. Log retention policy definition and implementation scope.
 3. Manual validation pass for new historical `Plots` tab behavior on larger data directories (including low-voltage voltage-axis padding/readability).
-4. Manual Schedule editor UX polish / layout tuning validation on different viewport widths (including new per-series `Update` flow).
+4. Manual Schedule editor UX polish / layout tuning validation on different viewport widths (including forced terminal `end` row readability and no-delete first row behavior).
 5. Evaluate per-plant queue architecture vs global queue after observing control queue + new settings queue usage on real workloads.
 
 ## Next

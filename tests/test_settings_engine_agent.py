@@ -83,7 +83,7 @@ class SettingsEngineAgentTests(unittest.TestCase):
         with shared["lock"]:
             self.assertTrue(shared["manual_schedule_merge_enabled_by_key"]["lib_p"])
             self.assertEqual(shared["manual_series_runtime_state_by_key"]["lib_p"]["state"], "active")
-            self.assertEqual(len(shared["manual_schedule_series_df_by_key"]["lib_p"]), 2)
+            self.assertEqual(len(shared["manual_schedule_series_df_by_key"]["lib_p"]), 3)
 
     def test_manual_update_requires_active(self):
         shared = _shared()
@@ -96,6 +96,35 @@ class SettingsEngineAgentTests(unittest.TestCase):
         )
         self.assertEqual(result["state"], "rejected")
         self.assertEqual(result["message"], "not_active")
+
+    def test_manual_activate_sanitizes_missing_terminal_duplicate_row(self):
+        shared = _shared()
+        cfg = _config()
+        payload = {
+            "series_key": "lib_q",
+            "series_rows": [
+                {"datetime": "2026-02-25T10:00:00+01:00", "setpoint": 1.0},
+                {"datetime": "2026-02-25T10:15:00+01:00", "setpoint": 2.0},
+            ],
+        }
+        result = _execute_settings_command(
+            cfg, shared, {"id": "cmd-end-1", "kind": "manual.activate", "payload": payload}, tz=timezone.utc
+        )
+        self.assertEqual(result["state"], "succeeded")
+        with shared["lock"]:
+            stored = shared["manual_schedule_series_df_by_key"]["lib_q"]
+            self.assertEqual(len(stored), 3)
+            self.assertEqual(float(stored.iloc[-1]["setpoint"]), float(stored.iloc[-2]["setpoint"]))
+
+    def test_manual_activate_rejects_empty_series_rows(self):
+        shared = _shared()
+        cfg = _config()
+        payload = {"series_key": "vrfb_p", "series_rows": []}
+        result = _execute_settings_command(
+            cfg, shared, {"id": "cmd-end-2", "kind": "manual.activate", "payload": payload}, tz=timezone.utc
+        )
+        self.assertEqual(result["state"], "rejected")
+        self.assertEqual(result["message"], "invalid_payload")
 
     def test_manual_inactivate_disables_merge(self):
         shared = _shared()

@@ -177,8 +177,8 @@ class SchedulerSourceSwitchTests(unittest.TestCase):
             index=pd.DatetimeIndex([now - pd.Timedelta(hours=2)]),
         )
         manual_p_df = pd.DataFrame(
-            {"setpoint": [88.8]},
-            index=pd.DatetimeIndex([now - pd.Timedelta(minutes=1)]),
+            {"setpoint": [88.8, 88.8]},
+            index=pd.DatetimeIndex([now - pd.Timedelta(minutes=1), now + pd.Timedelta(minutes=5)]),
         )
 
         shared_data = _shared_data()
@@ -196,6 +196,54 @@ class SchedulerSourceSwitchTests(unittest.TestCase):
                 q_val = _read_kw_from_register(lib_bank, lib_q_reg)
                 self.assertAlmostEqual(p_val, 88.8, places=1)
                 self.assertAlmostEqual(q_val, 0.0, places=1)
+            finally:
+                shared_data["shutdown_event"].set()
+                thread.join(timeout=3)
+
+    def test_manual_p_override_terminal_end_in_past_does_not_override_api_base(self):
+        _FakeServerRegistry.clear()
+        config = load_config("config.yaml")
+        config["SCHEDULER_PERIOD_S"] = 0.1
+        config["ISTENTORE_SCHEDULE_PERIOD_MINUTES"] = 15
+        config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["lib"]["modbus"]["local"]["port"] = 5020
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["port"] = 5021
+
+        lib_points = config["PLANTS"]["lib"]["modbus"]["local"]["points"]
+        lib_p_reg = int(lib_points["p_setpoint"]["address"])
+        lib_q_reg = int(lib_points["q_setpoint"]["address"])
+
+        lib_bank = _FakeDataBank()
+        vrfb_bank = _FakeDataBank()
+        _FakeServerRegistry.register("127.0.0.1", 5020, lib_bank)
+        _FakeServerRegistry.register("127.0.0.1", 5021, vrfb_bank)
+
+        now = now_tz(config)
+        api_df = pd.DataFrame(
+            {"power_setpoint_kw": [200.0], "reactive_power_setpoint_kvar": [12.0]},
+            index=pd.DatetimeIndex([now - pd.Timedelta(minutes=2)]),
+        )
+        manual_p_df = pd.DataFrame(
+            {"setpoint": [123.4, 123.4]},
+            index=pd.DatetimeIndex([now - pd.Timedelta(minutes=30), now - pd.Timedelta(minutes=1)]),
+        )
+
+        shared_data = _shared_data()
+        with shared_data["lock"]:
+            shared_data["api_schedule_df_by_plant"]["lib"] = api_df
+            shared_data["manual_schedule_series_df_by_key"]["lib_p"] = manual_p_df
+            shared_data["manual_schedule_merge_enabled_by_key"]["lib_p"] = True
+
+        with patch("scheduler_agent.ModbusClient", _FakeModbusClient):
+            thread = threading.Thread(target=scheduler_agent, args=(config, shared_data), daemon=True)
+            thread.start()
+            try:
+                time.sleep(0.45)
+                p_val = _read_kw_from_register(lib_bank, lib_p_reg)
+                q_val = _read_kw_from_register(lib_bank, lib_q_reg)
+                self.assertAlmostEqual(p_val, 200.0, places=1)
+                self.assertAlmostEqual(q_val, 12.0, places=1)
             finally:
                 shared_data["shutdown_event"].set()
                 thread.join(timeout=3)

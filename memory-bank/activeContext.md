@@ -26,6 +26,17 @@
 ## Rolling Change Log (Compressed, 30-Day Window)
 
 ### 2026-02-26
+- Refined Manual Schedule end-of-override semantics and editor UX:
+  - replaced separate manual end-time runtime/payload contract with canonical terminal duplicate-row encoding in stored manual series (UI/CSV still represent terminal row as `end`),
+  - scheduler and merged effective-schedule helpers now derive manual override end cutoff from terminal manual-series row timestamp (`now < end_ts`),
+  - manual editor now forces a terminal `end` row for any non-empty schedule and removes explicit `Add End` / `Remove End` controls,
+  - manual editor row times are auto-sanitized forward (minimum gap currently `60s`) instead of failing on non-increasing edits,
+  - empty selected manual series now default editor start datetime to the next local `10-minute` boundary,
+  - first manual breakpoint row no longer shows a delete action and delete requests for row 0 are rejected server-side.
+- Added/updated targeted regression coverage for the manual terminal-end-row model:
+  - `tests/test_manual_schedule_manager_end_rows.py` (CSV roundtrip, missing-end sanitization, duplicate-terminal-row import mapping, auto-gap clamping),
+  - `tests/test_schedule_runtime_end_times.py` (terminal-row-derived end cutoff in merged effective schedule),
+  - updated settings/dashboard/scheduler/shared-state regressions for removal of separate manual end-time payload/runtime maps.
 - Updated shared dashboard plant plotting (`dashboard_plotting.py`) used by both `Status` and historical `Plots` tabs:
   - expanded plant figures from 3 to 4 rows to include a dedicated voltage subplot (`v_poi_kV` in kV),
   - added measurement-recorded setpoint fallback traces (`p_setpoint_kw`, `q_setpoint_kvar`) for historical plots when no schedule dataframe is supplied,

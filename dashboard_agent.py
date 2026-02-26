@@ -120,6 +120,19 @@ def dashboard_agent(config, shared_data):
         end = start + pd.Timedelta(days=2)
         return start, end
 
+    def _round_up_to_next_10min(now_value=None):
+        ts = normalize_timestamp_value(now_value or now_tz(config), tz)
+        if pd.isna(ts):
+            ts = normalize_timestamp_value(now_tz(config), tz)
+        ts = pd.Timestamp(ts)
+        base = ts.replace(second=0, microsecond=0)
+        minute_mod = int(base.minute) % 10
+        needs_advance = (minute_mod != 0) or (ts.second != 0) or (ts.microsecond != 0)
+        if not needs_advance:
+            return base
+        add_minutes = 10 - minute_mod if minute_mod != 0 else 10
+        return base + pd.Timedelta(minutes=add_minutes)
+
     def _sync_manual_draft_shared_state_locked(data, *, now_value=None):
         manual_series_map = dict(data.get("manual_schedule_draft_series_df_by_key", {}))
         for key in msm.MANUAL_SERIES_KEYS:
@@ -153,8 +166,8 @@ def dashboard_agent(config, shared_data):
 
     def _manual_series_is_dirty(series_key, draft_df, applied_df):
         try:
-            draft_norm = msm.normalize_manual_series_df(draft_df, timezone_name=config.get("TIMEZONE_NAME"))
-            applied_norm = msm.normalize_manual_series_df(applied_df, timezone_name=config.get("TIMEZONE_NAME"))
+            draft_norm = msm.ensure_manual_series_terminal_duplicate_row(draft_df, timezone_name=config.get("TIMEZONE_NAME"))
+            applied_norm = msm.ensure_manual_series_terminal_duplicate_row(applied_df, timezone_name=config.get("TIMEZONE_NAME"))
             return not draft_norm.equals(applied_norm)
         except Exception:
             return True
@@ -390,7 +403,7 @@ def dashboard_agent(config, shared_data):
         brand_logo_src,
         initial_transport,
         initial_posting_enabled,
-        now_tz(config),
+        _round_up_to_next_10min(now_tz(config)),
     )
 
     app.clientside_callback(
@@ -868,8 +881,12 @@ def dashboard_agent(config, shared_data):
         if not ctx.triggered:
             raise PreventUpdate
         trigger_id = _parse_trigger_id(ctx.triggered[0]["prop_id"])
-        draft_map = snapshot_locked(shared_data, lambda data: dict(data.get("manual_schedule_draft_series_df_by_key", {})))
-        intent = manual_settings_intent_from_trigger(trigger_id, draft_series_by_key=draft_map, tz=tz)
+        draft_snapshot = snapshot_locked(shared_data, lambda data: dict(data.get("manual_schedule_draft_series_df_by_key", {})))
+        intent = manual_settings_intent_from_trigger(
+            trigger_id,
+            draft_series_by_key=draft_snapshot,
+            tz=tz,
+        )
         if intent is None:
             raise PreventUpdate
         status = _enqueue_dashboard_settings_intent(intent, trigger_id=trigger_id, log_label="manual settings command")
@@ -940,7 +957,7 @@ def dashboard_agent(config, shared_data):
             series_df = dict(shared_data.get("manual_schedule_draft_series_df_by_key", {})).get(series_key, pd.DataFrame())
         start_ts, rows = msm.manual_series_df_to_editor_rows_and_start(series_df, timezone_name=config.get("TIMEZONE_NAME"))
         if start_ts is None or pd.isna(start_ts):
-            start_ts = normalize_timestamp_value(now_tz(config), tz)
+            start_ts = _round_up_to_next_10min(now_tz(config))
         return (
             rows,
             start_ts.date(),
@@ -1031,19 +1048,55 @@ def dashboard_agent(config, shared_data):
             normalized = []
             for idx, row in enumerate(list(rows or [])):
                 item = dict(row or {})
+                kind = "end" if str(item.get("kind", "value") or "value").strip().lower() == "end" else "value"
                 item["hours"] = int(item.get("hours", 0) or 0)
                 item["minutes"] = int(item.get("minutes", 0) or 0)
                 item["seconds"] = int(item.get("seconds", 0) or 0)
-                try:
-                    item["setpoint"] = float(item.get("setpoint", 0.0) or 0.0)
-                except (TypeError, ValueError):
-                    item["setpoint"] = 0.0
+                item["kind"] = kind
+                if kind == "end":
+                    item["setpoint"] = None
+                else:
+                    try:
+                        item["setpoint"] = float(item.get("setpoint", 0.0) or 0.0)
+                    except (TypeError, ValueError):
+                        item["setpoint"] = 0.0
                 if idx == 0:
                     item["hours"] = 0
                     item["minutes"] = 0
                     item["seconds"] = 0
                 normalized.append(item)
             return normalized
+
+        def _sanitize_editor_rows(rows_to_sanitize):
+            return msm._normalize_editor_rows(rows_to_sanitize)
+
+        def _is_end_row(row):
+            return str((row or {}).get("kind", "value")) == "end"
+
+        def _find_last_value_index(items):
+            for rev_idx in range(len(items) - 1, -1, -1):
+                if not _is_end_row(items[rev_idx]):
+                    return rev_idx
+            return None
+
+        def _row_offset_seconds(row):
+            row = dict(row or {})
+            return int(row.get("hours", 0) or 0) * 3600 + int(row.get("minutes", 0) or 0) * 60 + int(row.get("seconds", 0) or 0)
+
+        def _value_template_for_insert(items, preferred_idx=None):
+            if not items:
+                return {"hours": 0, "minutes": 0, "seconds": 0, "setpoint": 0.0, "kind": "value"}
+            if preferred_idx is not None and 0 <= preferred_idx < len(items) and not _is_end_row(items[preferred_idx]):
+                base = dict(items[preferred_idx])
+            else:
+                last_value_idx = _find_last_value_index(items)
+                base = dict(items[last_value_idx]) if last_value_idx is not None else {"hours": 0, "minutes": 0, "seconds": 0, "setpoint": 0.0}
+            base["kind"] = "value"
+            try:
+                base["setpoint"] = float(base.get("setpoint", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                base["setpoint"] = 0.0
+            return base
 
         rows = _normalize_rows_list(current_rows)
 
@@ -1073,21 +1126,26 @@ def dashboard_agent(config, shared_data):
                 return dash.no_update, None, "Delete request ignored: no row selected."
             if delete_idx < 0 or delete_idx >= len(rows):
                 return dash.no_update, None, "Delete request ignored: invalid row."
-            if delete_idx == 0 and len(rows) == 1:
-                return dash.no_update, None, "Delete request ignored: first row cannot be removed when it is the only row."
+            if delete_idx == 0:
+                return dash.no_update, None, "Delete request ignored: first row cannot be removed."
             rows.pop(delete_idx)
-            if rows:
-                rows[0]["hours"] = 0
-                rows[0]["minutes"] = 0
-                rows[0]["seconds"] = 0
+            if rows and all(_is_end_row(row) for row in rows):
+                rows = []
+            try:
+                rows = _sanitize_editor_rows(rows)
+            except Exception as exc:
+                return dash.no_update, None, f"Delete request ignored: {exc}"
             return rows, None, f"Deleted breakpoint row {delete_idx + 1}."
 
         if trigger_id == "manual-editor-add-first-row-btn":
             if not rows:
-                return [{"hours": 0, "minutes": 0, "seconds": 0, "setpoint": 0.0}], None, dash.no_update
-            last = dict(rows[-1])
-            rows.append(last)
-            return rows, None, dash.no_update
+                return _sanitize_editor_rows([{"hours": 0, "minutes": 0, "seconds": 0, "setpoint": 0.0, "kind": "value"}]), None, dash.no_update
+            insert_idx = len(rows)
+            if _is_end_row(rows[-1]):
+                insert_idx = len(rows) - 1
+            last = _value_template_for_insert(rows)
+            rows.insert(insert_idx, last)
+            return _sanitize_editor_rows(rows), None, dash.no_update
 
         if isinstance(trigger_id, dict) and trigger_id.get("type") == "manual-row-add":
             try:
@@ -1096,13 +1154,11 @@ def dashboard_agent(config, shared_data):
                 idx = -1
             if idx < 0 or idx >= len(rows):
                 raise PreventUpdate
-            new_row = dict(rows[idx])
-            rows.insert(idx + 1, new_row)
-            if rows:
-                rows[0]["hours"] = 0
-                rows[0]["minutes"] = 0
-                rows[0]["seconds"] = 0
-            return rows, None, dash.no_update
+            insert_at = idx if _is_end_row(rows[idx]) else idx + 1
+            template_idx = idx if not _is_end_row(rows[idx]) else (idx - 1)
+            new_row = _value_template_for_insert(rows, preferred_idx=template_idx)
+            rows.insert(insert_at, new_row)
+            return _sanitize_editor_rows(rows), None, dash.no_update
 
         if isinstance(trigger_id, dict) and str(trigger_id.get("type", "")).startswith("manual-row-"):
             row_count = max(
@@ -1115,23 +1171,30 @@ def dashboard_agent(config, shared_data):
             new_rows = []
             for idx in range(row_count):
                 prev = rows[idx] if idx < len(rows) else {}
+                prev_kind = "end" if str((prev or {}).get("kind", "value")) == "end" else "value"
+                setpoint_value = None
+                if prev_kind != "end":
+                    if idx < len(row_setpoints or []) and (row_setpoints or [])[idx] is not None:
+                        try:
+                            setpoint_value = float((row_setpoints or [])[idx])
+                        except (TypeError, ValueError):
+                            setpoint_value = float(prev.get("setpoint", 0.0) or 0.0)
+                    else:
+                        setpoint_value = float(prev.get("setpoint", 0.0) or 0.0)
                 new_rows.append(
                     {
                         "hours": 0 if idx == 0 else int((row_hours or [])[idx] if idx < len(row_hours or []) and (row_hours or [])[idx] is not None else prev.get("hours", 0) or 0),
                         "minutes": 0 if idx == 0 else int((row_minutes or [])[idx] if idx < len(row_minutes or []) and (row_minutes or [])[idx] is not None else prev.get("minutes", 0) or 0),
                         "seconds": 0 if idx == 0 else int((row_seconds or [])[idx] if idx < len(row_seconds or []) and (row_seconds or [])[idx] is not None else prev.get("seconds", 0) or 0),
-                        "setpoint": (
-                            float((row_setpoints or [])[idx])
-                            if idx < len(row_setpoints or []) and (row_setpoints or [])[idx] is not None
-                            else float(prev.get("setpoint", 0.0) or 0.0)
-                        ),
+                        "setpoint": setpoint_value,
+                        "kind": prev_kind,
                     }
                 )
             if new_rows:
                 new_rows[0]["hours"] = 0
                 new_rows[0]["minutes"] = 0
                 new_rows[0]["seconds"] = 0
-            return new_rows, dash.no_update, dash.no_update
+            return _sanitize_editor_rows(new_rows), dash.no_update, dash.no_update
 
         raise PreventUpdate
 
@@ -1182,6 +1245,58 @@ def dashboard_agent(config, shared_data):
         )
         row_children = [header]
         for idx, row in enumerate(rows):
+            is_end = str(row.get("kind", "value")) == "end"
+            if is_end:
+                setpoint_component = dcc.Input(
+                    id={"type": "manual-row-setpoint", "index": idx},
+                    type="text",
+                    className="form-control",
+                    value="end",
+                    disabled=True,
+                    style={**compact_setpoint_style, "fontWeight": "700"},
+                )
+            else:
+                setpoint_component = dcc.Input(
+                    id={"type": "manual-row-setpoint", "index": idx},
+                    type="number",
+                    className="form-control",
+                    step="any",
+                    value=row.get("setpoint", 0.0),
+                    style=compact_setpoint_style,
+                )
+            if is_end:
+                actions_component = html.Div(
+                    style={**action_group_style, "minWidth": "60px"},
+                    children=[],
+                )
+            else:
+                actions_component = html.Div(
+                    style=action_group_style,
+                    children=[
+                        html.Button(
+                            "+",
+                            id={"type": "manual-row-add", "index": idx},
+                            className="btn btn-primary",
+                            n_clicks=0,
+                            title="Add row after",
+                            style=row_action_btn_style,
+                        ),
+                        *(
+                            []
+                            if idx == 0
+                            else [
+                                html.Button(
+                                    "-",
+                                    id={"type": "manual-row-del", "index": idx},
+                                    className="btn btn-danger",
+                                    n_clicks=0,
+                                    title="Delete row",
+                                    style=row_action_btn_style,
+                                )
+                            ]
+                        ),
+                    ],
+                )
             row_children.append(
                 html.Div(
                     style=row_style,
@@ -1223,35 +1338,8 @@ def dashboard_agent(config, shared_data):
                                 ),
                             ],
                         ),
-                        dcc.Input(
-                            id={"type": "manual-row-setpoint", "index": idx},
-                            type="number",
-                            className="form-control",
-                            step="any",
-                            value=row.get("setpoint", 0.0),
-                            style=compact_setpoint_style,
-                        ),
-                        html.Div(
-                            style=action_group_style,
-                            children=[
-                                html.Button(
-                                    "+",
-                                    id={"type": "manual-row-add", "index": idx},
-                                    className="btn btn-primary",
-                                    n_clicks=0,
-                                    title="Add row after",
-                                    style=row_action_btn_style,
-                                ),
-                                html.Button(
-                                    "-",
-                                    id={"type": "manual-row-del", "index": idx},
-                                    className="btn btn-danger",
-                                    n_clicks=0,
-                                    title="Delete row",
-                                    style=row_action_btn_style,
-                                ),
-                            ],
-                        ),
+                        setpoint_component,
+                        actions_component,
                     ],
                 )
             )
@@ -1302,10 +1390,13 @@ def dashboard_agent(config, shared_data):
             if list(rows or []):
                 start_dt = _editor_start_to_datetime(start_date, start_hour, start_minute, start_second)
             _set_manual_series_from_editor(series_key, rows or [], start_dt)
-            count = len(list(rows or []))
+            row_list = list(rows or [])
+            value_count = sum(1 for row in row_list if str((row or {}).get("kind", "value")) != "end")
+            has_end = any(str((row or {}).get("kind", "value")) == "end" for row in row_list)
             meta = msm.MANUAL_SERIES_META.get(series_key or "", {})
             label = meta.get("label", str(series_key or "schedule"))
-            return f"{label}: staged {count} breakpoint(s)."
+            suffix = " + end" if has_end else ""
+            return f"{label}: staged {value_count} breakpoint(s){suffix}."
         except Exception as exc:
             return f"Manual editor validation failed: {exc}"
 

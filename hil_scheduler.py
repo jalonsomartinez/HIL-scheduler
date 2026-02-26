@@ -26,7 +26,6 @@ def _empty_df_by_plant(plant_ids):
 def _empty_manual_series_df_by_key():
     return msm.default_manual_series_map()
 
-
 def _default_manual_merge_enabled_by_key():
     return msm.default_manual_merge_enabled_map(default_enabled=False)
 

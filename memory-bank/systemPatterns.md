@@ -9,6 +9,7 @@
 - Manual schedule override model:
   - API schedule is the dispatch base.
   - Manual schedules are stored as four independent series (`lib_p`, `lib_q`, `vrfb_p`, `vrfb_q`).
+  - Non-empty manual series are stored with a terminal duplicate-value row that encodes override end time (terminal row timestamp is the exclusive end cutoff; UI/CSV display this as `end`).
   - Dashboard now maintains separate manual draft series (`manual_schedule_draft_series_df_by_key`) for editor/load/save UX.
   - Manual drafts are currently shared across dashboard sessions (single-operator assumption; per-session isolation deferred).
   - Settings engine applies/activates server-owned manual series into `manual_schedule_series_df_by_key` + merge flags via commands.
@@ -246,14 +247,17 @@ shared_data = {
   - API schedule (`api_schedule_df_by_plant[plant_id]`) is the base.
   - API staleness cutoff still applies via `ISTENTORE_SCHEDULE_PERIOD_MINUTES` and can zero stale API base values.
   - Manual overrides are resolved per signal using the manual series maps (`*_p`, `*_q`) and as-of lookup.
+  - Manual override end is inferred from the terminal duplicate row timestamp in the corresponding manual series; override applies only while `now < end_ts`.
   - If `manual_schedule_merge_enabled_by_key[series_key]` is `True` and a manual as-of value exists, it overwrites the corresponding API signal (`P` or `Q`) only.
 - Per-plant dispatch gate behavior and Modbus write deduping are unchanged.
 
 ### Manual Override Schedule Sanitization and Editor Pattern
-- Manual overrides are stored as four independent absolute-time series (`setpoint` column, datetime index).
+- Manual overrides are stored as four independent absolute-time series (`setpoint` column, datetime index); non-empty stored series include a terminal duplicate-value row that represents manual override end time.
 - Dashboard Manual tab editor presents relative breakpoints (`HH:MM:SS` + setpoint) for one selected series at a time.
-- Editor CSV format is relative-time only (`hours, minutes, seconds, setpoint`) and must start at `00:00:00`.
-- First breakpoint row is always `00:00:00` for non-empty schedules.
+- Editor CSV format is relative-time only (`hours, minutes, seconds, setpoint`) and must start at `00:00:00`; terminal row is exported/imported as `setpoint=end`.
+- For non-empty editor schedules, a terminal `end` row is always forced and rendered as the last row.
+- Editor row times are sanitized on mutation/load to be strictly increasing by pushing later rows forward; minimum enforced gap is currently `60s`.
+- Default editor start time for an empty selected series is rounded up to the next `10-minute` boundary in configured timezone.
 - Manual series are sanitized to local `[today 00:00, day+2 00:00)`:
   - immediately after editor/CSV mutations,
   - on scheduler day rollover.

@@ -18,7 +18,7 @@ from typing import Optional, Tuple
 
 import numpy as np
 import pandas as pd
-from schedule_runtime import merge_schedule_frames
+from schedule_runtime import merge_schedule_frames, split_manual_override_series
 from time_utils import (
     DEFAULT_TIMEZONE_NAME,
     get_timezone,
@@ -48,10 +48,15 @@ MANUAL_SERIES_META = {
     },
 }
 MANUAL_SERIES_KEYS = tuple(MANUAL_SERIES_META.keys())
+MIN_MANUAL_ROW_GAP_S = 60
 
 
 def _empty_manual_series_df():
     return pd.DataFrame(columns=["setpoint"])
+
+
+def default_manual_end_time_map():
+    return {key: None for key in MANUAL_SERIES_KEYS}
 
 
 def manual_series_key(plant_id: str, signal: str) -> str:
@@ -72,6 +77,73 @@ def default_manual_series_map():
 
 def default_manual_merge_enabled_map(default_enabled: bool = False):
     return {key: bool(default_enabled) for key in MANUAL_SERIES_KEYS}
+
+
+def normalize_manual_end_time(end_time, timezone_name: str = DEFAULT_TIMEZONE_NAME):
+    if end_time is None:
+        return None
+    tz = get_timezone(timezone_name)
+    ts = normalize_timestamp_value(end_time, tz)
+    if pd.isna(ts):
+        return None
+    return ts
+
+
+def _seconds_to_hms(total_s: int):
+    total_s = max(0, int(total_s))
+    return (total_s // 3600, (total_s % 3600) // 60, total_s % 60)
+
+
+def _row_offset_seconds(row) -> int:
+    return (
+        int((row or {}).get("hours", 0) or 0) * 3600
+        + int((row or {}).get("minutes", 0) or 0) * 60
+        + int((row or {}).get("seconds", 0) or 0)
+    )
+
+
+def _is_end_editor_row(row) -> bool:
+    return str((row or {}).get("kind", "value")) == "end"
+
+
+def _force_editor_offsets_increasing(rows):
+    if not rows:
+        return rows
+    previous_offset = None
+    for idx, row in enumerate(rows):
+        offset_s = 0 if idx == 0 else _row_offset_seconds(row)
+        if previous_offset is not None:
+            offset_s = max(offset_s, previous_offset + MIN_MANUAL_ROW_GAP_S)
+        h, m, s = _seconds_to_hms(offset_s)
+        row["hours"], row["minutes"], row["seconds"] = int(h), int(m), int(s)
+        previous_offset = offset_s
+    return rows
+
+
+def ensure_manual_series_terminal_duplicate_row(series_df, timezone_name: str = DEFAULT_TIMEZONE_NAME):
+    df = normalize_manual_series_df(series_df, timezone_name=timezone_name)
+    if df.empty:
+        return df
+
+    tz = get_timezone(timezone_name)
+    parts = split_manual_override_series(df, tz)
+    norm = parts["series_df"]
+    if norm.empty:
+        return _empty_manual_series_df()
+    if bool(parts["has_terminal_end"]):
+        return norm
+
+    last_ts = pd.Timestamp(norm.index[-1])
+    last_value = float(norm.iloc[-1].get("setpoint", 0.0))
+    tail = pd.DataFrame({"setpoint": [last_value]}, index=pd.DatetimeIndex([last_ts + pd.Timedelta(seconds=MIN_MANUAL_ROW_GAP_S)]))
+    combined = pd.concat([norm, tail]).sort_index()
+    return normalize_manual_series_df(combined, timezone_name=timezone_name)
+
+
+def manual_series_end_timestamp(series_df, timezone_name: str = DEFAULT_TIMEZONE_NAME):
+    tz = get_timezone(timezone_name)
+    parts = split_manual_override_series(series_df, tz)
+    return parts.get("end_ts")
 
 
 def normalize_manual_series_df(series_df: pd.DataFrame, timezone_name: str = DEFAULT_TIMEZONE_NAME) -> pd.DataFrame:
@@ -105,25 +177,49 @@ def normalize_manual_series_df(series_df: pd.DataFrame, timezone_name: str = DEF
 def prune_manual_series_map_to_window(series_map, tz, window_start, window_end):
     pruned = {}
     for key in MANUAL_SERIES_KEYS:
-        df = normalize_manual_series_df(series_map.get(key), timezone_name=getattr(tz, "key", str(tz)))
+        df = ensure_manual_series_terminal_duplicate_row(
+            series_map.get(key),
+            timezone_name=getattr(tz, "key", str(tz)),
+        )
         if not df.empty:
+            keep_mask = pd.Series(True, index=df.index)
             if window_start is not None:
-                df = df.loc[df.index >= pd.Timestamp(window_start)]
+                keep_mask = keep_mask & (df.index >= pd.Timestamp(window_start))
             if window_end is not None:
-                df = df.loc[df.index < pd.Timestamp(window_end)]
+                keep_mask = keep_mask & (df.index < pd.Timestamp(window_end))
+                end_ts = split_manual_override_series(df, tz).get("end_ts")
+                if end_ts is not None and pd.Timestamp(end_ts) in df.index and pd.Timestamp(end_ts) >= pd.Timestamp(window_end):
+                    keep_mask = keep_mask | (df.index == pd.Timestamp(end_ts))
+            df = df.loc[keep_mask]
         pruned[key] = df if not df.empty else _empty_manual_series_df()
     return pruned
 
 
-def rebuild_manual_schedule_df_by_plant(series_map, timezone_name: str = DEFAULT_TIMEZONE_NAME):
+def prune_manual_end_time_map_to_window(end_time_map, tz, window_start, window_end):
+    pruned = {}
+    for key in MANUAL_SERIES_KEYS:
+        ts = normalize_manual_end_time((end_time_map or {}).get(key), timezone_name=getattr(tz, "key", str(tz)))
+        if ts is not None and window_start is not None and ts < pd.Timestamp(window_start):
+            ts = None
+        pruned[key] = ts
+    return pruned
+
+
+def rebuild_manual_schedule_df_by_plant(series_map, timezone_name: str = DEFAULT_TIMEZONE_NAME, end_time_by_key=None):
     tz = get_timezone(timezone_name)
     result = {"lib": pd.DataFrame(), "vrfb": pd.DataFrame()}
     for plant_id in result.keys():
         p_key, q_key = manual_series_keys_for_plant(plant_id)
-        p_df = normalize_manual_series_df(series_map.get(p_key), timezone_name=timezone_name)
-        q_df = normalize_manual_series_df(series_map.get(q_key), timezone_name=timezone_name)
+        p_df = ensure_manual_series_terminal_duplicate_row(series_map.get(p_key), timezone_name=timezone_name)
+        q_df = ensure_manual_series_terminal_duplicate_row(series_map.get(q_key), timezone_name=timezone_name)
+        p_end_time = split_manual_override_series(p_df, tz).get("end_ts")
+        q_end_time = split_manual_override_series(q_df, tz).get("end_ts")
 
         union_index = p_df.index.union(q_df.index).sort_values()
+        if p_end_time is not None:
+            union_index = union_index.union(pd.DatetimeIndex([pd.Timestamp(p_end_time)])).sort_values()
+        if q_end_time is not None:
+            union_index = union_index.union(pd.DatetimeIndex([pd.Timestamp(q_end_time)])).sort_values()
         if len(union_index) == 0:
             result[plant_id] = pd.DataFrame()
             continue
@@ -133,53 +229,81 @@ def rebuild_manual_schedule_df_by_plant(series_map, timezone_name: str = DEFAULT
             combined["power_setpoint_kw"] = p_df["setpoint"].reindex(union_index).ffill()
         else:
             combined["power_setpoint_kw"] = pd.Series(index=union_index, dtype=float)
+        if p_end_time is not None:
+            combined.loc[combined.index >= pd.Timestamp(p_end_time), "power_setpoint_kw"] = pd.NA
         if not q_df.empty:
             combined["reactive_power_setpoint_kvar"] = q_df["setpoint"].reindex(union_index).ffill()
         else:
             combined["reactive_power_setpoint_kvar"] = pd.Series(index=union_index, dtype=float)
+        if q_end_time is not None:
+            combined.loc[combined.index >= pd.Timestamp(q_end_time), "reactive_power_setpoint_kvar"] = pd.NA
         combined = normalize_schedule_index(combined, tz)
         result[plant_id] = combined
     return result
+
+
+def manual_series_and_end_time_to_editor_rows_and_start(
+    series_df: pd.DataFrame,
+    end_time=None,
+    timezone_name: str = DEFAULT_TIMEZONE_NAME,
+):
+    tz = get_timezone(timezone_name)
+    df = ensure_manual_series_terminal_duplicate_row(series_df, timezone_name=timezone_name)
+    if df.empty:
+        return None, []
+    parts = split_manual_override_series(df, tz)
+    full_df = parts["series_df"]
+    end_ts = parts.get("end_ts")
+    if end_ts is None:
+        full_df = ensure_manual_series_terminal_duplicate_row(full_df, timezone_name=timezone_name)
+        parts = split_manual_override_series(full_df, tz)
+        full_df = parts["series_df"]
+        end_ts = parts.get("end_ts")
+
+    start_ts = normalize_timestamp_value(full_df.index[0], tz)
+    rows = []
+    for idx, (ts, row) in enumerate(full_df.iterrows()):
+        ts_norm = normalize_timestamp_value(ts, tz)
+        total_s = int(round((ts_norm - start_ts).total_seconds()))
+        hours = total_s // 3600
+        minutes = (total_s % 3600) // 60
+        seconds = total_s % 60
+        is_terminal_end = end_ts is not None and idx == (len(full_df) - 1) and pd.Timestamp(ts) == pd.Timestamp(end_ts)
+        rows.append(
+            {
+                "hours": int(hours),
+                "minutes": int(minutes),
+                "seconds": int(seconds),
+                "setpoint": None if is_terminal_end else float(row.get("setpoint", 0.0)),
+                "kind": "end" if is_terminal_end else "value",
+            }
+        )
+    rows = _normalize_editor_rows(rows)
+    return start_ts, rows
 
 
 def manual_series_df_to_editor_rows_and_start(
     series_df: pd.DataFrame,
     timezone_name: str = DEFAULT_TIMEZONE_NAME,
 ):
-    tz = get_timezone(timezone_name)
-    df = normalize_manual_series_df(series_df, timezone_name=timezone_name)
-    if df.empty:
-        return None, []
-
-    start_ts = normalize_timestamp_value(df.index[0], tz)
-    rows = []
-    for ts, row in df.iterrows():
-        ts_norm = normalize_timestamp_value(ts, tz)
-        total_s = int(round((ts_norm - start_ts).total_seconds()))
-        hours = total_s // 3600
-        minutes = (total_s % 3600) // 60
-        seconds = total_s % 60
-        rows.append(
-            {
-                "hours": int(hours),
-                "minutes": int(minutes),
-                "seconds": int(seconds),
-                "setpoint": float(row.get("setpoint", 0.0)),
-            }
-        )
-
-    if rows:
-        rows[0]["hours"] = 0
-        rows[0]["minutes"] = 0
-        rows[0]["seconds"] = 0
-    return start_ts, rows
+    return manual_series_and_end_time_to_editor_rows_and_start(
+        series_df,
+        end_time=None,
+        timezone_name=timezone_name,
+    )
 
 
 def _normalize_editor_rows(rows):
     normalized_rows = []
     if rows is None:
         return normalized_rows
-    for idx, row in enumerate(list(rows)):
+    rows_list = list(rows)
+    row_count = len(rows_list)
+    if row_count == 0:
+        return []
+
+    explicit_end_indices = []
+    for idx, row in enumerate(rows_list):
         if not isinstance(row, dict):
             raise ValueError(f"Row {idx + 1}: invalid row format")
         try:
@@ -194,41 +318,78 @@ def _normalize_editor_rows(rows):
             raise ValueError(f"Row {idx + 1}: minutes must be between 0 and 59")
         if seconds < 0 or seconds > 59:
             raise ValueError(f"Row {idx + 1}: seconds must be between 0 and 59")
-        try:
-            setpoint = float(row.get("setpoint"))
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"Row {idx + 1}: setpoint must be numeric") from exc
+        kind_raw = str(row.get("kind", "value") or "value").strip().lower()
+        kind = "end" if kind_raw == "end" else "value"
+        raw_setpoint = row.get("setpoint")
+        if kind == "end":
+            explicit_end_indices.append(idx)
+            setpoint = None
+        else:
+            if isinstance(raw_setpoint, str) and str(raw_setpoint).strip().lower() == "end":
+                kind = "end"
+                explicit_end_indices.append(idx)
+                setpoint = None
+            else:
+                try:
+                    setpoint = float(raw_setpoint)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(f"Row {idx + 1}: setpoint must be numeric") from exc
         normalized_rows.append(
             {
                 "hours": hours,
                 "minutes": minutes,
                 "seconds": seconds,
                 "setpoint": setpoint,
+                "kind": kind,
             }
         )
 
+    if explicit_end_indices:
+        if len(explicit_end_indices) > 1:
+            raise ValueError("Only one end row is allowed")
+        if explicit_end_indices[0] != (len(normalized_rows) - 1):
+            raise ValueError(f"Row {explicit_end_indices[0] + 1}: end row must be the last row")
+
     if normalized_rows:
         first = normalized_rows[0]
+        if str(first.get("kind", "value")) == "end":
+            raise ValueError("First row cannot be an end row")
         if (first["hours"], first["minutes"], first["seconds"]) != (0, 0, 0):
             raise ValueError("First row must start at 00:00:00")
         normalized_rows[0]["hours"] = 0
         normalized_rows[0]["minutes"] = 0
         normalized_rows[0]["seconds"] = 0
 
-    previous_offset = None
-    for idx, row in enumerate(normalized_rows):
-        offset_s = (row["hours"] * 3600) + (row["minutes"] * 60) + row["seconds"]
-        if previous_offset is not None and offset_s <= previous_offset:
-            raise ValueError(f"Row {idx + 1}: breakpoint time must be strictly increasing")
-        previous_offset = offset_s
+    if not _is_end_editor_row(normalized_rows[-1]):
+        if len(normalized_rows) >= 2:
+            prev = normalized_rows[-2]
+            last = normalized_rows[-1]
+            if (not _is_end_editor_row(prev)) and (not _is_end_editor_row(last)) and float(last["setpoint"]) == float(prev["setpoint"]):
+                normalized_rows[-1]["kind"] = "end"
+                normalized_rows[-1]["setpoint"] = None
+            else:
+                last_offset = _row_offset_seconds(normalized_rows[-1])
+                h, m, s = _seconds_to_hms(last_offset + MIN_MANUAL_ROW_GAP_S)
+                normalized_rows.append({"hours": h, "minutes": m, "seconds": s, "setpoint": None, "kind": "end"})
+        else:
+            last_offset = _row_offset_seconds(normalized_rows[-1])
+            h, m, s = _seconds_to_hms(last_offset + MIN_MANUAL_ROW_GAP_S)
+            normalized_rows.append({"hours": h, "minutes": m, "seconds": s, "setpoint": None, "kind": "end"})
+
+    normalized_rows = _force_editor_offsets_increasing(normalized_rows)
     return normalized_rows
 
 
 def manual_editor_rows_to_series_df(rows, start_time, timezone_name: str = DEFAULT_TIMEZONE_NAME) -> pd.DataFrame:
+    series_df, _ = manual_editor_rows_to_series_and_end_time(rows, start_time, timezone_name=timezone_name)
+    return series_df
+
+
+def manual_editor_rows_to_series_and_end_time(rows, start_time, timezone_name: str = DEFAULT_TIMEZONE_NAME):
     tz = get_timezone(timezone_name)
     normalized_rows = _normalize_editor_rows(rows)
     if not normalized_rows:
-        return _empty_manual_series_df()
+        return _empty_manual_series_df(), None
 
     if start_time is None:
         raise ValueError("Start datetime is required when rows are not empty")
@@ -237,16 +398,24 @@ def manual_editor_rows_to_series_df(rows, start_time, timezone_name: str = DEFAU
         raise ValueError("Invalid start datetime")
 
     data = []
+    end_time = None
+    previous_value = None
     for row in normalized_rows:
         offset_s = (row["hours"] * 3600) + (row["minutes"] * 60) + row["seconds"]
-        data.append(
-            {
-                "datetime": start_ts + pd.Timedelta(seconds=offset_s),
-                "setpoint": float(row["setpoint"]),
-            }
-        )
+        row_ts = start_ts + pd.Timedelta(seconds=offset_s)
+        if str(row.get("kind", "value")) == "end":
+            end_time = row_ts
+            if previous_value is None:
+                raise ValueError("End row requires at least one value breakpoint")
+            data.append({"datetime": row_ts, "setpoint": float(previous_value)})
+            continue
+        previous_value = float(row["setpoint"])
+        data.append({"datetime": row_ts, "setpoint": previous_value})
+    if not data:
+        return _empty_manual_series_df(), None
     df = pd.DataFrame(data).set_index("datetime")
-    return normalize_manual_series_df(df, timezone_name=timezone_name)
+    norm_df = ensure_manual_series_terminal_duplicate_row(df, timezone_name=timezone_name)
+    return norm_df, None
 
 
 def manual_editor_rows_to_relative_csv_text(rows) -> str:
@@ -255,7 +424,8 @@ def manual_editor_rows_to_relative_csv_text(rows) -> str:
     writer = csv.writer(buffer, lineterminator="\n")
     writer.writerow(["hours", "minutes", "seconds", "setpoint"])
     for row in normalized_rows:
-        writer.writerow([row["hours"], row["minutes"], row["seconds"], row["setpoint"]])
+        value = "end" if str(row.get("kind", "value")) == "end" else row["setpoint"]
+        writer.writerow([row["hours"], row["minutes"], row["seconds"], value])
     return buffer.getvalue()
 
 

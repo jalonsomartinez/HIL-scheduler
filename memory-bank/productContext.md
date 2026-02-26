@@ -20,6 +20,7 @@ The system closes the operational gap between market/control schedules and plant
 ### Scheduling
 - API schedules are fetched per plant from one market response and form the dispatch base.
 - Manual schedules are managed as four independent override series (`LIB P`, `LIB Q`, `VRFB P`, `VRFB Q`) with per-series active/inactive merge toggles.
+- Manual editor enforces a terminal `end` breakpoint for non-empty schedules; runtime stores/sends this as a terminal duplicate-value row so manual override stops at the chosen end time.
 - Enabled manual override series overwrite the corresponding API signal in the effective dispatch schedule.
 
 ### Dispatch
@@ -70,8 +71,8 @@ The system closes the operational gap between market/control schedules and plant
 
 ### Edit Manual Override Schedule
 1. User selects one of the four manual override series in the Manual Schedule editor.
-2. User edits breakpoints (relative `HH:MM:SS` + setpoint) and/or loads a CSV with the same relative-row structure.
-3. Dashboard validates rows and writes the selected series to shared state using the current start datetime.
+2. User edits breakpoints (relative `HH:MM:SS` + setpoint) and/or loads a CSV with the same relative-row structure; non-empty schedules always show a terminal `end` row.
+3. Dashboard auto-sanitizes row times (forward-only, minimum gap) and writes the selected series draft to shared state using the current start datetime.
 4. Manual series is sanitized to local `current day + next day`; corresponding plot updates.
 5. User toggles the series active/inactive to include/exclude it from merged dispatch.
 

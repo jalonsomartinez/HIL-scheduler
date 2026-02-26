@@ -23,7 +23,7 @@ MANUAL_BUTTON_TRIGGER_MAP = {
 
 
 def _serialize_manual_series_df(df, tz):
-    norm = msm.normalize_manual_series_df(df, timezone_name=getattr(tz, "key", str(tz)))
+    norm = msm.ensure_manual_series_terminal_duplicate_row(df, timezone_name=getattr(tz, "key", str(tz)))
     if norm.empty:
         return []
     rows = []
@@ -41,14 +41,20 @@ def manual_settings_intent_from_trigger(trigger_id, *, draft_series_by_key, tz):
     if action == "activate":
         return {
             "kind": "manual.activate",
-            "payload": {"series_key": series_key, "series_rows": _serialize_manual_series_df(draft_series_by_key.get(series_key), tz)},
+            "payload": {
+                "series_key": series_key,
+                "series_rows": _serialize_manual_series_df(draft_series_by_key.get(series_key), tz),
+            },
             "resource_key": series_key,
             "action": action,
         }
     if action == "update":
         return {
             "kind": "manual.update",
-            "payload": {"series_key": series_key, "series_rows": _serialize_manual_series_df(draft_series_by_key.get(series_key), tz)},
+            "payload": {
+                "series_key": series_key,
+                "series_rows": _serialize_manual_series_df(draft_series_by_key.get(series_key), tz),
+            },
             "resource_key": series_key,
             "action": action,
         }
@@ -75,4 +81,3 @@ def posting_intent_from_trigger(trigger_id):
     if trigger_id == "api-posting-disable-btn":
         return {"kind": "posting.disable", "payload": {}}
     return None
-

@@ -43,7 +43,7 @@ def _series_runtime_state_defaults(active=False, applied_series_df=None):
         "state": state,
         "desired_state": state,
         "active": bool(active),
-        "applied_series_df": msm.normalize_manual_series_df(applied_series_df),
+        "applied_series_df": msm.ensure_manual_series_terminal_duplicate_row(applied_series_df),
         "last_command_id": None,
         "last_error": None,
         "last_updated": None,
@@ -63,7 +63,7 @@ def _normalize_series_rows_payload(series_rows, tz):
     df = df.dropna(subset=["datetime"]).set_index("datetime")
     df["setpoint"] = pd.to_numeric(df["setpoint"], errors="coerce")
     df = df.dropna(subset=["setpoint"])
-    return msm.normalize_manual_series_df(df, timezone_name=getattr(tz, "key", str(tz)))
+    return msm.ensure_manual_series_terminal_duplicate_row(df, timezone_name=getattr(tz, "key", str(tz)))
 
 
 def _ensure_manual_runtime_state_map(shared_data):
@@ -83,7 +83,8 @@ def _ensure_manual_runtime_state_map(shared_data):
             st.setdefault("last_error", None)
             st.setdefault("last_updated", None)
             st.setdefault("last_success", None)
-            st.setdefault("applied_series_df", msm.normalize_manual_series_df(st.get("applied_series_df")))
+            st.setdefault("applied_series_df", msm.ensure_manual_series_terminal_duplicate_row(st.get("applied_series_df")))
+            st["applied_series_df"] = msm.ensure_manual_series_terminal_duplicate_row(st.get("applied_series_df"))
             st["active"] = bool(st.get("active", False))
             if st.get("state") not in {"inactive", "activating", "active", "inactivating", "updating", "error"}:
                 st["state"] = "active" if st["active"] else "inactive"
@@ -122,7 +123,7 @@ def _update_settings_engine_status(
 
 
 def _serialize_series_df_to_rows(df):
-    norm = msm.normalize_manual_series_df(df)
+    norm = msm.ensure_manual_series_terminal_duplicate_row(df)
     if norm.empty:
         return []
     rows = []
@@ -207,6 +208,9 @@ def _apply_manual_series_command(config, shared_data, command, *, tz):
 
     if kind == "manual.update" and not bool(current.get("active", False)):
         return {"state": "rejected", "message": "not_active", "result": {"series_key": series_key}}
+
+    if series_df.empty:
+        return {"state": "rejected", "message": "invalid_payload", "result": {"series_key": series_key, "error": "At least one breakpoint is required"}}
 
     transition_state = "updating" if kind == "manual.update" else "activating"
     _set_manual_runtime_transition(
