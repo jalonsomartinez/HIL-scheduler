@@ -123,6 +123,29 @@ class DashboardControlHealthTests(unittest.TestCase):
         self.assertIn("FAILED", err_lines[0])
         self.assertIn("Dispatch error: timeout", err_lines[-1])
 
+    def test_summarize_dispatch_write_status_includes_scheduler_readback_telemetry(self):
+        lines = summarize_dispatch_write_status(
+            {
+                "last_attempt_status": "partial",
+                "last_attempt_at": datetime(2026, 2, 25, 12, 0, 5, tzinfo=timezone.utc),
+                "last_attempt_p_kw": 12.3,
+                "last_attempt_q_kvar": -4.5,
+                "last_attempt_source": "scheduler",
+                "last_scheduler_context": {
+                    "readback_compare_mode": "register_exact",
+                    "p_compare_source": "readback",
+                    "q_compare_source": "cache_fallback",
+                    "p_readback_ok": True,
+                    "q_readback_ok": False,
+                    "p_readback_mismatch": True,
+                    "q_readback_mismatch": None,
+                },
+            },
+            dispatch_enabled=True,
+        )
+        self.assertEqual(len(lines), 2)
+        self.assertIn("RB P/Q=mismatch/read-fail->cache", lines[0])
+
 
 if __name__ == "__main__":
     unittest.main()

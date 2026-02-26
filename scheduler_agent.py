@@ -6,7 +6,7 @@ from pyModbusTCP.client import ModbusClient
 
 from dispatch_write_runtime import publish_dispatch_write_status, set_dispatch_sending_enabled
 import manual_schedule_manager as msm
-from modbus_codec import write_point_internal
+from modbus_codec import encode_point_internal_words, read_point_words, write_point_internal
 from runtime_contracts import resolve_modbus_endpoint
 from schedule_runtime import resolve_schedule_setpoint, resolve_series_setpoint_asof, split_manual_override_series
 from shared_state import snapshot_locked
@@ -166,13 +166,43 @@ def scheduler_agent(config, shared_data):
                 q_write_ok = None
                 attempted_any = False
 
-                if previous_p[plant_id] != p_setpoint:
+                p_target_words = encode_point_internal_words(endpoint, "p_setpoint", p_setpoint)
+                q_target_words = encode_point_internal_words(endpoint, "q_setpoint", q_setpoint)
+
+                try:
+                    p_actual_words = read_point_words(client, endpoint, "p_setpoint")
+                except Exception as exc:
+                    logging.warning("Scheduler: %s p_setpoint readback failed: %s", plant_id.upper(), exc)
+                    p_actual_words = None
+                try:
+                    q_actual_words = read_point_words(client, endpoint, "q_setpoint")
+                except Exception as exc:
+                    logging.warning("Scheduler: %s q_setpoint readback failed: %s", plant_id.upper(), exc)
+                    q_actual_words = None
+
+                p_readback_mismatch = None if p_actual_words is None else (list(p_actual_words) != list(p_target_words))
+                q_readback_mismatch = None if q_actual_words is None else (list(q_actual_words) != list(q_target_words))
+
+                if p_actual_words is None:
+                    p_compare_source = "cache_fallback"
+                    p_should_write = previous_p[plant_id] != p_setpoint
+                else:
+                    p_compare_source = "readback"
+                    p_should_write = bool(p_readback_mismatch)
+                if q_actual_words is None:
+                    q_compare_source = "cache_fallback"
+                    q_should_write = previous_q[plant_id] != q_setpoint
+                else:
+                    q_compare_source = "readback"
+                    q_should_write = bool(q_readback_mismatch)
+
+                if p_should_write:
                     attempted_any = True
                     p_write_ok = bool(write_point_internal(client, endpoint, "p_setpoint", p_setpoint))
                     if p_write_ok:
                         previous_p[plant_id] = p_setpoint
 
-                if previous_q[plant_id] != q_setpoint:
+                if q_should_write:
                     attempted_any = True
                     q_write_ok = bool(write_point_internal(client, endpoint, "q_setpoint", q_setpoint))
                     if q_write_ok:
@@ -205,6 +235,13 @@ def scheduler_agent(config, shared_data):
                             "api_stale": bool(is_stale),
                             "manual_p_applied": bool(manual_p_applied),
                             "manual_q_applied": bool(manual_q_applied),
+                            "readback_compare_mode": "register_exact",
+                            "p_compare_source": p_compare_source,
+                            "q_compare_source": q_compare_source,
+                            "p_readback_ok": bool(p_actual_words is not None),
+                            "q_readback_ok": bool(q_actual_words is not None),
+                            "p_readback_mismatch": p_readback_mismatch,
+                            "q_readback_mismatch": q_readback_mismatch,
                         },
                     )
                     if fail_count > 0:

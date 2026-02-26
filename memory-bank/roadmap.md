@@ -21,7 +21,7 @@ Increase reliability and operator confidence without changing the core dual-plan
 ### P1 - Operational Hardening
 1. Define log retention policy and implement cleanup automation.
 2. Validate and tune control-engine observed-state cache cadence/staleness thresholds and transition UX hold timing (`starting`/`stopping` immediate feedback vs server-confirmed state) using real-server latency.
-3. Validate per-plant dispatch pause/resume behavior and operator expectations on real remote plants (including paused-setpoint freeze semantics).
+3. Validate per-plant dispatch pause/resume behavior, scheduler readback reconciliation correction behavior, and operator expectations on real remote plants (including paused-setpoint freeze semantics).
 4. Add structured health checks for API connectivity and posting backlog age.
 5. Add explicit operator alerts for sustained posting failures, stale schedule windows, command-queue saturation, settings-queue saturation, or persistent Modbus read/connect failures.
 6. Add an operator UI validation checklist for critical control/readability states after styling updates, including logs-tab `Today` live refresh, historical-file selection behavior, bulk-action confirmation states, small-screen control-row behavior, and dispatch toggle/readback states.

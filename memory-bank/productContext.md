@@ -27,6 +27,7 @@ The system closes the operational gap between market/control schedules and plant
 ### Dispatch
 - Dispatch enable is per plant through `scheduler_running_by_plant`.
 - Dispatch send control is now independently exposed in the Status tab (`Sending` / `Paused`) and only controls whether scheduler setpoints are written.
+- While dispatch sending is enabled, the scheduler now reconciles against plant setpoint readback (`p_setpoint`/`q_setpoint`) and rewrites when plant setpoints drift from the resolved target.
 - Dashboard start/stop controls submit intents; runtime control engine executes the flow.
 - Start enables/stops the plant control path but does not auto-enable scheduler sending.
 - Start resolves immediate setpoint selection from the merged effective schedule (API base + enabled manual overrides); the initial write is sent only if dispatch sending is enabled, otherwise it is skipped and surfaced in status.
@@ -46,6 +47,7 @@ The system closes the operational gap between market/control schedules and plant
 - Status tab plant-state controls/status now render from cached runtime-published plant observed state (no direct dashboard Modbus polling for control/status paths).
 - Status tab now separates physical plant state, control transition state, and dispatch send/paused state per plant.
 - Status tab now shows the latest commanded/sent setpoint write info per plant (P/Q, timestamp, source, status/error) from runtime-published dispatch-write status cache.
+- When the latest dispatch attempt source is the scheduler, the existing dispatch status line includes a compact inline readback reconciliation hint (`RB P/Q=...`) for operator context.
 - Status tab live plots are intentionally limited to immediate context (local current day + next day) for both schedule and measurements; plant figures include a current-time vertical marker for operator orientation.
 - Plant figures now include a dedicated voltage subplot (`kV`) in both Status and historical `Plots` tabs.
 - Historical `Plots` tab provides measurement browsing from `data/*.csv` with a full-range timeline, range slider, per-plant CSV/PNG exports, and recorded P/Q setpoint overlays from measurement rows.

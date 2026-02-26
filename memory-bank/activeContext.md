@@ -7,7 +7,7 @@
  - Status tab should show only immediate context (current day + next day),
  - Plots tab remains the path for historical inspection.
 4. Stabilize the new merged schedule dispatch model (API base + per-signal manual overrides) and the redesigned Manual Schedule editor UX, now split into dashboard-owned drafts + settings-engine activation/update commands.
-5. Validate the new per-plant dispatch send toggle semantics (`Sending`/`Paused`) and the Status-tab sent-setpoint observability on real remote plants.
+5. Validate the new per-plant dispatch send toggle semantics (`Sending`/`Paused`), scheduler readback reconciliation behavior, and Status-tab sent-setpoint/readback observability on real remote plants.
 6. Keep reliability guardrails green via automated regression tests and CI enforcement, including measurement compression, posting-gate semantics, schedule-window pruning behavior, and scheduler write-retry visibility.
 7. Prepare follow-up hardening for remaining high-risk paths (posting durability, remote smoke coverage, queue topology tradeoffs/prioritization).
 
@@ -35,6 +35,11 @@
   - added authoritative shared runtime caches `plant_operating_state_by_plant` (physical `running|stopped|unknown`) and `dispatch_write_status_by_plant` (last attempt/success P/Q, timestamps, source, status, error, scheduler context),
   - scheduler now publishes combined per-cycle P/Q write attempt status (`ok|partial|failed`) and no longer caches failed writes as sent (failed writes retry next loop),
   - Status-tab plant status lines now show separate physical plant state + control transition state + dispatch sending/paused state and latest sent/attempted P/Q setpoint info.
+- Implemented scheduler setpoint readback reconciliation and inline readback telemetry:
+  - scheduler now reads plant `p_setpoint`/`q_setpoint` registers and compares raw words to encoded target words (`register_exact`) before deciding whether to write, correcting external drift even when the target value is unchanged,
+  - if scheduler readback fails for a point, write/no-write falls back to local last-success cache dedupe for that point (preserves retry/no-spam behavior),
+  - scheduler publishes readback telemetry in `dispatch_write_status_by_plant[*].last_scheduler_context` on scheduler write attempts (`*_compare_source`, `*_readback_ok`, `*_readback_mismatch`, compare mode),
+  - Status-tab dispatch status line now appends a compact inline `RB P/Q=...` hint when the latest dispatch attempt source is `scheduler`.
 - Added targeted regression coverage for:
   - new dispatch toggle command intents and control-engine command handling,
   - shared-state contract keys/defaults for plant operating state + dispatch write status,

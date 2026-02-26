@@ -8,6 +8,8 @@
  - API schedule runtime maps are now pruned to local `current day + next day` retention in the fetcher to prevent unbounded growth across day rollovers.
  - Manual override runtime series are stored as four independent series (`lib_p`, `lib_q`, `vrfb_p`, `vrfb_q`) with per-series merge toggles and are pruned to the same local two-day window.
  - Scheduler setpoint write deduping now preserves retry behavior on Modbus write failure (failed writes are not cached as sent).
+ - Scheduler dispatch write decisions now reconcile against plant setpoint readback (`p_setpoint`/`q_setpoint`) using register-exact compare, correcting external drift even when the target value is unchanged.
+ - If scheduler readback fails for a point, write/no-write falls back to local last-success cache dedupe for that point (preserving no-spam behavior while keeping retry semantics).
 3. Local emulation runs both plant Modbus servers concurrently with SoC and power-limit behavior.
  - Local emulation startup SoC is configured once via `startup.initial_soc_pu` and applied to both plants.
  - On local plant start, dashboard now attempts to seed emulator SoC from the latest persisted on-disk measurement (`soc_pu`) for that plant, with fallback to `startup.initial_soc_pu`.
@@ -35,6 +37,7 @@
 - independent per-plant dispatch-send toggles (`Sending` / `Paused`) in Status cards, command-driven through the control engine (`plant.dispatch_enable` / `plant.dispatch_disable`) and mapped to `scheduler_running_by_plant`,
 - physical plant-state cache (`plant_operating_state_by_plant`) derived from observed Modbus enable state and shown separately from control transition state,
 - per-plant dispatch write status cache (`dispatch_write_status_by_plant`) with latest attempted/successful P/Q, timestamp, source, status, and error, rendered in Status cards as sent-setpoint observability,
+- scheduler-originated dispatch status now carries readback reconciliation telemetry in `last_scheduler_context`, and the existing dispatch status line shows a compact inline `RB P/Q=...` hint when the latest attempt source is `scheduler`,
 - Status-tab health surfacing for server/runtime conditions:
   - top-card control-engine summary (liveness, active command, last finished command, last loop error),
   - top-card queue summary (queued/running/recent failed, backlog-high hint),
@@ -86,7 +89,7 @@
 - shared engine command-cycle bookkeeping (`engine_command_cycle_runtime.py`) now drives control/settings lifecycle status updates and exception publication.
 - targeted settings-command/settings-engine regressions (`tests/test_settings_command_runtime.py`, `tests/test_settings_engine_agent.py`) and dashboard settings intent/UI-state helper regressions (`tests/test_dashboard_settings_intents.py`, `tests/test_dashboard_settings_ui_state.py`).
 - targeted control/settings integration wiring regressions (`tests/test_dashboard_engine_wiring.py`) cover intent helper -> enqueue -> engine single-cycle -> shared-state mutation happy paths.
-- new targeted scheduler dispatch-write status regression (`tests/test_scheduler_dispatch_write_status.py`) covers failed-write retry and dispatch status publication.
+- new targeted scheduler dispatch-write status regression (`tests/test_scheduler_dispatch_write_status.py`) covers failed-write retry, readback reconciliation (match/mismatch/fallback), and dispatch status publication/formatting.
 7. Dashboard control flow is now separated into `dashboard_control.py` with dedicated tests for safe-stop and transport switch semantics (source-switch helper removed from active dashboard flow).
 8. Runtime shared-state initialization contract is centralized in `build_initial_shared_data(config)` with schema tests.
  - Shared-state contract now includes local emulator SoC seed request/result maps for dashboard->plant-agent local-start coordination.
@@ -96,7 +99,7 @@
 ## In Progress
 1. Remote transport smoke coverage design (repeatable unattended checks).
 2. Log retention policy definition and implementation scope.
-3. Manual validation pass for new per-plant dispatch pause/resume semantics and Status-tab sent-setpoint visibility on real remote plants.
+3. Manual validation pass for new per-plant dispatch pause/resume semantics, scheduler readback reconciliation behavior, and Status-tab sent-setpoint/readback visibility on real remote plants.
 4. Manual Schedule editor UX polish / layout tuning validation on different viewport widths (including forced terminal `end` row readability and no-delete first row behavior).
 5. Manual validation pass for historical `Plots` tab behavior on larger data directories (including low-voltage voltage-axis padding/readability).
 6. Evaluate per-plant queue architecture vs global queue after observing control queue + new settings queue usage on real workloads.
@@ -115,12 +118,13 @@
 1. No persistent store for API posting retry queue across process restarts.
 2. Control-engine queue is serial and bounded; long-running stop/transport commands can delay later commands. UI now surfaces backlog/failure counts, and settings commands use a separate queue, but there is no dedicated alert/escalation behavior yet.
 3. Dispatch pause (`Sending` -> `Paused`) intentionally freezes the last plant setpoint by design; no automatic zeroing occurs on pause.
-4. Manual schedule editor drafts are stored in shared runtime state (`manual_schedule_draft_series_df_by_key`), so concurrent dashboard sessions can conflict (single-operator assumption currently accepted; per-session isolation deferred).
-5. Operational runbook and incident handling guidance are still thin.
-6. UI styling changes are still validated manually; no screenshot/DOM snapshot checks in CI.
-7. Measurement-agent lock discipline improved in aggregate/current-cache/flush paths, but broader audit remains for lower-priority paths.
-8. Historical measurement files captured while compression was inactive remain dense by design (no automatic backfill).
-9. Historical `Plots` tab rescans/reads CSVs on demand and may need indexing/caching if `data/` grows large.
+4. Scheduler readback hints in the Status dispatch line are attempt-based (shown from latest scheduler write attempt) and are not refreshed on scheduler no-op match cycles.
+5. Manual schedule editor drafts are stored in shared runtime state (`manual_schedule_draft_series_df_by_key`), so concurrent dashboard sessions can conflict (single-operator assumption currently accepted; per-session isolation deferred).
+6. Operational runbook and incident handling guidance are still thin.
+7. UI styling changes are still validated manually; no screenshot/DOM snapshot checks in CI.
+8. Measurement-agent lock discipline improved in aggregate/current-cache/flush paths, but broader audit remains for lower-priority paths.
+9. Historical measurement files captured while compression was inactive remain dense by design (no automatic backfill).
+10. Historical `Plots` tab rescans/reads CSVs on demand and may need indexing/caching if `data/` grows large.
 
 ## Current Project Phase
 Runtime architecture is stable for dual-plant operation; current priority is reliability hardening of remaining high-risk paths and operational docs.

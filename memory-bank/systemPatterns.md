@@ -227,7 +227,7 @@ shared_data = {
   - Plant start no longer auto-enables the scheduler dispatch gate.
   - If dispatch is paused, initial setpoint send is skipped and this skip is published in `dispatch_write_status_by_plant`.
 - Dispatch write observability:
-  - Scheduler publishes combined per-cycle P/Q write attempt status (`ok|partial|failed`) with scheduler context (API stale/manual override applied flags).
+  - Scheduler publishes combined per-cycle P/Q write attempt status (`ok|partial|failed`) with scheduler context (API stale/manual override applied flags plus readback reconciliation telemetry).
   - Control-engine setpoint writes (for example safe-stop zero commands) also publish into the same per-plant status cache using control-path source labels.
 
 ### Control-Engine Health Surfacing
@@ -279,6 +279,12 @@ shared_data = {
   - Manual override end is inferred from the terminal duplicate row timestamp in the corresponding manual series; override applies only while `now < end_ts`.
   - If `manual_schedule_merge_enabled_by_key[series_key]` is `True` and a manual as-of value exists, it overwrites the corresponding API signal (`P` or `Q`) only.
 - Per-plant dispatch gate remains the scheduler send gate, but failed Modbus setpoint writes are no longer cached as sent; scheduler retries on later loops.
+- While the dispatch gate is enabled, scheduler write/no-write decisions are readback-aware per point:
+  - scheduler reads plant `p_setpoint` / `q_setpoint` raw holding-register words,
+  - encodes target internal P/Q values to raw words using the same point codec,
+  - writes only mismatched points (register-exact compare),
+  - falls back to local last-success cache dedupe for a point when readback is unavailable/failed.
+- Scheduler readback reconciliation telemetry is currently attached only to scheduler write attempts (not scheduler no-op match cycles), so UI readback hints reflect the latest scheduler attempt rather than every scheduler cycle.
 
 ### Manual Override Schedule Sanitization and Editor Pattern
 - Manual overrides are stored as four independent absolute-time series (`setpoint` column, datetime index); non-empty stored series include a terminal duplicate-value row that represents manual override end time.

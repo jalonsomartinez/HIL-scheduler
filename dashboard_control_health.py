@@ -117,18 +117,38 @@ def summarize_dispatch_write_status(dispatch_write_state, *, dispatch_enabled):
     enabled_text = "Sending" if bool(dispatch_enabled) else "Paused"
     attempt_status = str(state.get("last_attempt_status") or "none").upper()
     attempt_at_text = _format_time(state.get("last_attempt_at")) if state.get("last_attempt_at") else "n/a"
+    source = str(state.get("last_attempt_source") or "unknown")
     line1 = f"Dispatch: {enabled_text} | Last write: {attempt_status} @ {attempt_at_text}"
 
     if state.get("last_attempt_p_kw") is None or state.get("last_attempt_q_kvar") is None:
         line2 = "Last P/Q: n/a | Source: n/a"
     else:
-        source = str(state.get("last_attempt_source") or "unknown")
         line2 = (
             f"Last P/Q: P={float(state.get('last_attempt_p_kw')):.3f} kW, "
             f"Q={float(state.get('last_attempt_q_kvar')):.3f} kvar | Source: {source}"
         )
 
     lines = [line1, line2]
+    scheduler_ctx = dict(state.get("last_scheduler_context") or {})
+    if source == "scheduler" and scheduler_ctx:
+        def _readback_state(point_prefix):
+            compare_source = str(scheduler_ctx.get(f"{point_prefix}_compare_source") or "unknown")
+            mismatch = scheduler_ctx.get(f"{point_prefix}_readback_mismatch")
+            readback_ok = scheduler_ctx.get(f"{point_prefix}_readback_ok")
+            if compare_source == "readback":
+                if mismatch is True:
+                    return "mismatch"
+                if mismatch is False:
+                    return "match"
+                return "unknown"
+            if compare_source == "cache_fallback":
+                if readback_ok is False:
+                    return "read-fail->cache"
+                return "cache"
+            return compare_source
+
+        line1 += f" | RB P/Q={_readback_state('p')}/{_readback_state('q')}"
+        lines[0] = line1
     if state.get("last_error"):
         lines.append(f"Dispatch error: {_truncate(state.get('last_error'), max_chars=120)}")
     return lines

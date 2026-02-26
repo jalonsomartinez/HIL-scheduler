@@ -62,6 +62,14 @@ class _FakeModbusClient:
     def close(self):
         self.is_open = False
 
+    def read_holding_registers(self, address, count):
+        if not self.is_open:
+            return None
+        data_bank = _FakeServerRegistry.get(self.host, self.port)
+        if data_bank is None:
+            return None
+        return data_bank.get_holding_registers(address, count)
+
     def write_single_register(self, address, value):
         if not self.is_open:
             return False

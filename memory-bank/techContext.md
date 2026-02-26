@@ -24,7 +24,7 @@
 - `dashboard_settings_intents.py`: pure dashboard trigger->settings-command mapping helpers (manual/API/posting).
 - `dashboard_settings_ui_state.py`: pure UI transition/button-state helpers for manual/API/posting commanded resources.
 - `dashboard_control_health.py`: pure Status-tab health formatting helpers for control-engine queue/runtime summaries and per-plant Modbus diagnostics.
-- `dashboard_control_health.py`: pure Status-tab health formatting helpers for control-engine queue/runtime summaries, per-plant Modbus diagnostics, and dispatch-write status lines.
+- `dashboard_control_health.py`: pure Status-tab health formatting helpers for control-engine queue/runtime summaries, per-plant Modbus diagnostics, and dispatch-write status lines (including compact scheduler readback hints when scheduler telemetry is available).
 - `config_loader.py`: validates/normalizes YAML into runtime dict.
 - `dashboard_agent.py`: UI layout and callbacks; enqueues control + settings intents (including per-plant dispatch pause/resume), renders status from shared state/cached plant observations, applies short click-feedback transition overlays, and keeps manual editor drafts dashboard-owned.
 - `dashboard_layout.py`: Dash layout builder; Status plant cards include independent per-plant dispatch toggles (`Sending` / `Paused`) in addition to start/stop and recording controls.
@@ -35,7 +35,7 @@
 - `assets/custom.css`: dashboard design tokens, responsive rules, control/tab/modal/log styling.
 - `assets/brand/fonts/*`: locally served dashboard fonts (DM Sans files + OFL license).
 - `data_fetcher_agent.py`: day-ahead API polling and status updates.
-- `scheduler_agent.py`: per-plant setpoint dispatch plus dispatch-write status publication/retry-aware dedupe behavior.
+- `scheduler_agent.py`: per-plant setpoint dispatch plus dispatch-write status publication/retry-aware dedupe behavior, with readback reconciliation against plant `p_setpoint`/`q_setpoint` registers using register-exact compare and cache fallback on read failure.
 - `plant_agent.py`: local dual-server plant emulation.
 - `measurement_agent.py`: sampling, recording, cache, API posting queue.
 - `measurement_storage.py`: measurement normalization, CSV read/write helpers, latest persisted per-plant SoC lookup helper, and row-similarity primitives for compression.
@@ -167,6 +167,7 @@ Per-plant config includes:
 - Dashboard status controls now depend on control-engine observed-state cache freshness (`stale` marker) rather than direct Modbus reads; stale cache displays `Unknown` for Modbus enable.
 - Dashboard Status tab health lines are server-published-state-only (control engine + observed-state cache) and include queue/backlog and per-plant Modbus reachability/read-error diagnostics.
 - Dashboard Status plant cards now also depend on `dispatch_write_status_by_plant` and `scheduler_running_by_plant` to render independent dispatch send/paused state and last write info.
+- Scheduler-originated dispatch write status attempts now include readback reconciliation telemetry in `last_scheduler_context` (compare source, readback ok/mismatch flags); current dashboard summary displays a compact inline `RB P/Q=...` hint only when the latest dispatch attempt source is `scheduler`.
 - Plant start (`plant.start`) no longer auto-enables `scheduler_running_by_plant`; per-plant dispatch send control is independent and command-driven (`plant.dispatch_enable` / `plant.dispatch_disable`).
 - Dispatch pause semantics intentionally freeze the last plant setpoint (scheduler stops writing; no automatic zeroing on pause).
 - Manual schedule editor persists draft series in dashboard-owned runtime draft maps; scheduler dispatch uses server-applied manual series activated through settings commands.

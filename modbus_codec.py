@@ -170,12 +170,29 @@ def _resolve_point_name_and_spec(endpoint_cfg, point_name_or_spec):
     return str(point_name), point_spec
 
 
+def read_point_words(client, endpoint_cfg, point_name_or_spec):
+    """Read raw holding-register words for a point, preserving on-wire encoding."""
+    _, point_spec = _resolve_point_name_and_spec(endpoint_cfg, point_name_or_spec)
+    word_count = int(point_spec.get("word_count") or format_meta(point_spec.get("format"))["word_count"])
+    regs = client.read_holding_registers(int(point_spec["address"]), word_count)
+    if not regs or len(regs) != word_count:
+        return None
+    return [int(word) & 0xFFFF for word in regs]
+
+
 def read_point_internal(client, endpoint_cfg, point_name_or_spec):
     point_name, point_spec = _resolve_point_name_and_spec(endpoint_cfg, point_name_or_spec)
     external_value = read_point_holding(client, endpoint_cfg, point_spec)
     if external_value is None:
         return None
     return external_to_internal(point_name, point_spec.get("unit"), external_value)
+
+
+def encode_point_internal_words(endpoint_cfg, point_name_or_spec, internal_value):
+    """Encode an internal runtime value to the raw holding-register words for a point."""
+    point_name, point_spec = _resolve_point_name_and_spec(endpoint_cfg, point_name_or_spec)
+    external_value = internal_to_external(point_name, point_spec.get("unit"), internal_value)
+    return [int(word) & 0xFFFF for word in encode_engineering_value(endpoint_cfg, point_spec, external_value)]
 
 
 def write_point_internal(client, endpoint_cfg, point_name_or_spec, internal_value):
