@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from schedule_runtime import build_effective_schedule_frame
+from scheduling.runtime import build_effective_schedule_frame
 
 
 class ScheduleRuntimeEndTimeTests(unittest.TestCase):

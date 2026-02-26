@@ -9,8 +9,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 
-from modbus_codec import format_meta
-from modbus_units import validate_point_unit
+from modbus.codec import format_meta
+from modbus.units import validate_point_unit
 
 
 DEFAULT_TIMEZONE_NAME = "Europe/Madrid"

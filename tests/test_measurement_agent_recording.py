@@ -7,8 +7,8 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from measurement_agent import measurement_agent
-from measurement_storage import MEASUREMENT_COLUMNS
+from measurement.agent import measurement_agent
+from measurement.storage import MEASUREMENT_COLUMNS
 
 
 def _build_shared_data(lib_file_path):
@@ -73,7 +73,7 @@ class MeasurementAgentRecordingTests(unittest.TestCase):
                 stop_timer.start()
                 try:
                     with patch(
-                        "measurement_agent.sampling_get_transport_endpoint",
+                        "measurement.agent.sampling_get_transport_endpoint",
                         return_value={
                             "host": "localhost",
                             "port": 5020,
@@ -87,10 +87,10 @@ class MeasurementAgentRecordingTests(unittest.TestCase):
                             "v_poi_reg": 8,
                         },
                     ), patch(
-                        "measurement_agent.sampling_ensure_client",
+                        "measurement.agent.sampling_ensure_client",
                         return_value=None,
                     ), patch(
-                        "measurement_agent.sampling_take_measurement",
+                        "measurement.agent.sampling_take_measurement",
                         return_value=None,
                     ):
                         measurement_agent(config, shared_data)

@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-import manual_schedule_manager as msm
+import scheduling.manual_schedule_manager as msm
 from time_utils import normalize_timestamp_value
 
 

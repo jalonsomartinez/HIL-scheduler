@@ -6,9 +6,9 @@ from unittest.mock import patch
 import pandas as pd
 
 from config_loader import load_config
-from scheduler_agent import scheduler_agent
+from scheduling.agent import scheduler_agent
 from time_utils import now_tz
-from utils import hw_to_kw, uint16_to_int
+from modbus.legacy_scaling import hw_to_kw, uint16_to_int
 
 
 class _FakeDataBank:
@@ -147,7 +147,7 @@ class SchedulerSourceSwitchTests(unittest.TestCase):
             shared_data["manual_schedule_series_df_by_key"]["lib_p"] = manual_p_df
             shared_data["manual_schedule_merge_enabled_by_key"]["lib_p"] = True
 
-        with patch("scheduler_agent.ModbusClient", _FakeModbusClient):
+        with patch("scheduling.agent.ModbusClient", _FakeModbusClient):
             thread = threading.Thread(target=scheduler_agent, args=(config, shared_data), daemon=True)
             thread.start()
             try:
@@ -195,7 +195,7 @@ class SchedulerSourceSwitchTests(unittest.TestCase):
             shared_data["manual_schedule_series_df_by_key"]["lib_p"] = manual_p_df
             shared_data["manual_schedule_merge_enabled_by_key"]["lib_p"] = True
 
-        with patch("scheduler_agent.ModbusClient", _FakeModbusClient):
+        with patch("scheduling.agent.ModbusClient", _FakeModbusClient):
             thread = threading.Thread(target=scheduler_agent, args=(config, shared_data), daemon=True)
             thread.start()
             try:
@@ -243,7 +243,7 @@ class SchedulerSourceSwitchTests(unittest.TestCase):
             shared_data["manual_schedule_series_df_by_key"]["lib_p"] = manual_p_df
             shared_data["manual_schedule_merge_enabled_by_key"]["lib_p"] = True
 
-        with patch("scheduler_agent.ModbusClient", _FakeModbusClient):
+        with patch("scheduling.agent.ModbusClient", _FakeModbusClient):
             thread = threading.Thread(target=scheduler_agent, args=(config, shared_data), daemon=True)
             thread.start()
             try:

@@ -1,6 +1,6 @@
 import unittest
 
-from dashboard_command_intents import command_intent_from_control_trigger, transport_switch_intent_from_confirm
+from dashboard.command_intents import command_intent_from_control_trigger, transport_switch_intent_from_confirm
 
 
 class DashboardCommandIntentsTests(unittest.TestCase):

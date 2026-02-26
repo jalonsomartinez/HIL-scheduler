@@ -158,15 +158,15 @@ shared_data = {
 
 ## Agent Responsibilities
 - `data_fetcher_agent.py`: fetches day-ahead schedules and updates per-plant API maps + status.
-- `scheduler_agent.py`: dispatches P/Q setpoints per plant from merged effective schedule (API base + enabled manual overrides) and per-plant gate.
+- `scheduling/agent.py`: dispatches P/Q setpoints per plant from merged effective schedule (API base + enabled manual overrides) and per-plant gate.
 - `plant_agent.py`: local emulation server for each logical plant with SoC and power limit behavior.
-- `measurement_agent.py`: measurement sampling, recording, cache updates, API posting queue/telemetry.
-- `control_engine_agent.py`: consumes UI command queue, executes start/stop/fleet/transport/record/dispatch-toggle control flows, owns control-path Modbus I/O, and publishes cached plant observed + physical state.
-- `settings_engine_agent.py`: consumes settings command queue and executes manual activation/update/inactivation, API connect/disconnect, and posting policy enable/disable.
-- `dashboard_agent.py`: UI layout/callbacks, command enqueueing, manual override editor/plots, status plots, logs, and short-lived click-feedback transition overlay.
-- `dispatch_write_runtime.py`: shared helpers to publish per-plant dispatch write attempt/success status and current dispatch-send enabled mirror.
-- `dashboard_history.py`: helper functions for dashboard historical measurement scan/index, range clamping, file loading/cropping, and CSV serialization.
-- `dashboard_control.py`: shared safe-stop + transport-switch control-flow helpers reused by control engine execution.
+- `measurement/agent.py`: measurement sampling, recording, cache updates, API posting queue/telemetry.
+- `control/engine_agent.py`: consumes UI command queue, executes start/stop/fleet/transport/record/dispatch-toggle control flows, owns control-path Modbus I/O, and publishes cached plant observed + physical state.
+- `settings/engine_agent.py`: consumes settings command queue and executes manual activation/update/inactivation, API connect/disconnect, and posting policy enable/disable.
+- `dashboard/agent.py`: UI layout/callbacks, command enqueueing, manual override editor/plots, status plots, logs, and short-lived click-feedback transition overlay.
+- `runtime/dispatch_write_runtime.py`: shared helpers to publish per-plant dispatch write attempt/success status and current dispatch-send enabled mirror.
+- `dashboard/history.py`: helper functions for dashboard historical measurement scan/index, range clamping, file loading/cropping, and CSV serialization.
+- `control/flows.py`: shared safe-stop + transport-switch control-flow helpers reused by control engine execution.
 
 ## Operational Patterns
 
@@ -202,11 +202,11 @@ shared_data = {
 
 ### Control Command Execution and Status Cache
 - Dashboard control callbacks enqueue normalized commands (`plant.start`, `plant.stop`, `plant.dispatch_enable`, `plant.dispatch_disable`, `plant.record_start`, `plant.record_stop`, `fleet.start_all`, `fleet.stop_all`, `transport.switch`) into `control_command_queue`.
-- `control_engine_agent.py` processes commands serially (FIFO) and updates command lifecycle status:
+- `control/engine_agent.py` processes commands serially (FIFO) and updates command lifecycle status:
   - `queued` -> `running` -> terminal (`succeeded` / `failed` / `rejected`).
 - Queue overflow is handled as a terminal rejected status (`message="queue_full"`), preserving UI responsiveness.
 - Command status history is bounded (recent IDs/statuses retained, oldest pruned).
-- Generic shared bookkeeping now lives in `command_runtime.py`; control/settings command runtime modules are thin wrappers over engine-specific shared-state keys.
+- Generic shared bookkeeping now lives in `runtime/command_runtime.py`; control/settings command runtime modules are thin wrappers over engine-specific shared-state keys.
 
 ### Plant Observed-State Cache and UI Transition Semantics
 - Control engine performs periodic best-effort Modbus reads for `enable`, `p_battery`, and `q_battery` and publishes `plant_observed_state_by_plant`.
@@ -251,11 +251,11 @@ shared_data = {
 - Dashboard buttons use short immediate click-feedback transition overlays (e.g. `Activating...`, `Connecting...`) and then render server-owned settings runtime state.
 - `Disconnect` intentionally stops API runtime activity but preserves stored `api_password`.
 - `api_connection_runtime.state` is fully runtime-owned:
-  - `settings_engine_agent.py` publishes connect/disconnect transitions and probe outcomes,
+  - `settings/engine_agent.py` publishes connect/disconnect transitions and probe outcomes,
   - `data_fetcher_agent.py` publishes `fetch_health`,
-  - `measurement_agent.py` publishes `posting_health`,
+  - `measurement/agent.py` publishes `posting_health`,
   - dashboard renders `api_connection_runtime` without deriving API `Error` from telemetry.
-- `measurement_agent.py` posting-effective gate now depends on:
+- `measurement/agent.py` posting-effective gate now depends on:
   - stored password presence,
   - posting policy (`posting_runtime.policy_enabled`),
   - API connection runtime state (connected/error vs intentionally disconnected).
@@ -327,7 +327,7 @@ shared_data = {
 - Historical plot browsing reads persisted CSVs from `data/*.csv` on demand and does not depend on current-day in-memory caches.
 
 ### API Measurement Posting
-- Posting is owned by `measurement_agent.py` and is independent from sample/flush cadence.
+- Posting is owned by `measurement/agent.py` and is independent from sample/flush cadence.
 - Voltage posting uses measured `v_poi_kV * 1000` to send volts (no reconstruction from per-unit and model base voltage).
 - Gate conditions:
   - runtime posting policy `posting_runtime.policy_enabled` is true,
@@ -386,11 +386,11 @@ shared_data = {
   - perform Modbus I/O, API I/O, file I/O, and dataframe-heavy transforms outside the lock,
   - keep dashboard callbacks responsive by avoiding long lock sections.
 - Recent cleanup:
-  - `measurement_agent.py` aggregate-cache rebuild and current-file cache upsert now use snapshot-under-lock / dataframe compute outside lock / write-back-under-lock.
-  - `measurement_agent.py` `flush_pending_rows()` now swaps pending rows under lock, prepares retained/flush snapshots outside lock, then merges retained/failed rows back under lock.
+  - `measurement/agent.py` aggregate-cache rebuild and current-file cache upsert now use snapshot-under-lock / dataframe compute outside lock / write-back-under-lock.
+  - `measurement/agent.py` `flush_pending_rows()` now swaps pending rows under lock, prepares retained/flush snapshots outside lock, then merges retained/failed rows back under lock.
 - Remaining follow-up:
   - continue auditing less critical measurement/cache paths for the same lock-discipline pattern.
-- Engine command lifecycle bookkeeping is shared by `engine_command_cycle_runtime.py` (mark running, execute, exception->status, mark finished, publish `last_finished_command`, `task_done()`), while control/settings engine loops remain separate.
+- Engine command lifecycle bookkeeping is shared by `runtime/engine_command_cycle_runtime.py` (mark running, execute, exception->status, mark finished, publish `last_finished_command`, `task_done()`), while control/settings engine loops remain separate.
 - Runtime settings command channel:
   - FIFO `settings_command_queue` for UI-issued manual/API/posting intents.
   - command lifecycle tracking via `settings_command_status_by_id`, `settings_command_history_ids`, `settings_command_active_id`.

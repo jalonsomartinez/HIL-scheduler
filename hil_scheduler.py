@@ -5,19 +5,19 @@ import time
 
 import pandas as pd
 
-from api_runtime_state import default_api_connection_runtime
-from dispatch_write_runtime import default_dispatch_write_status_by_plant
-from engine_status_runtime import default_engine_status
-import manual_schedule_manager as msm
+from runtime.api_runtime_state import default_api_connection_runtime
+from runtime.dispatch_write_runtime import default_dispatch_write_status_by_plant
+from runtime.engine_status_runtime import default_engine_status
+import scheduling.manual_schedule_manager as msm
 from config_loader import load_config
-from control_engine_agent import control_engine_agent
-from dashboard_agent import dashboard_agent
+from control.engine_agent import control_engine_agent
+from dashboard.agent import dashboard_agent
 from data_fetcher_agent import data_fetcher_agent
 from logger_config import setup_logging
-from measurement_agent import measurement_agent
+from measurement.agent import measurement_agent
 from plant_agent import plant_agent
-from scheduler_agent import scheduler_agent
-from settings_engine_agent import settings_engine_agent
+from scheduling.agent import scheduler_agent
+from settings.engine_agent import settings_engine_agent
 
 
 def _empty_df_by_plant(plant_ids):

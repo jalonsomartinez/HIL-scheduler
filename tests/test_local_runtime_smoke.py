@@ -10,11 +10,11 @@ from unittest.mock import patch
 import pandas as pd
 
 from config_loader import load_config
-import manual_schedule_manager as msm
-from measurement_storage import MEASUREMENT_VALUE_COLUMNS
-from measurement_agent import measurement_agent
+import scheduling.manual_schedule_manager as msm
+from measurement.storage import MEASUREMENT_VALUE_COLUMNS
+from measurement.agent import measurement_agent
 from plant_agent import plant_agent
-from scheduler_agent import scheduler_agent
+from scheduling.agent import scheduler_agent
 from time_utils import now_tz
 
 
@@ -200,9 +200,9 @@ class LocalRuntimeSmokeTests(unittest.TestCase):
                     shared_data["api_schedule_df_by_plant"]["vrfb"] = vrfb_df
 
                 with patch("plant_agent.ModbusServer", _FakeModbusServer), patch(
-                    "scheduler_agent.ModbusClient",
+                    "scheduling.agent.ModbusClient",
                     _FakeModbusClient,
-                ), patch("measurement_sampling.ModbusClient", _FakeModbusClient):
+                ), patch("measurement.sampling.ModbusClient", _FakeModbusClient):
                     threads = [
                         threading.Thread(target=plant_agent, args=(config, shared_data), daemon=True),
                         threading.Thread(target=scheduler_agent, args=(config, shared_data), daemon=True),

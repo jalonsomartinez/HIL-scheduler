@@ -59,7 +59,7 @@ Open the dashboard at:
 ## Quality Checks
 Run these checks before pushing changes:
 ```bash
-python3 -m py_compile *.py
+python3 -m py_compile *.py dashboard/*.py control/*.py settings/*.py measurement/*.py scheduling/*.py modbus/*.py runtime/*.py
 ./venv/bin/python -m unittest discover -s tests -v
 ```
 

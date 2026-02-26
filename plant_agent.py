@@ -3,8 +3,8 @@ import time
 
 from pyModbusTCP.server import ModbusServer
 
-from modbus_codec import decode_engineering_value, encode_engineering_value
-from modbus_units import external_to_internal, internal_to_external
+from modbus.codec import decode_engineering_value, encode_engineering_value
+from modbus.units import external_to_internal, internal_to_external
 
 
 def plant_agent(config, shared_data):

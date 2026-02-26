@@ -1,6 +1,6 @@
 """Shared-state command queue helpers for settings-engine command lifecycle."""
 
-from command_runtime import (
+from runtime.command_runtime import (
     COMMAND_HISTORY_LIMIT,
     enqueue_command_for_keys,
     get_next_command_id_for_keys,

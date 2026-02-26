@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from measurement_agent import measurement_agent
+from measurement.agent import measurement_agent
 
 
 class _FakePoster:
@@ -140,14 +140,14 @@ class MeasurementPostingTelemetryTests(unittest.TestCase):
         config = _build_config()
         shared_data = _build_shared_data()
 
-        with patch("measurement_agent.IstentoreAPI", _FakePoster), patch(
-            "measurement_agent.sampling_get_transport_endpoint",
+        with patch("measurement.agent.IstentoreAPI", _FakePoster), patch(
+            "measurement.agent.sampling_get_transport_endpoint",
             side_effect=_fake_endpoint,
         ), patch(
-            "measurement_agent.sampling_ensure_client",
+            "measurement.agent.sampling_ensure_client",
             return_value=object(),
         ), patch(
-            "measurement_agent.sampling_take_measurement",
+            "measurement.agent.sampling_take_measurement",
             side_effect=_fake_row,
         ):
             thread = threading.Thread(target=measurement_agent, args=(config, shared_data), daemon=True)
@@ -197,14 +197,14 @@ class MeasurementPostingTelemetryTests(unittest.TestCase):
         config = _build_config()
         shared_data = _build_shared_data(posting_enabled=False)
 
-        with patch("measurement_agent.IstentoreAPI", _FakePoster), patch(
-            "measurement_agent.sampling_get_transport_endpoint",
+        with patch("measurement.agent.IstentoreAPI", _FakePoster), patch(
+            "measurement.agent.sampling_get_transport_endpoint",
             side_effect=_fake_endpoint,
         ), patch(
-            "measurement_agent.sampling_ensure_client",
+            "measurement.agent.sampling_ensure_client",
             return_value=object(),
         ), patch(
-            "measurement_agent.sampling_take_measurement",
+            "measurement.agent.sampling_take_measurement",
             side_effect=_fake_row,
         ):
             thread = threading.Thread(target=measurement_agent, args=(config, shared_data), daemon=True)
@@ -241,14 +241,14 @@ class MeasurementPostingTelemetryTests(unittest.TestCase):
         config = _build_config()
         shared_data = _build_shared_data(posting_enabled=True)
 
-        with patch("measurement_agent.IstentoreAPI", _FakePoster), patch(
-            "measurement_agent.sampling_get_transport_endpoint",
+        with patch("measurement.agent.IstentoreAPI", _FakePoster), patch(
+            "measurement.agent.sampling_get_transport_endpoint",
             side_effect=_fake_endpoint,
         ), patch(
-            "measurement_agent.sampling_ensure_client",
+            "measurement.agent.sampling_ensure_client",
             return_value=object(),
         ), patch(
-            "measurement_agent.sampling_take_measurement",
+            "measurement.agent.sampling_take_measurement",
             side_effect=_fake_row,
         ):
             thread = threading.Thread(target=measurement_agent, args=(config, shared_data), daemon=True)
@@ -309,14 +309,14 @@ class MeasurementPostingTelemetryTests(unittest.TestCase):
             "measurement_post_status": {},
         }
 
-        with patch("measurement_agent.IstentoreAPI", _FakePoster), patch(
-            "measurement_agent.sampling_get_transport_endpoint",
+        with patch("measurement.agent.IstentoreAPI", _FakePoster), patch(
+            "measurement.agent.sampling_get_transport_endpoint",
             side_effect=_fake_endpoint,
         ), patch(
-            "measurement_agent.sampling_ensure_client",
+            "measurement.agent.sampling_ensure_client",
             return_value=object(),
         ), patch(
-            "measurement_agent.sampling_take_measurement",
+            "measurement.agent.sampling_take_measurement",
             side_effect=_fake_row,
         ):
             thread = threading.Thread(target=measurement_agent, args=(config, shared_data), daemon=True)

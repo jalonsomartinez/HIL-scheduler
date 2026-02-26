@@ -28,6 +28,18 @@
 ## Rolling Change Log (Compressed, 30-Day Window)
 
 ### 2026-02-26
+- Implemented balanced repo package reorganization (no `src/` migration):
+  - moved active runtime modules into domain packages (`dashboard/`, `control/`, `settings/`, `measurement/`, `scheduling/`, `modbus/`, `runtime/`) while keeping `hil_scheduler.py` as the root launcher,
+  - renamed stale control-path modules for clarity (`dashboard_modbus_io.py` -> `control/modbus_io.py`, `dashboard_control.py` -> `control/flows.py`) and renamed generic `utils.py` to `modbus/legacy_scaling.py`,
+  - rewrote active runtime/test imports to package paths and kept `python3 hil_scheduler.py` working,
+  - removed cache-only `dashboard_web/` directory.
+- Fixed dashboard resource path regressions introduced by the package move:
+  - `dashboard/agent.py` now sets Dash `assets_folder` explicitly to repo-root `assets/` so `assets/custom.css` and brand assets load correctly,
+  - `dashboard/logs.py` now resolves project root from either repo root or `dashboard/` package dir so dashboard log browsing/Today tail reads from the repo-root `logs/` directory.
+- Validation after reorg/path fixes:
+  - compile check updated for package layout and passed,
+  - full unittest suite passed (`170` tests),
+  - launcher smoke confirmed startup/import wiring; sandbox prevented socket operations (expected in this environment).
 - Implemented per-plant dispatch send control and sent-setpoint observability:
   - added independent Status-tab dispatch toggle (`Sending` / `Paused`) per plant that controls only `scheduler_running_by_plant` (no plant enable/disable side effects),
   - start flow now preserves the existing dispatch gate (no auto-enable of scheduler sending); if paused, initial setpoint write is skipped and published as `skipped`,
@@ -57,7 +69,7 @@
   - `tests/test_manual_schedule_manager_end_rows.py` (CSV roundtrip, missing-end sanitization, duplicate-terminal-row import mapping, auto-gap clamping),
   - `tests/test_schedule_runtime_end_times.py` (terminal-row-derived end cutoff in merged effective schedule),
   - updated settings/dashboard/scheduler/shared-state regressions for removal of separate manual end-time payload/runtime maps.
-- Updated shared dashboard plant plotting (`dashboard_plotting.py`) used by both `Status` and historical `Plots` tabs:
+- Updated shared dashboard plant plotting (`dashboard/plotting.py`) used by both `Status` and historical `Plots` tabs:
   - expanded plant figures from 3 to 4 rows to include a dedicated voltage subplot (`v_poi_kV` in kV),
   - added measurement-recorded setpoint fallback traces (`p_setpoint_kw`, `q_setpoint_kvar`) for historical plots when no schedule dataframe is supplied,
   - added optional current-time vertical dashed line support; Status-tab plant figures now pass a live `now` marker while historical plots do not.
@@ -73,32 +85,32 @@
 
 ### 2026-02-25
 - Continued internal refactor cleanup without behavior changes:
-  - extracted generic command lifecycle bookkeeping into `command_runtime.py` and reduced `control_command_runtime.py` / `settings_command_runtime.py` to thin wrappers,
-  - extracted shared engine command-cycle execution bookkeeping into `engine_command_cycle_runtime.py` and refactored control/settings engines to reuse it,
-  - refactored `measurement_agent.py` `flush_pending_rows()` to swap/process/merge pending rows with shorter lock hold times,
+  - extracted generic command lifecycle bookkeeping into `runtime/command_runtime.py` and reduced `control/command_runtime.py` / `settings/command_runtime.py` to thin wrappers,
+  - extracted shared engine command-cycle execution bookkeeping into `runtime/engine_command_cycle_runtime.py` and refactored control/settings engines to reuse it,
+  - refactored `measurement/agent.py` `flush_pending_rows()` to swap/process/merge pending rows with shorter lock hold times,
   - added focused integration wiring regressions (`tests/test_dashboard_engine_wiring.py`) covering intent helper -> enqueue -> engine single-cycle -> shared-state mutation for both control and settings paths,
-  - reduced enqueue callback duplication in `dashboard_agent.py` by centralizing command enqueue/token/log helper logic.
+  - reduced enqueue callback duplication in `dashboard/agent.py` by centralizing command enqueue/token/log helper logic.
 - Completed compatibility-contract cleanup and concurrency hygiene pass:
   - retired compatibility-only shared-state keys `active_schedule_source`, `schedule_switching`, and `measurement_posting_enabled` from runtime init/consumers/tests,
   - `posting_runtime.policy_enabled` is now the only canonical runtime posting-policy source,
   - removed deprecated `schedule_manager.py` from the active repository after migration,
-  - reduced `measurement_agent.py` lock hold time in aggregate cache rebuild and current-file cache upsert by moving pandas-heavy work outside `shared_data["lock"]`.
+  - reduced `measurement/agent.py` lock hold time in aggregate cache rebuild and current-file cache upsert by moving pandas-heavy work outside `shared_data["lock"]`.
 - Strengthened API runtime state authority and engine helper de-dup:
-  - added `api_runtime_state.py` to centralize `api_connection_runtime` normalization/recompute and sub-health publication (`fetch_health`, `posting_health`),
-  - `settings_engine_agent.py` now publishes connect/disconnect transitions and probe results through the shared API runtime helper,
+  - added `runtime/api_runtime_state.py` to centralize `api_connection_runtime` normalization/recompute and sub-health publication (`fetch_health`, `posting_health`),
+  - `settings/engine_agent.py` now publishes connect/disconnect transitions and probe results through the shared API runtime helper,
   - `data_fetcher_agent.py` publishes fetch health (`ok` / `error` / `disabled`) into `api_connection_runtime.fetch_health`,
-  - `measurement_agent.py` publishes posting health (`ok` / `error` / `idle` / `disabled`) into `api_connection_runtime.posting_health`,
+  - `measurement/agent.py` publishes posting health (`ok` / `error` / `idle` / `disabled`) into `api_connection_runtime.posting_health`,
   - dashboard API controls/status rendering now uses authoritative `api_connection_runtime.state` / `last_error` only (no dashboard-derived API `Error` state).
 - Reduced engine status duplication:
-  - added `engine_status_runtime.py` and refactored `control_engine_agent.py` + `settings_engine_agent.py` to reuse shared queue/active-command/failed-recent status publishing helpers.
+  - added `runtime/engine_status_runtime.py` and refactored `control/engine_agent.py` + `settings/engine_agent.py` to reuse shared queue/active-command/failed-recent status publishing helpers.
 - Added regression coverage for:
-  - `api_runtime_state.py` state recompute/transition/error-clearing semantics,
-  - `engine_status_runtime.py` queue metrics + active-command metadata,
+  - `runtime/api_runtime_state.py` state recompute/transition/error-clearing semantics,
+  - `runtime/engine_status_runtime.py` queue metrics + active-command metadata,
   - fetcher/measurement/settings/shared-state tests updated for nested API sub-health runtime contract.
 - Implemented second-pass UI separation for settings/manual/API paths:
-  - added `settings_engine_agent.py` + `settings_command_runtime.py` with separate FIFO settings queue and command lifecycle tracking (`settings_command_*` keys),
+  - added `settings/engine_agent.py` + `settings/command_runtime.py` with separate FIFO settings queue and command lifecycle tracking (`settings_command_*` keys),
   - added server-owned runtime state for manual series activation (`manual_series_runtime_state_by_key`), API connection (`api_connection_runtime`), and posting policy (`posting_runtime`),
-  - added dashboard helper modules `dashboard_settings_intents.py` and `dashboard_settings_ui_state.py`.
+  - added dashboard helper modules `dashboard/settings_intents.py` and `dashboard/settings_ui_state.py`.
 - Manual Schedule tab behavior changed:
   - editor/load/save now writes dashboard-owned draft series (`manual_schedule_draft_series_df_by_key`) instead of directly mutating scheduler-applied manual series,
   - per-series controls are now command-driven `Activate` / `Inactivate` / `Update`,
@@ -111,7 +123,7 @@
   - posting enable/disable is settings-command driven with transition states and separate policy vs effective posting status display,
   - terminal button labels now show `Connected` / `Disconnected` on the API connect/disconnect pair.
 - Runtime gating updates:
-  - `measurement_agent.py` posting-effective gate now considers `posting_runtime` and `api_connection_runtime` (with backward-compatible fallback),
+  - `measurement/agent.py` posting-effective gate now considers `posting_runtime` and `api_connection_runtime` (with backward-compatible fallback),
   - `data_fetcher_agent.py` respects intentional API disconnect via `api_connection_runtime` (with backward-compatible fallback).
 - Added regression coverage for settings command runtime/engine and dashboard settings intent/UI helper behavior; full suite remains green (`125 tests`).
  - Follow-up refactor/test additions increased full-suite coverage count to `140` tests while preserving green status.
@@ -128,17 +140,17 @@
   - renamed `State` -> `Plant State`,
   - removed internal `Scheduler gate` field,
   - removed redundant raw `Modbus enable` field from the primary line (detailed Modbus diagnostics remain below).
-- Added pure formatting helpers in `dashboard_control_health.py` plus regression coverage for control-engine/queue and per-plant Modbus health summaries.
+- Added pure formatting helpers in `dashboard/control_health.py` plus regression coverage for control-engine/queue and per-plant Modbus health summaries.
 - Extended control-engine regression coverage for:
   - `control_engine_status` loop publishing (`last_loop_*`, `last_observed_refresh`, queue/running counts, last finished command),
   - command-crash `last_exception` publishing,
   - observed-state error classification/reset semantics.
 - Implemented first-pass control-path UI/engine separation hardening:
-  - added `control_engine_agent.py` to own start/stop/fleet/transport/record command execution and control-path Modbus I/O,
+  - added `control/engine_agent.py` to own start/stop/fleet/transport/record command execution and control-path Modbus I/O,
   - added bounded FIFO control command queue + lifecycle status tracking in shared state (`control_command_queue`, `control_command_status_by_id`, `control_command_history_ids`, `control_command_active_id`, `control_command_next_id`),
   - dashboard control callbacks now enqueue normalized command intents instead of executing control flows or spawning execution threads.
 - Added cached plant observed-state publication (`plant_observed_state_by_plant`) in control engine (`enable`, `p_battery`, `q_battery`, freshness/error/stale metadata); Status tab no longer performs direct Modbus polling for control/status paths.
-- Added pure dashboard trigger->command intent helpers (`dashboard_command_intents.py`) and targeted regression coverage for intent mapping.
+- Added pure dashboard trigger->command intent helpers (`dashboard/command_intents.py`) and targeted regression coverage for intent mapping.
 - Added command runtime and control-engine regression coverage:
   - queue/lifecycle bookkeeping,
   - command execution ordering and idempotent record on/off behavior,
@@ -188,7 +200,7 @@
   - stale placeholder below-domain selection,
   - fully above-domain selection,
   - partial overlap clamping behavior.
-- Compacted the `Plots` tab historical availability timeline (`LIB` / `VRFB`) in `dashboard_agent.py` by reducing figure height/margins and lowering legend placement so the bars render closer together with less vertical whitespace.
+- Compacted the `Plots` tab historical availability timeline (`LIB` / `VRFB`) in `dashboard/agent.py` by reducing figure height/margins and lowering legend placement so the bars render closer together with less vertical whitespace.
 - Bounded API schedule runtime retention in `data_fetcher_agent.py` to the local calendar window `[today 00:00, day+2 00:00)` so `api_schedule_df_by_plant` no longer grows indefinitely across days.
 - Updated API `today` fetch writes to merge with existing in-window rows (instead of blind overwrite) so previously fetched tomorrow rows are preserved during same-day retries.
 - Constrained Status-tab plots (all sources: `manual` and `api`) to the same local `current day + next day` window via optional plot-helper x-window filtering.
@@ -220,7 +232,7 @@
 - Implemented Modbus point-schema refactor (breaking config migration):
   - replaced endpoint `registers` integer maps with structured `points` metadata in `config.yaml`,
   - required explicit endpoint `byte_order` / `word_order` for every `local`/`remote` Modbus endpoint (no defaults),
-  - added shared `modbus_codec.py` for holding-register encode/decode (supports `int16`/`uint16`/`int32`/`uint32`/`float32`),
+  - added shared `modbus/codec.py` for holding-register encode/decode (supports `int16`/`uint16`/`int32`/`uint32`/`float32`),
   - refactored scheduler, measurement sampling, dashboard Modbus helpers, and local plant emulation to use shared codec + normalized point specs,
   - runtime resolver now exposes endpoint ordering + `points`,
   - preserved current on-wire behavior for existing P/Q and SoC points (P/Q int16 hW, `soc` `/10000`) and retained optional `start_command` / `stop_command` point definitions (voltage semantics were changed later the same day in the kV migration).
@@ -265,7 +277,7 @@
 - Added per-plant historical export actions:
   - cropped CSV download for selected range,
   - PNG export of current graph via client-side Plotly download (no `kaleido` dependency).
-- Added `dashboard_history.py` helper module for history scan/index, range clamping, crop loading, and CSV serialization.
+- Added `dashboard/history.py` helper module for history scan/index, range clamping, crop loading, and CSV serialization.
 - Added `tests/test_dashboard_history.py` coverage for helper behaviors (scan mapping, clamp logic, inclusive crop, serialization, slider marks).
 
 ### 2026-02-21
@@ -289,12 +301,12 @@
 - Added regression coverage for runtime posting toggle-off behavior in `tests/test_measurement_posting_telemetry.py`.
 - Adjusted page background to white per operator UX request.
 - Completed staged cleanup plan across Stage A/B/C:
-  - Stage A shared helper extraction (`runtime_contracts.py`, `schedule_runtime.py`, `shared_state.py`).
+  - Stage A shared helper extraction (`runtime/contracts.py`, `scheduling/runtime.py`, `runtime/shared_state.py`).
   - Stage B concern split for dashboard and measurement helpers/modules.
-  - Stage C legacy-path cleanup progressed: `schedule_manager.py` removed after migration to `manual_schedule_manager.py` / `schedule_runtime.py`; legacy config aliases remain gated behind `HIL_ENABLE_LEGACY_CONFIG_ALIASES=1`.
+  - Stage C legacy-path cleanup progressed: `schedule_manager.py` removed after migration to `scheduling/manual_schedule_manager.py` / `scheduling/runtime.py`; legacy config aliases remain gated behind `HIL_ENABLE_LEGACY_CONFIG_ALIASES=1`.
 - Fixed Stage B regressions:
-  - restored measurement recording start path (`sanitize_plant_name` import in `measurement_agent.py`),
-  - fixed logs parsing in `dashboard_logs.py` regex.
+  - restored measurement recording start path (`sanitize_plant_name` import in `measurement/agent.py`),
+  - fixed logs parsing in `dashboard/logs.py` regex.
 - Added regression test suite under `tests/` covering:
   - logs parsing/today-file behavior,
   - measurement record-start boundary behavior,
@@ -305,14 +317,14 @@
   - dashboard safe-stop/source-switch/transport-switch control flows.
 - Added CI workflow (`.github/workflows/ci.yml`) running compile + unittest checks.
 - Restored measurement compression behavior in active runtime:
-  - `recording.compression.enabled` and `recording.compression.tolerances.*` are now applied in `measurement_agent.py`,
+  - `recording.compression.enabled` and `recording.compression.tolerances.*` are now applied in `measurement/agent.py`,
   - stable runs keep first/latest points while null boundaries remain explicit,
   - non-force flush retains one tail row per active recording file to preserve continuity.
 - Added regression tests in `tests/test_measurement_compression.py` for:
   - compression-enabled stable run compaction,
   - compression-disabled full-row persistence,
   - periodic flush continuity with retained mutable tail.
-- Extracted dashboard control flow helpers to `dashboard_control.py` and wired `dashboard_agent.py` to shared safe-stop/switch helpers.
+- Extracted dashboard control flow helpers to `control/flows.py` and wired `dashboard/agent.py` to shared safe-stop/switch helpers.
 - Added explicit `build_initial_shared_data(config)` contract constructor in `hil_scheduler.py` plus schema regression tests.
 - Implemented timezone-aware date-routed logging in `logger_config.py`:
   - each log record writes to `logs/YYYY-MM-DD_hil_scheduler.log` based on record timestamp date,

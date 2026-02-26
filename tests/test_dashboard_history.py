@@ -6,14 +6,14 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from dashboard_history import (
+from dashboard.history import (
     build_slider_marks,
     clamp_epoch_range,
     load_cropped_measurements_for_range,
     scan_measurement_history_index,
     serialize_measurements_for_download,
 )
-from measurement_storage import MEASUREMENT_COLUMNS
+from measurement.storage import MEASUREMENT_COLUMNS
 
 
 def _row(ts, p_kw):

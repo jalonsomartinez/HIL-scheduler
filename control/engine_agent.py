@@ -8,27 +8,27 @@ import time
 import pandas as pd
 from pyModbusTCP.client import ModbusClient
 
-import manual_schedule_manager as msm
-from control_command_runtime import mark_command_finished, mark_command_running
-from dispatch_write_runtime import publish_dispatch_write_status, set_dispatch_sending_enabled
-from dashboard_control import (
+import scheduling.manual_schedule_manager as msm
+from control.command_runtime import mark_command_finished, mark_command_running
+from runtime.dispatch_write_runtime import publish_dispatch_write_status, set_dispatch_sending_enabled
+from control.flows import (
     perform_transport_switch as perform_transport_switch_flow,
     safe_stop_all_plants as safe_stop_all_plants_flow,
     safe_stop_plant as safe_stop_plant_flow,
 )
-from dashboard_modbus_io import (
+from control.modbus_io import (
     read_enable_state as read_enable_state_io,
     send_setpoints as send_setpoints_io,
     set_enable as set_enable_io,
     wait_until_battery_power_below_threshold as wait_until_battery_power_below_threshold_io,
 )
-from engine_command_cycle_runtime import run_command_with_lifecycle
-from engine_status_runtime import default_engine_status, update_engine_status
-from measurement_storage import find_latest_persisted_soc_for_plant
-from modbus_codec import read_point_internal
-from runtime_contracts import resolve_modbus_endpoint, sanitize_plant_name
-from schedule_runtime import build_effective_schedule_frame, resolve_schedule_setpoint
-from shared_state import snapshot_locked
+from runtime.engine_command_cycle_runtime import run_command_with_lifecycle
+from runtime.engine_status_runtime import default_engine_status, update_engine_status
+from measurement.storage import find_latest_persisted_soc_for_plant
+from modbus.codec import read_point_internal
+from runtime.contracts import resolve_modbus_endpoint, sanitize_plant_name
+from scheduling.runtime import build_effective_schedule_frame, resolve_schedule_setpoint
+from runtime.shared_state import snapshot_locked
 from time_utils import get_config_tz, now_tz
 
 

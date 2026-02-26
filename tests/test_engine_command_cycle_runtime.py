@@ -3,7 +3,7 @@ import threading
 import unittest
 from datetime import datetime, timezone
 
-from engine_command_cycle_runtime import run_command_with_lifecycle
+from runtime.engine_command_cycle_runtime import run_command_with_lifecycle
 
 
 class EngineCommandCycleRuntimeTests(unittest.TestCase):

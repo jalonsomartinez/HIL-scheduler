@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from dash import html
 
-from dashboard_logs import get_today_log_file_path, parse_and_format_historical_logs, read_log_tail
+from dashboard.logs import get_logs_dir, get_today_log_file_path, parse_and_format_historical_logs, read_log_tail
 
 
 class DashboardLogsTests(unittest.TestCase):
@@ -37,6 +37,14 @@ class DashboardLogsTests(unittest.TestCase):
 
             self.assertTrue(path.endswith("_hil_scheduler.log"))
             self.assertIn(datetime.now(tz).strftime("%Y-%m-%d"), os.path.basename(path))
+
+    def test_get_logs_dir_accepts_dashboard_package_dir(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            os.makedirs(os.path.join(tmpdir, "assets"), exist_ok=True)
+            dashboard_dir = os.path.join(tmpdir, "dashboard")
+            os.makedirs(dashboard_dir, exist_ok=True)
+
+            self.assertEqual(get_logs_dir(dashboard_dir), os.path.join(tmpdir, "logs"))
 
     def test_read_log_tail_returns_last_lines(self):
         with tempfile.TemporaryDirectory() as tmpdir:

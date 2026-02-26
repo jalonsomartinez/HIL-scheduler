@@ -4,8 +4,8 @@ import logging
 
 from pyModbusTCP.client import ModbusClient
 
-from modbus_codec import read_point_internal
-from runtime_contracts import resolve_modbus_endpoint
+from modbus.codec import read_point_internal
+from runtime.contracts import resolve_modbus_endpoint
 from time_utils import normalize_timestamp_value
 
 

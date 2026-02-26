@@ -18,7 +18,7 @@ from typing import Optional, Tuple
 
 import numpy as np
 import pandas as pd
-from schedule_runtime import merge_schedule_frames, split_manual_override_series
+from scheduling.runtime import merge_schedule_frames, split_manual_override_series
 from time_utils import (
     DEFAULT_TIMEZONE_NAME,
     get_timezone,

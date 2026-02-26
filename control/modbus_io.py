@@ -1,11 +1,11 @@
-"""Dashboard Modbus I/O helpers for control and safe-stop flows."""
+"""Control-path Modbus I/O helpers for engine control and safe-stop flows."""
 
 import logging
 import time
 
 from pyModbusTCP.client import ModbusClient
 
-from modbus_codec import read_point_internal, write_point_internal
+from modbus.codec import read_point_internal, write_point_internal
 
 
 def set_enable(endpoint_cfg, plant_label, value):
@@ -13,14 +13,14 @@ def set_enable(endpoint_cfg, plant_label, value):
     try:
         if not client.open():
             logging.warning(
-                "Dashboard: could not connect to %s (%s mode) for enable.",
+                "Control I/O: could not connect to %s (%s mode) for enable.",
                 plant_label,
                 endpoint_cfg["mode"],
             )
             return False
         return bool(write_point_internal(client, endpoint_cfg, "enable", int(value)))
     except Exception as exc:
-        logging.error("Dashboard: enable write error (%s): %s", plant_label, exc)
+        logging.error("Control I/O: enable write error (%s): %s", plant_label, exc)
         return False
     finally:
         try:
@@ -34,7 +34,7 @@ def send_setpoints(endpoint_cfg, plant_label, p_kw, q_kvar):
     try:
         if not client.open():
             logging.warning(
-                "Dashboard: could not connect to %s (%s mode) for setpoints.",
+                "Control I/O: could not connect to %s (%s mode) for setpoints.",
                 plant_label,
                 endpoint_cfg["mode"],
             )
@@ -43,7 +43,7 @@ def send_setpoints(endpoint_cfg, plant_label, p_kw, q_kvar):
         q_ok = write_point_internal(client, endpoint_cfg, "q_setpoint", q_kvar)
         return bool(p_ok and q_ok)
     except Exception as exc:
-        logging.error("Dashboard: setpoint write error (%s): %s", plant_label, exc)
+        logging.error("Control I/O: setpoint write error (%s): %s", plant_label, exc)
         return False
     finally:
         try:

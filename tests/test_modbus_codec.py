@@ -1,6 +1,6 @@
 import unittest
 
-from modbus_codec import (
+from modbus.codec import (
     decode_engineering_value,
     encode_engineering_value,
     read_point_internal,

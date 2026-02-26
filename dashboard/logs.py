@@ -8,6 +8,15 @@ from datetime import datetime
 from dash import html
 
 
+def _resolve_project_dir(base_dir):
+    """Accept either project root or dashboard package dir and return project root."""
+    candidate = os.path.abspath(base_dir)
+    parent = os.path.dirname(candidate)
+    if os.path.basename(candidate) == "dashboard" and os.path.isdir(os.path.join(parent, "assets")):
+        return parent
+    return candidate
+
+
 def parse_and_format_historical_logs(file_content):
     pattern = r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) - (\w+) - (.+)"
     formatted_entries = []
@@ -40,7 +49,7 @@ def parse_and_format_historical_logs(file_content):
 
 
 def get_logs_dir(base_dir):
-    return os.path.join(base_dir, "logs")
+    return os.path.join(_resolve_project_dir(base_dir), "logs")
 
 
 def get_today_log_file_path(base_dir, tz):

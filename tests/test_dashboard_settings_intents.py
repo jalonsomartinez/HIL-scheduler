@@ -4,8 +4,8 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-import manual_schedule_manager as msm
-from dashboard_settings_intents import (
+import scheduling.manual_schedule_manager as msm
+from dashboard.settings_intents import (
     api_connection_intent_from_trigger,
     manual_settings_intent_from_trigger,
     posting_intent_from_trigger,

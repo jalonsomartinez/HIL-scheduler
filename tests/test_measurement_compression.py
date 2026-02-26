@@ -8,8 +8,8 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from measurement_agent import measurement_agent
-from measurement_storage import MEASUREMENT_VALUE_COLUMNS, append_rows_to_csv as storage_append_rows_to_csv
+from measurement.agent import measurement_agent
+from measurement.storage import MEASUREMENT_VALUE_COLUMNS, append_rows_to_csv as storage_append_rows_to_csv
 
 
 def _build_shared_data(recording_path):
@@ -101,15 +101,15 @@ def _make_row_sequence_runner(shared_data, rows):
 
 def _run_agent_and_load_output(config, shared_data, sample_rows, append_wrapper=None):
     patchers = [
-        patch("measurement_agent.sampling_get_transport_endpoint", side_effect=_fake_endpoint),
-        patch("measurement_agent.sampling_ensure_client", return_value=object()),
+        patch("measurement.agent.sampling_get_transport_endpoint", side_effect=_fake_endpoint),
+        patch("measurement.agent.sampling_ensure_client", return_value=object()),
         patch(
-            "measurement_agent.sampling_take_measurement",
+            "measurement.agent.sampling_take_measurement",
             side_effect=_make_row_sequence_runner(shared_data, sample_rows),
         ),
     ]
     if append_wrapper is not None:
-        patchers.append(patch("measurement_agent.append_rows_to_csv", side_effect=append_wrapper))
+        patchers.append(patch("measurement.agent.append_rows_to_csv", side_effect=append_wrapper))
 
     with patchers[0], patchers[1], patchers[2]:
         if append_wrapper is not None:

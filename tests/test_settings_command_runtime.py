@@ -3,7 +3,7 @@ import threading
 import unittest
 from datetime import datetime, timezone
 
-from settings_command_runtime import (
+from settings.command_runtime import (
     enqueue_settings_command,
     get_next_command_id,
     mark_command_finished,

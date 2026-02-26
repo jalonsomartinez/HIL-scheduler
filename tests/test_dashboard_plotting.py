@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 try:
     import pandas as pd
 
-    from dashboard_plotting import DEFAULT_PLOT_THEME, DEFAULT_TRACE_COLORS, create_plant_figure
+    from dashboard.plotting import DEFAULT_PLOT_THEME, DEFAULT_TRACE_COLORS, create_plant_figure
     _IMPORT_ERROR = None
 except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent test skip
     pd = None

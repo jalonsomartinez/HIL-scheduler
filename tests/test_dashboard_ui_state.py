@@ -1,7 +1,7 @@
 import unittest
 from datetime import datetime, timezone
 
-from dashboard_ui_state import resolve_click_feedback_transition_state, resolve_runtime_transition_state
+from dashboard.ui_state import resolve_click_feedback_transition_state, resolve_runtime_transition_state
 
 
 class DashboardUiStateTests(unittest.TestCase):

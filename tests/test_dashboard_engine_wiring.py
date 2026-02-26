@@ -6,13 +6,13 @@ from unittest.mock import patch
 
 import pandas as pd
 
-import manual_schedule_manager as msm
-from control_command_runtime import enqueue_control_command
-from control_engine_agent import _run_single_engine_cycle
-from dashboard_command_intents import command_intent_from_control_trigger
-from dashboard_settings_intents import posting_intent_from_trigger
-from settings_command_runtime import enqueue_settings_command
-from settings_engine_agent import _run_single_settings_cycle
+import scheduling.manual_schedule_manager as msm
+from control.command_runtime import enqueue_control_command
+from control.engine_agent import _run_single_engine_cycle
+from dashboard.command_intents import command_intent_from_control_trigger
+from dashboard.settings_intents import posting_intent_from_trigger
+from settings.command_runtime import enqueue_settings_command
+from settings.engine_agent import _run_single_settings_cycle
 
 
 def _control_shared():
@@ -164,7 +164,7 @@ class DashboardEngineWiringTests(unittest.TestCase):
         )
         self.assertEqual(status["state"], "queued")
 
-        with patch("settings_engine_agent.now_tz", return_value=now_value):
+        with patch("settings.engine_agent.now_tz", return_value=now_value):
             command_id = _run_single_settings_cycle(config, shared, tz=timezone.utc)
 
         self.assertEqual(command_id, status["id"])

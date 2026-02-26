@@ -3,7 +3,7 @@
 import math
 import struct
 
-from modbus_units import external_to_internal, internal_to_external
+from modbus.units import external_to_internal, internal_to_external
 
 _FORMAT_META = {
     "int16": {"word_count": 1, "byte_count": 2, "kind": "int", "signed": True},

@@ -3,8 +3,8 @@ import threading
 import unittest
 from datetime import datetime, timedelta, timezone
 
-from control_command_runtime import enqueue_control_command
-from control_engine_agent import (
+from control.command_runtime import enqueue_control_command
+from control.engine_agent import (
     _execute_command,
     _publish_observed_state,
     _run_single_engine_cycle,

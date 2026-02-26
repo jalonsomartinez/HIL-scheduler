@@ -7,7 +7,7 @@ import re
 import numpy as np
 import pandas as pd
 
-from runtime_contracts import sanitize_plant_name
+from runtime.contracts import sanitize_plant_name
 from time_utils import normalize_datetime_series, normalize_timestamp_value, serialize_iso_with_tz
 
 MEASUREMENT_VALUE_COLUMNS = [

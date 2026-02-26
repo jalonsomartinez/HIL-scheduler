@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 import pandas as pd
 
-import manual_schedule_manager as msm
-from settings_engine_agent import _execute_settings_command, _run_single_settings_cycle
+import scheduling.manual_schedule_manager as msm
+from settings.engine_agent import _execute_settings_command, _run_single_settings_cycle
 
 
 class _FakeAPI:
@@ -151,8 +151,8 @@ class SettingsEngineAgentTests(unittest.TestCase):
         _FakeAPI.login_calls = 0
         shared = _shared()
         cfg = _config()
-        with patch("settings_engine_agent.IstentoreAPI", _FakeAPI), patch(
-            "settings_engine_agent.now_tz",
+        with patch("settings.engine_agent.IstentoreAPI", _FakeAPI), patch(
+            "settings.engine_agent.now_tz",
             return_value=datetime(2026, 2, 25, 12, 0, tzinfo=timezone.utc),
         ):
             result = _execute_settings_command(
@@ -241,7 +241,7 @@ class SettingsEngineAgentTests(unittest.TestCase):
         }
         shared["settings_command_history_ids"].append("cmd-000001")
         shared["settings_command_queue"].put_nowait({"id": "cmd-000001", "kind": "posting.disable", "payload": {}})
-        with patch("settings_engine_agent.now_tz", return_value=datetime(2026, 2, 25, 12, 0, tzinfo=timezone.utc)):
+        with patch("settings.engine_agent.now_tz", return_value=datetime(2026, 2, 25, 12, 0, tzinfo=timezone.utc)):
             command_id = _run_single_settings_cycle(cfg, shared, tz=timezone.utc)
         self.assertEqual(command_id, "cmd-000001")
         with shared["lock"]:

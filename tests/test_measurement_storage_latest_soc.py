@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from measurement_storage import MEASUREMENT_COLUMNS, find_latest_persisted_soc_for_plant
+from measurement.storage import MEASUREMENT_COLUMNS, find_latest_persisted_soc_for_plant
 
 
 def _row(ts, soc_pu, p_kw=0.0):

@@ -1,7 +1,7 @@
 import unittest
 from datetime import datetime, timezone
 
-from dashboard_settings_ui_state import (
+from dashboard.settings_ui_state import (
     api_connection_controls_state,
     api_connection_display_state,
     manual_series_controls_state,

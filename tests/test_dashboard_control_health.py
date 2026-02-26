@@ -1,7 +1,7 @@
 import unittest
 from datetime import datetime, timedelta, timezone
 
-from dashboard_control_health import (
+from dashboard.control_health import (
     format_age_seconds,
     summarize_control_engine_status,
     summarize_control_queue_status,

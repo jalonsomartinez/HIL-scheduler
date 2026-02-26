@@ -1,6 +1,6 @@
 import unittest
 
-from measurement_posting import build_post_items
+from measurement.posting import build_post_items
 
 
 class MeasurementPostingUnitTests(unittest.TestCase):

@@ -3,7 +3,7 @@ import unittest
 
 import pandas as pd
 
-from dashboard_control import (
+from control.flows import (
     perform_transport_switch,
     safe_stop_plant,
 )

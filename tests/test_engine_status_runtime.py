@@ -3,7 +3,7 @@ import threading
 import unittest
 from datetime import datetime, timezone
 
-from engine_status_runtime import default_engine_status, update_engine_status
+from runtime.engine_status_runtime import default_engine_status, update_engine_status
 
 
 def _shared():

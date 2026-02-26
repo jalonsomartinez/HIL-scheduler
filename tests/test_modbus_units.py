@@ -1,6 +1,6 @@
 import unittest
 
-from modbus_units import external_to_internal, internal_to_external, normalize_unit_token, validate_point_unit
+from modbus.units import external_to_internal, internal_to_external, normalize_unit_token, validate_point_unit
 
 
 class ModbusUnitsTests(unittest.TestCase):

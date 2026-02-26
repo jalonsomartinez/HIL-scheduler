@@ -14,41 +14,41 @@ import plotly.graph_objects as go
 from dash import ALL, Dash, Input, Output, State, callback_context, dcc, html
 from dash.exceptions import PreventUpdate
 
-from control_command_runtime import enqueue_control_command
-from dashboard_command_intents import command_intent_from_control_trigger, transport_switch_intent_from_confirm
-from dashboard_settings_intents import (
+from control.command_runtime import enqueue_control_command
+from dashboard.command_intents import command_intent_from_control_trigger, transport_switch_intent_from_confirm
+from dashboard.settings_intents import (
     api_connection_intent_from_trigger,
     manual_settings_intent_from_trigger,
     posting_intent_from_trigger,
 )
-from dashboard_control_health import (
+from dashboard.control_health import (
     summarize_control_engine_status,
     summarize_control_queue_status,
     summarize_dispatch_write_status,
     summarize_plant_modbus_health,
 )
-from dashboard_history import (
+from dashboard.history import (
     build_slider_marks,
     clamp_epoch_range,
     load_cropped_measurements_for_range,
     scan_measurement_history_index,
     serialize_measurements_for_download,
 )
-from dashboard_layout import build_dashboard_layout
-from dashboard_logs import get_logs_dir, get_today_log_file_path, parse_and_format_historical_logs, read_log_tail
-from dashboard_plotting import (
+from dashboard.layout import build_dashboard_layout
+from dashboard.logs import get_logs_dir, get_today_log_file_path, parse_and_format_historical_logs, read_log_tail
+from dashboard.plotting import (
     DEFAULT_PLOT_THEME,
     DEFAULT_TRACE_COLORS,
     apply_figure_theme,
     create_plant_figure,
     create_manual_series_figure,
 )
-from dashboard_ui_state import (
+from dashboard.ui_state import (
     get_plant_control_labels_and_disabled,
     resolve_click_feedback_transition_state,
     resolve_runtime_transition_state,
 )
-from dashboard_settings_ui_state import (
+from dashboard.settings_ui_state import (
     api_connection_controls_state,
     api_connection_display_state,
     manual_series_controls_state,
@@ -57,12 +57,12 @@ from dashboard_settings_ui_state import (
     posting_display_state,
     resolve_command_click_feedback_state,
 )
-import manual_schedule_manager as msm
-from measurement_storage import MEASUREMENT_COLUMNS
-from runtime_contracts import sanitize_plant_name
-from schedule_runtime import build_effective_schedule_frame
-from settings_command_runtime import enqueue_settings_command
-from shared_state import snapshot_locked
+import scheduling.manual_schedule_manager as msm
+from measurement.storage import MEASUREMENT_COLUMNS
+from runtime.contracts import sanitize_plant_name
+from scheduling.runtime import build_effective_schedule_frame
+from settings.command_runtime import enqueue_settings_command
+from runtime.shared_state import snapshot_locked
 from time_utils import get_config_tz, normalize_datetime_series, normalize_schedule_index, normalize_timestamp_value, now_tz
 
 
@@ -73,7 +73,13 @@ def dashboard_agent(config, shared_data):
     log = logging.getLogger("werkzeug")
     log.setLevel(logging.ERROR)
 
-    app = Dash(__name__, suppress_callback_exceptions=True)
+    base_dir = os.path.dirname(__file__)
+    assets_dir = os.path.join(os.path.dirname(base_dir), "assets")
+    app = Dash(
+        __name__,
+        suppress_callback_exceptions=True,
+        assets_folder=assets_dir,
+    )
 
     plant_ids = tuple(config.get("PLANT_IDS", ("lib", "vrfb")))
     plants_cfg = config.get("PLANTS", {})
@@ -98,7 +104,6 @@ def dashboard_agent(config, shared_data):
 
     plot_theme = dict(DEFAULT_PLOT_THEME)
     trace_colors = dict(DEFAULT_TRACE_COLORS)
-    base_dir = os.path.dirname(__file__)
     ui_transition_feedback_hold_s = 2.0
 
     def plant_name(plant_id):

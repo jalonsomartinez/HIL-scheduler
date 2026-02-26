@@ -4,7 +4,7 @@
 1. Dual logical plants (`lib`, `vrfb`) run under a shared transport model with merged schedule dispatch (API base + manual overrides), plus independent per-plant dispatch-send and recording gates.
 2. Scheduler dispatches per plant from a merged effective schedule (API base + enabled manual per-signal overrides) and applies API stale-setpoint guardrails to the API base.
  - Normalized plant Modbus endpoints now expose required connection ordering (`byte_order`, `word_order`) plus structured holding-register `points` metadata (address/format/access/unit/scale).
- - Scheduler/measurement/dashboard/local-emulation Modbus I/O uses shared codec helpers (`modbus_codec.py`) instead of ad-hoc scaling/bit conversions.
+ - Scheduler/measurement/dashboard/local-emulation Modbus I/O uses shared codec helpers (`modbus/codec.py`) instead of ad-hoc scaling/bit conversions.
  - API schedule runtime maps are now pruned to local `current day + next day` retention in the fetcher to prevent unbounded growth across day rollovers.
  - Manual override runtime series are stored as four independent series (`lib_p`, `lib_q`, `vrfb_p`, `vrfb_q`) with per-series merge toggles and are pruned to the same local two-day window.
  - Scheduler setpoint write deduping now preserves retry behavior on Modbus write failure (failed writes are not cached as sent).
@@ -31,7 +31,7 @@
 - transport switching with confirmation and safe-stop,
 - control-path UI/engine separation for start/stop/record/fleet/transport actions:
   - dashboard callbacks enqueue normalized control intents instead of executing Modbus/control flows,
-  - `control_engine_agent.py` serially executes commands and owns control-path Modbus I/O,
+  - `control/engine_agent.py` serially executes commands and owns control-path Modbus I/O,
   - shared command lifecycle status/history is tracked in bounded shared-state maps/queue,
 - cached plant observed-state publication (`enable`, `p_battery`, `q_battery`, stale/error metadata) for Status-tab control/status rendering (no direct dashboard Modbus polling on those paths),
 - independent per-plant dispatch-send toggles (`Sending` / `Paused`) in Status cards, command-driven through the control engine (`plant.dispatch_enable` / `plant.dispatch_disable`) and mapped to `scheduler_running_by_plant`,
@@ -67,9 +67,11 @@
 - low-voltage plant voltage axes (nominal `< 10 kV`) now use explicit y-padding equal to `5%` of configured nominal voltage; higher-voltage plants use Plotly autorange,
 - logs tab with live `Today` (current date file tail) and selectable historical files,
 - branded UI theme (tokenized CSS, local font assets, flatter visual treatment, minimal corner radius, menu-style tab strip, full-width tab content cards, white page background).
+ - Balanced package layout is now in place for active runtime modules (`dashboard/`, `control/`, `settings/`, `measurement/`, `scheduling/`, `modbus/`, `runtime/`) while `hil_scheduler.py` remains the root launcher.
+ - Dashboard explicitly pins Dash `assets_folder` to repo-root `assets/`, and dashboard log helpers resolve repo-root `logs/` even when called from the `dashboard/` package directory.
 6. Automated validation now includes:
-- module compile checks (`python3 -m py_compile *.py`),
-- unit/smoke regression suite (`python -m unittest discover -s tests -v`, `140+` tests; latest change validated with targeted virtualenv test run),
+- module compile checks (`python3 -m py_compile *.py dashboard/*.py control/*.py settings/*.py measurement/*.py scheduling/*.py modbus/*.py runtime/*.py`),
+- unit/smoke regression suite (`python -m unittest discover -s tests -v`, `170` tests in latest full run),
 - CI execution via `.github/workflows/ci.yml`.
  - targeted historical-plots helper unit tests in `tests/test_dashboard_history.py` (environment-dependent on local pandas install).
  - `tests/test_dashboard_history.py` now explicitly covers stale-placeholder and fully out-of-domain slider-range defaulting semantics.
@@ -85,12 +87,12 @@
 - targeted manual end-row/terminal-duplicate encoding regressions (`tests/test_manual_schedule_manager_end_rows.py`, `tests/test_schedule_runtime_end_times.py`) covering CSV roundtrip, auto-sanitized gaps, and end-cutoff merge behavior.
 - targeted posting telemetry regression coverage confirming posting gate no longer depends on `active_schedule_source`.
 - targeted command-runtime/control-engine regressions (`tests/test_control_command_runtime.py`, `tests/test_control_engine_agent.py`) and dashboard intent/UI-state/control-health helper regressions (`tests/test_dashboard_command_intents.py`, `tests/test_dashboard_ui_state.py`, `tests/test_dashboard_control_health.py`).
-- generic command-runtime helper extraction (`command_runtime.py`) keeps control/settings command-runtime wrappers thin and aligned.
-- shared engine command-cycle bookkeeping (`engine_command_cycle_runtime.py`) now drives control/settings lifecycle status updates and exception publication.
+- generic command-runtime helper extraction (`runtime/command_runtime.py`) keeps control/settings command-runtime wrappers thin and aligned.
+- shared engine command-cycle bookkeeping (`runtime/engine_command_cycle_runtime.py`) now drives control/settings lifecycle status updates and exception publication.
 - targeted settings-command/settings-engine regressions (`tests/test_settings_command_runtime.py`, `tests/test_settings_engine_agent.py`) and dashboard settings intent/UI-state helper regressions (`tests/test_dashboard_settings_intents.py`, `tests/test_dashboard_settings_ui_state.py`).
 - targeted control/settings integration wiring regressions (`tests/test_dashboard_engine_wiring.py`) cover intent helper -> enqueue -> engine single-cycle -> shared-state mutation happy paths.
 - new targeted scheduler dispatch-write status regression (`tests/test_scheduler_dispatch_write_status.py`) covers failed-write retry, readback reconciliation (match/mismatch/fallback), and dispatch status publication/formatting.
-7. Dashboard control flow is now separated into `dashboard_control.py` with dedicated tests for safe-stop and transport switch semantics (source-switch helper removed from active dashboard flow).
+7. Dashboard control flow is now separated into `control/flows.py` with dedicated tests for safe-stop and transport switch semantics (source-switch helper removed from active dashboard flow).
 8. Runtime shared-state initialization contract is centralized in `build_initial_shared_data(config)` with schema tests.
  - Shared-state contract now includes local emulator SoC seed request/result maps for dashboard->plant-agent local-start coordination.
  - Shared-state contract now also includes control command queue/lifecycle keys and `plant_observed_state_by_plant` cache for control-engine/dashboard coordination.
@@ -111,7 +113,7 @@
 4. Add lightweight dashboard visual regression/smoke checklist.
 5. Expand README operator runbook/troubleshooting sections (including control engine/settings engine semantics and the new dispatch toggle behavior).
 6. Decide whether to provide an optional offline recompression utility for historical dense CSV files.
-7. Continue lock-discipline cleanup in `measurement_agent.py` beyond the recently refactored aggregate/current-cache/flush paths (only if contention justifies it).
+7. Continue lock-discipline cleanup in `measurement/agent.py` beyond the recently refactored aggregate/current-cache/flush paths (only if contention justifies it).
 8. Evaluate command cancellation/prioritization needs for long safe-stop/transport flows (if operator usage demands it).
 
 ## Known Issues / Gaps
