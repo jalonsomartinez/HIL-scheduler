@@ -28,6 +28,13 @@
 ## Rolling Change Log (Compressed, 30-Day Window)
 
 ### 2026-02-26
+- Completed a second safe dedup pass (targets #1 and #2 from the duplicate audit; no behavior/schema changes):
+  - centralized measurement posting-status default shape builders in `runtime/defaults.py` (`default_measurement_post_status`, `default_measurement_post_status_by_plant`) and reused them from `hil_scheduler.py` shared-state init and `measurement/agent.py` runtime status normalization,
+  - removed the remaining exact cross-file helper clone for manual editor `end`-row detection by reusing `scheduling.manual_schedule_manager._is_end_editor_row` in the dashboard callback path,
+  - expanded `tests/test_runtime_defaults_dedup.py` to cover shared measurement posting-status default builders.
+- Validation for second dedup pass:
+  - targeted unittest checks passed,
+  - full unittest suite passed in repo virtualenv (`venv/bin/python -m unittest discover -s tests -v`, `177` tests).
 - Completed a safe dedup pass for duplicated constants/helpers (no behavior/schema changes):
   - added lightweight shared modules `runtime/defaults.py` (timezone + measurement-compression defaults) and `runtime/parsing.py` (`parse_bool`),
   - updated `config_loader.py`, `time_utils.py`, and `measurement/agent.py` to import shared defaults/helpers instead of keeping duplicate local definitions,

@@ -32,6 +32,7 @@ from runtime.contracts import sanitize_plant_name
 from runtime.defaults import (
     DEFAULT_MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S,
     DEFAULT_MEASUREMENT_COMPRESSION_TOLERANCES as DEFAULT_COMPRESSION_TOLERANCES,
+    default_measurement_post_status,
 )
 from runtime.parsing import parse_bool
 from runtime.shared_state import snapshot_locked
@@ -123,15 +124,7 @@ def measurement_agent(config, shared_data):
         }
 
     def empty_post_status():
-        return {
-            "posting_enabled": False,
-            "last_success": None,
-            "last_attempt": None,
-            "last_error": None,
-            "pending_queue_count": 0,
-            "oldest_pending_age_s": None,
-            "last_enqueue": None,
-        }
+        return default_measurement_post_status()
 
     def ensure_post_status_locked():
         status_map = shared_data.get("measurement_post_status")

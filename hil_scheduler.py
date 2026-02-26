@@ -6,6 +6,7 @@ import time
 import pandas as pd
 
 from runtime.api_runtime_state import default_api_connection_runtime
+from runtime.defaults import default_measurement_post_status_by_plant
 from runtime.dispatch_write_runtime import default_dispatch_write_status_by_plant
 from runtime.engine_status_runtime import default_engine_status
 import scheduling.manual_schedule_manager as msm
@@ -29,21 +30,6 @@ def _empty_manual_series_df_by_key():
 
 def _default_manual_merge_enabled_by_key():
     return msm.default_manual_merge_enabled_map(default_enabled=False)
-
-
-def _default_measurement_post_status_by_plant(plant_ids):
-    return {
-        plant_id: {
-            "posting_enabled": False,
-            "last_success": None,
-            "last_attempt": None,
-            "last_error": None,
-            "pending_queue_count": 0,
-            "oldest_pending_age_s": None,
-            "last_enqueue": None,
-        }
-        for plant_id in plant_ids
-    }
 
 
 def _default_local_emulator_soc_seed_request_by_plant(plant_ids):
@@ -146,7 +132,7 @@ def build_initial_shared_data(config):
         "current_file_df_by_plant": _empty_df_by_plant(plant_ids),
         "pending_rows_by_file": {},
         "measurements_df": pd.DataFrame(),
-        "measurement_post_status": _default_measurement_post_status_by_plant(plant_ids),
+        "measurement_post_status": default_measurement_post_status_by_plant(plant_ids),
         "local_emulator_soc_seed_request_by_plant": _default_local_emulator_soc_seed_request_by_plant(plant_ids),
         "local_emulator_soc_seed_result_by_plant": _default_local_emulator_soc_seed_result_by_plant(plant_ids),
         "posting_runtime": _default_posting_runtime(config.get("ISTENTORE_POST_MEASUREMENTS_IN_API_MODE", True)),

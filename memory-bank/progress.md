@@ -72,10 +72,11 @@
 - Shared repo-root path helpers now live in `runtime/paths.py`; dashboard/logging/control-engine paths use them for `assets/`, `logs/`, and key `data/` path generation.
 - Low-risk dedup hygiene now centralizes shared timezone and measurement-compression defaults in `runtime/defaults.py` and shared boolean coercion in `runtime/parsing.py`, reducing cross-module drift between `config_loader.py`, `time_utils.py`, and `measurement/agent.py`.
 - `hil_scheduler.py` shared-state initialization now inlines `default_engine_status(...)` calls (duplicate wrapper helpers removed); no shared-state schema changes.
+- `runtime/defaults.py` now also centralizes measurement posting-status default shape builders reused by `hil_scheduler.py` and `measurement/agent.py`; dashboard manual editor callbacks now reuse `scheduling.manual_schedule_manager` `end`-row detection helper (exact clone removed).
 - `api-docs-examples/README.md` now marks that folder as legacy/reference material (not active runtime code).
 6. Automated validation now includes:
 - module compile checks (`python3 -m py_compile *.py dashboard/*.py control/*.py settings/*.py measurement/*.py scheduling/*.py modbus/*.py runtime/*.py`),
-- unit/smoke regression suite (`python -m unittest discover -s tests -v`, `176` tests in latest full run),
+- unit/smoke regression suite (`python -m unittest discover -s tests -v`, `177` tests in latest full run),
 - CI execution via `.github/workflows/ci.yml`.
  - targeted historical-plots helper unit tests in `tests/test_dashboard_history.py` (environment-dependent on local pandas install).
  - `tests/test_dashboard_history.py` now explicitly covers stale-placeholder and fully out-of-domain slider-range defaulting semantics.
@@ -97,7 +98,7 @@
 - targeted control/settings integration wiring regressions (`tests/test_dashboard_engine_wiring.py`) cover intent helper -> enqueue -> engine single-cycle -> shared-state mutation happy paths.
 - new targeted scheduler dispatch-write status regression (`tests/test_scheduler_dispatch_write_status.py`) covers failed-write retry, readback reconciliation (match/mismatch/fallback), and dispatch status publication/formatting.
 - targeted repo-path helper regressions in `tests/test_runtime_paths.py` cover project-root resolution from repo/test and `dashboard/` package anchors.
-- targeted shared-default dedup regression (`tests/test_runtime_defaults_dedup.py`) checks timezone + measurement-compression defaults remain centralized across importing modules.
+- targeted shared-default dedup regression (`tests/test_runtime_defaults_dedup.py`) checks timezone + measurement-compression defaults and measurement posting-status default builders remain centralized across importing modules.
 7. Dashboard control flow is now separated into `control/flows.py` with dedicated tests for safe-stop and transport switch semantics (source-switch helper removed from active dashboard flow).
 8. Runtime shared-state initialization contract is centralized in `build_initial_shared_data(config)` with schema tests.
  - Shared-state contract now includes local emulator SoC seed request/result maps for dashboard->plant-agent local-start coordination.
@@ -134,7 +135,7 @@
 8. Measurement-agent lock discipline improved in aggregate/current-cache/flush paths, but broader audit remains for lower-priority paths.
 9. Historical measurement files captured while compression was inactive remain dense by design (no automatic backfill).
 10. Historical `Plots` tab rescans/reads CSVs on demand and may need indexing/caching if `data/` grows large.
-11. Additional low-risk duplication remains (for example small helper clones and repeated runtime-state default shapes); intentionally deferred after the initial safe dedup pass.
+11. Additional low-risk duplication remains (for example repeated runtime-state default shapes beyond measurement posting status and same-value per-engine tuning constants); intentionally deferred after the initial safe dedup passes.
 
 ## Current Project Phase
 Runtime architecture is stable for dual-plant operation; current priority is reliability hardening of remaining high-risk paths and operational docs.

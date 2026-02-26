@@ -22,7 +22,7 @@
 - `runtime/engine_status_runtime.py`: shared engine queue/command-status summary publisher helpers reused by control and settings engines.
 - `runtime/engine_command_cycle_runtime.py`: shared command lifecycle execution bookkeeping helper (`running`/`finished`/exception->status publication) reused by control and settings engines.
 - `runtime/paths.py`: shared repo-root path resolution helpers (`get_project_root`, `get_assets_dir`, `get_logs_dir`, `get_data_dir`) used to avoid package-move path regressions.
-- `runtime/defaults.py`: lightweight shared constants module (timezone default + measurement compression defaults) used to avoid cross-module drift.
+- `runtime/defaults.py`: lightweight shared defaults module (timezone default, measurement compression defaults, and small shared runtime default-shape builders such as measurement posting-status defaults) used to avoid cross-module drift.
 - `runtime/parsing.py`: lightweight shared coercion helpers (currently shared boolean parsing).
 - `dashboard/command_intents.py`: pure dashboard trigger->command intent mapping helpers for UI callbacks.
 - `dashboard/settings_intents.py`: pure dashboard trigger->settings-command mapping helpers (manual/API/posting).
@@ -43,6 +43,7 @@
 - `scheduling/agent.py`: per-plant setpoint dispatch plus dispatch-write status publication/retry-aware dedupe behavior, with readback reconciliation against plant `p_setpoint`/`q_setpoint` registers using register-exact compare and cache fallback on read failure.
 - `plant_agent.py`: local dual-server plant emulation.
 - `measurement/agent.py`: sampling, recording, cache, API posting queue.
+- `measurement/agent.py` now reuses `runtime/defaults.py` for measurement posting-status default entry shape during runtime status normalization (in addition to compression defaults).
 - `measurement/storage.py`: measurement normalization, CSV read/write helpers, latest persisted per-plant SoC lookup helper, and row-similarity primitives for compression.
 - `istentore_api.py`: API auth, schedule fetch, measurement post, and bounded token re-auth retry on `401`/`403`.
 - `time_utils.py`: timezone normalization and serialization helpers.

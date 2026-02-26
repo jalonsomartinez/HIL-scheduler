@@ -1083,8 +1083,7 @@ def dashboard_agent(config, shared_data):
         def _sanitize_editor_rows(rows_to_sanitize):
             return msm._normalize_editor_rows(rows_to_sanitize)
 
-        def _is_end_row(row):
-            return str((row or {}).get("kind", "value")) == "end"
+        _is_end_row = msm._is_end_editor_row
 
         def _find_last_value_index(items):
             for rev_idx in range(len(items) - 1, -1, -1):
