@@ -1,0 +1,82 @@
+{
+	"info": {
+		"_postman_id": "2c22450c-3e68-4c07-8111-577342b64b21",
+		"name": "Istentore",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "505507"
+	},
+	"item": [
+		{
+			"name": "Login",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"email\": \"i-STENTORE\",\r\n    \"password\": \"bvS7bumKj86uKNt\"\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://lo2cti8ill.execute-api.eu-south-2.amazonaws.com/default/login",
+					"protocol": "https",
+					"host": [
+						"lo2cti8ill",
+						"execute-api",
+						"eu-south-2",
+						"amazonaws",
+						"com"
+					],
+					"path": [
+						"default",
+						"login"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Latest mFRR results",
+			"request": {
+				"method": "GET",
+				"header": []
+			},
+			"response": []
+		},
+		{
+			"name": "Latest WholeSale results",
+			"request": {
+				"method": "GET",
+				"header": []
+			},
+			"response": []
+		},
+		{
+			"name": "mFRR results by timestamp",
+			"request": {
+				"method": "GET",
+				"header": []
+			},
+			"response": []
+		},
+		{
+			"name": "WholeSale results by timestamp",
+			"request": {
+				"method": "GET",
+				"header": []
+			},
+			"response": []
+		},
+		{
+			"name": "Latest activations",
+			"request": {
+				"method": "GET",
+				"header": []
+			},
+			"response": []
+		}
+	]
+}

@@ -1,0 +1,136 @@
+# HIL Scheduler Configuration
+
+general:
+  log_level: INFO
+
+time:
+  timezone: "Europe/Madrid"
+
+schedule:
+  source_csv: "schedule_source.csv"
+  duration_h: 0.5
+  default_resolution_min: 5
+
+startup:
+  schedule_source: "manual"    # manual | api
+  transport_mode: "local"      # local | remote
+
+istentore_api:
+  base_url: "https://3mku48kfxf.execute-api.eu-south-2.amazonaws.com/default"
+  email: "i-STENTORE"
+  poll_start_time: "17:30"
+  schedule_period_minutes: 15
+  post_measurements_in_api_mode: true
+  measurement_post_period_s: 60
+  measurement_post_queue_maxlen: 2000
+  measurement_post_retry_initial_s: 2
+  measurement_post_retry_max_s: 60
+
+timing:
+  data_fetcher_period_s: 120
+  scheduler_period_s: 2
+  plant_period_s: 2
+  measurement_period_s: 2
+  measurements_write_period_s: 60
+
+recording:
+  compression:
+    enabled: true
+    tolerances:
+      p_setpoint_kw: 0.0
+      battery_active_power_kw: 0.1
+      q_setpoint_kvar: 0.0
+      battery_reactive_power_kvar: 0.1
+      soc_pu: 0.001
+      p_poi_kw: 0.1
+      q_poi_kvar: 0.1
+      v_poi_pu: 0.001
+
+plants:
+  lib:
+    name: "LIB"
+    model:
+      capacity_kwh: 500.0
+      initial_soc_pu: 0.5
+      power_limits:
+        p_max_kw: 1000.0
+        p_min_kw: -1000.0
+        q_max_kvar: 600.0
+        q_min_kvar: -600.0
+      poi_voltage_v: 20000.0
+    modbus:
+      local:
+        host: "localhost"
+        port: 5020
+        registers:
+          p_setpoint_in: 86
+          p_poi: 290
+          p_battery: 270
+          q_setpoint_in: 88
+          q_poi: 292
+          q_battery: 272
+          v_poi: 296
+          enable: 1
+          soc: 281
+      remote:
+        host: "10.117.133.21"
+        port: 502
+        registers:
+          p_setpoint_in: 86
+          p_poi: 290
+          p_battery: 270
+          q_setpoint_in: 88
+          q_poi: 292
+          q_battery: 272
+          v_poi: 296
+          enable: 1
+          soc: 281
+    measurement_series:
+      soc: 4
+      p: 6
+      q: 7
+      v: 8
+
+  vrfb:
+    name: "VRFB"
+    model:
+      capacity_kwh: 3000.0
+      initial_soc_pu: 0.5
+      power_limits:
+        p_max_kw: 3000.0
+        p_min_kw: -3000.0
+        q_max_kvar: 1200.0
+        q_min_kvar: -1200.0
+      poi_voltage_v: 20000.0
+    modbus:
+      local:
+        host: "localhost"
+        port: 5021
+        registers:
+          p_setpoint_in: 86
+          p_poi: 290
+          p_battery: 270
+          q_setpoint_in: 88
+          q_poi: 292
+          q_battery: 272
+          v_poi: 296
+          enable: 1
+          soc: 281
+      remote:
+        host: "10.117.133.22"
+        port: 502
+        registers:
+          p_setpoint_in: 86
+          p_poi: 290
+          p_battery: 270
+          q_setpoint_in: 88
+          q_poi: 292
+          q_battery: 272
+          v_poi: 296
+          enable: 1
+          soc: 281
+    measurement_series:
+      soc: 5
+      p: 11
+      q: 10
+      v: 9

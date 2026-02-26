@@ -1,0 +1,69 @@
+  "measurement_series": [
+    {
+      "id": 1,
+      "asset_id": 5,
+      "variable": "Generation",
+      "unit": "kWh"
+    },
+    {
+      "id": 2,
+      "asset_id": 4,
+      "variable": "Generation",
+      "unit": "kWh"
+    },
+    {
+      "id": 3,
+      "asset_id": 3,
+      "variable": "Generation",
+      "unit": "kWh"
+    },
+    {
+      "id": 4,
+      "asset_id": 1,
+      "variable": "SOC",
+      "unit": "kW"
+    },
+    {
+      "id": 5,
+      "asset_id": 2,
+      "variable": "SOC",
+      "unit": "kW"
+    },
+    {
+      "id": 6,
+      "asset_id": 1,
+      "variable": "active power",
+      "unit": "\"W\""
+    },
+    {
+      "id": 7,
+      "asset_id": 1,
+      "variable": "reactive power",
+      "unit": "\"var\""
+    },
+    {
+      "id": 8,
+      "asset_id": 1,
+      "variable": "voltage",
+      "unit": "\"V\""
+    },
+    {
+      "id": 9,
+      "asset_id": 2,
+      "variable": "voltage",
+      "unit": "\"V\""
+    },
+    {
+      "id": 10,
+      "asset_id": 2,
+      "variable": "reactive power",
+      "unit": "\"var\""
+    },
+    {
+      "id": 11,
+      "asset_id": 2,
+      "variable": "active power",
+      "unit": "\"W\""
+    }
+  ]
+}
