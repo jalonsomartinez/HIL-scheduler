@@ -29,20 +29,13 @@ from measurement.storage import (
     rows_are_similar,
 )
 from runtime.contracts import sanitize_plant_name
+from runtime.defaults import (
+    DEFAULT_MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S,
+    DEFAULT_MEASUREMENT_COMPRESSION_TOLERANCES as DEFAULT_COMPRESSION_TOLERANCES,
+)
+from runtime.parsing import parse_bool
 from runtime.shared_state import snapshot_locked
 from time_utils import get_config_tz, normalize_datetime_series, normalize_timestamp_value, now_tz, serialize_iso_with_tz
-
-
-DEFAULT_COMPRESSION_TOLERANCES = {
-    "p_setpoint_kw": 0.0,
-    "battery_active_power_kw": 0.1,
-    "q_setpoint_kvar": 0.0,
-    "battery_reactive_power_kvar": 0.1,
-    "soc_pu": 0.0001,
-    "p_poi_kw": 0.1,
-    "q_poi_kvar": 0.1,
-    "v_poi_kV": 0.001,
-}
 
 
 def measurement_agent(config, shared_data):
@@ -59,16 +52,10 @@ def measurement_agent(config, shared_data):
     measurement_period_delta = timedelta(seconds=measurement_period_s)
     compression_enabled_raw = config.get("MEASUREMENT_COMPRESSION_ENABLED", True)
     configured_tolerances = config.get("MEASUREMENT_COMPRESSION_TOLERANCES", {})
-    compression_max_kept_gap_s_raw = config.get("MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S", 3600.0)
-
-    def parse_bool(value, default):
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, str):
-            return value.strip().lower() in ["1", "true", "yes", "on"]
-        if value is None:
-            return default
-        return bool(value)
+    compression_max_kept_gap_s_raw = config.get(
+        "MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S",
+        DEFAULT_MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S,
+    )
 
     compression_enabled = parse_bool(compression_enabled_raw, True)
     if not isinstance(configured_tolerances, dict):
@@ -86,9 +73,9 @@ def measurement_agent(config, shared_data):
     try:
         compression_max_kept_gap_s = float(compression_max_kept_gap_s_raw)
         if compression_max_kept_gap_s < 0.0:
-            compression_max_kept_gap_s = 3600.0
+            compression_max_kept_gap_s = DEFAULT_MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S
     except (TypeError, ValueError):
-        compression_max_kept_gap_s = 3600.0
+        compression_max_kept_gap_s = DEFAULT_MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S
 
     config_post_measurements_enabled = parse_bool(
         config.get("ISTENTORE_POST_MEASUREMENTS_IN_API_MODE", True),

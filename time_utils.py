@@ -6,8 +6,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pandas as pd
 
-
-DEFAULT_TIMEZONE_NAME = "Europe/Madrid"
+from runtime.defaults import DEFAULT_TIMEZONE_NAME
 
 
 def get_timezone(timezone_name: str) -> ZoneInfo:

@@ -84,14 +84,6 @@ def _default_plant_operating_state_by_plant(plant_ids):
     return {plant_id: "unknown" for plant_id in plant_ids}
 
 
-def _default_control_engine_status():
-    return default_engine_status(include_last_observed_refresh=True)
-
-
-def _default_settings_engine_status():
-    return default_engine_status(include_last_observed_refresh=False)
-
-
 def _default_manual_series_runtime_state_by_key():
     series_map = _empty_manual_series_df_by_key()
     merge_map = _default_manual_merge_enabled_by_key()
@@ -182,13 +174,13 @@ def build_initial_shared_data(config):
         "plant_observed_state_by_plant": _default_plant_observed_state_by_plant(plant_ids),
         "plant_operating_state_by_plant": _default_plant_operating_state_by_plant(plant_ids),
         "dispatch_write_status_by_plant": default_dispatch_write_status_by_plant(plant_ids),
-        "control_engine_status": _default_control_engine_status(),
+        "control_engine_status": default_engine_status(include_last_observed_refresh=True),
         "settings_command_queue": queue.Queue(maxsize=128),
         "settings_command_status_by_id": {},
         "settings_command_history_ids": [],
         "settings_command_active_id": None,
         "settings_command_next_id": 1,
-        "settings_engine_status": _default_settings_engine_status(),
+        "settings_engine_status": default_engine_status(include_last_observed_refresh=False),
         "lock": threading.Lock(),
         "shutdown_event": threading.Event(),
         "log_file_path": None,

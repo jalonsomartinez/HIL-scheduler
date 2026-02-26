@@ -28,6 +28,14 @@
 ## Rolling Change Log (Compressed, 30-Day Window)
 
 ### 2026-02-26
+- Completed a safe dedup pass for duplicated constants/helpers (no behavior/schema changes):
+  - added lightweight shared modules `runtime/defaults.py` (timezone + measurement-compression defaults) and `runtime/parsing.py` (`parse_bool`),
+  - updated `config_loader.py`, `time_utils.py`, and `measurement/agent.py` to import shared defaults/helpers instead of keeping duplicate local definitions,
+  - removed duplicated `default_engine_status(...)` wrapper helpers from `hil_scheduler.py` by inlining the calls in shared-state initialization,
+  - added `tests/test_runtime_defaults_dedup.py` to lock shared-default consistency and prevent future drift.
+- Validation for dedup pass:
+  - targeted compile checks passed for changed files,
+  - full unittest suite passed in repo virtualenv (`venv/bin/python -m unittest discover -s tests -v`, `176` tests).
 - Implemented balanced repo package reorganization (no `src/` migration):
   - moved active runtime modules into domain packages (`dashboard/`, `control/`, `settings/`, `measurement/`, `scheduling/`, `modbus/`, `runtime/`) while keeping `hil_scheduler.py` as the root launcher,
   - renamed stale control-path modules for clarity (`dashboard_modbus_io.py` -> `control/modbus_io.py`, `dashboard_control.py` -> `control/flows.py`) and renamed generic `utils.py` to `modbus/legacy_scaling.py`,

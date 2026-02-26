@@ -11,20 +11,13 @@ import yaml
 
 from modbus.codec import format_meta
 from modbus.units import validate_point_unit
+from runtime.defaults import (
+    DEFAULT_MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S,
+    DEFAULT_MEASUREMENT_COMPRESSION_TOLERANCES,
+    DEFAULT_TIMEZONE_NAME,
+)
+from runtime.parsing import parse_bool
 
-
-DEFAULT_TIMEZONE_NAME = "Europe/Madrid"
-DEFAULT_MEASUREMENT_COMPRESSION_TOLERANCES = {
-    "p_setpoint_kw": 0.0,
-    "battery_active_power_kw": 0.1,
-    "q_setpoint_kvar": 0.0,
-    "battery_reactive_power_kvar": 0.1,
-    "soc_pu": 0.0001,
-    "p_poi_kw": 0.1,
-    "q_poi_kvar": 0.1,
-    "v_poi_kV": 0.001,
-}
-DEFAULT_MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S = 3600.0
 DEFAULT_STARTUP_INITIAL_SOC_PU = 0.5
 DEFAULT_MODEL = {
     "capacity_kwh": 50.0,
@@ -55,13 +48,7 @@ REQUIRED_MODBUS_POINT_NAMES = (
 
 
 def _parse_bool(value, default):
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() in ["1", "true", "yes", "on"]
-    if value is None:
-        return default
-    return bool(value)
+    return parse_bool(value, default)
 
 
 def _parse_float(value, default, key_name, min_value=None):

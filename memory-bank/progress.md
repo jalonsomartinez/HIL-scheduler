@@ -70,10 +70,12 @@
 - Balanced package layout is now in place for active runtime modules (`dashboard/`, `control/`, `settings/`, `measurement/`, `scheduling/`, `modbus/`, `runtime/`) while `hil_scheduler.py` remains the root launcher.
 - Dashboard explicitly pins Dash `assets_folder` to repo-root `assets/`, and dashboard log helpers resolve repo-root `logs/` even when called from the `dashboard/` package directory.
 - Shared repo-root path helpers now live in `runtime/paths.py`; dashboard/logging/control-engine paths use them for `assets/`, `logs/`, and key `data/` path generation.
+- Low-risk dedup hygiene now centralizes shared timezone and measurement-compression defaults in `runtime/defaults.py` and shared boolean coercion in `runtime/parsing.py`, reducing cross-module drift between `config_loader.py`, `time_utils.py`, and `measurement/agent.py`.
+- `hil_scheduler.py` shared-state initialization now inlines `default_engine_status(...)` calls (duplicate wrapper helpers removed); no shared-state schema changes.
 - `api-docs-examples/README.md` now marks that folder as legacy/reference material (not active runtime code).
 6. Automated validation now includes:
 - module compile checks (`python3 -m py_compile *.py dashboard/*.py control/*.py settings/*.py measurement/*.py scheduling/*.py modbus/*.py runtime/*.py`),
-- unit/smoke regression suite (`python -m unittest discover -s tests -v`, `170` tests in latest full run),
+- unit/smoke regression suite (`python -m unittest discover -s tests -v`, `176` tests in latest full run),
 - CI execution via `.github/workflows/ci.yml`.
  - targeted historical-plots helper unit tests in `tests/test_dashboard_history.py` (environment-dependent on local pandas install).
  - `tests/test_dashboard_history.py` now explicitly covers stale-placeholder and fully out-of-domain slider-range defaulting semantics.
@@ -95,6 +97,7 @@
 - targeted control/settings integration wiring regressions (`tests/test_dashboard_engine_wiring.py`) cover intent helper -> enqueue -> engine single-cycle -> shared-state mutation happy paths.
 - new targeted scheduler dispatch-write status regression (`tests/test_scheduler_dispatch_write_status.py`) covers failed-write retry, readback reconciliation (match/mismatch/fallback), and dispatch status publication/formatting.
 - targeted repo-path helper regressions in `tests/test_runtime_paths.py` cover project-root resolution from repo/test and `dashboard/` package anchors.
+- targeted shared-default dedup regression (`tests/test_runtime_defaults_dedup.py`) checks timezone + measurement-compression defaults remain centralized across importing modules.
 7. Dashboard control flow is now separated into `control/flows.py` with dedicated tests for safe-stop and transport switch semantics (source-switch helper removed from active dashboard flow).
 8. Runtime shared-state initialization contract is centralized in `build_initial_shared_data(config)` with schema tests.
  - Shared-state contract now includes local emulator SoC seed request/result maps for dashboard->plant-agent local-start coordination.
@@ -118,6 +121,7 @@
 6. Decide whether to provide an optional offline recompression utility for historical dense CSV files.
 7. Continue lock-discipline cleanup in `measurement/agent.py` beyond the recently refactored aggregate/current-cache/flush paths (only if contention justifies it).
 8. Evaluate command cancellation/prioritization needs for long safe-stop/transport flows (if operator usage demands it).
+9. Continue low-risk dedup cleanup (shared constants/helper clones) without changing runtime contracts.
 
 ## Known Issues / Gaps
 1. No persistent store for API posting retry queue across process restarts.
@@ -130,6 +134,7 @@
 8. Measurement-agent lock discipline improved in aggregate/current-cache/flush paths, but broader audit remains for lower-priority paths.
 9. Historical measurement files captured while compression was inactive remain dense by design (no automatic backfill).
 10. Historical `Plots` tab rescans/reads CSVs on demand and may need indexing/caching if `data/` grows large.
+11. Additional low-risk duplication remains (for example small helper clones and repeated runtime-state default shapes); intentionally deferred after the initial safe dedup pass.
 
 ## Current Project Phase
 Runtime architecture is stable for dual-plant operation; current priority is reliability hardening of remaining high-risk paths and operational docs.

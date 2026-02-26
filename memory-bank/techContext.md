@@ -22,12 +22,14 @@
 - `runtime/engine_status_runtime.py`: shared engine queue/command-status summary publisher helpers reused by control and settings engines.
 - `runtime/engine_command_cycle_runtime.py`: shared command lifecycle execution bookkeeping helper (`running`/`finished`/exception->status publication) reused by control and settings engines.
 - `runtime/paths.py`: shared repo-root path resolution helpers (`get_project_root`, `get_assets_dir`, `get_logs_dir`, `get_data_dir`) used to avoid package-move path regressions.
+- `runtime/defaults.py`: lightweight shared constants module (timezone default + measurement compression defaults) used to avoid cross-module drift.
+- `runtime/parsing.py`: lightweight shared coercion helpers (currently shared boolean parsing).
 - `dashboard/command_intents.py`: pure dashboard trigger->command intent mapping helpers for UI callbacks.
 - `dashboard/settings_intents.py`: pure dashboard trigger->settings-command mapping helpers (manual/API/posting).
 - `dashboard/settings_ui_state.py`: pure UI transition/button-state helpers for manual/API/posting commanded resources.
-- `dashboard/control_health.py`: pure Status-tab health formatting helpers for control-engine queue/runtime summaries and per-plant Modbus diagnostics.
 - `dashboard/control_health.py`: pure Status-tab health formatting helpers for control-engine queue/runtime summaries, per-plant Modbus diagnostics, and dispatch-write status lines (including compact scheduler readback hints when scheduler telemetry is available).
 - `config_loader.py`: validates/normalizes YAML into runtime dict.
+- `config_loader.py` now imports shared defaults/parsing from `runtime/defaults.py` and `runtime/parsing.py` for timezone and recording-compression fallback consistency (no schema behavior change).
 - `dashboard/agent.py`: UI layout and callbacks; enqueues control + settings intents (including per-plant dispatch pause/resume), renders status from shared state/cached plant observations, applies short click-feedback transition overlays, and keeps manual editor drafts dashboard-owned.
 - `dashboard/layout.py`: Dash layout builder; Status plant cards include independent per-plant dispatch toggles (`Sending` / `Paused`) in addition to start/stop and recording controls.
 - `scheduling/manual_schedule_manager.py`: manual override series metadata, editor breakpoint row conversions/auto-sanitization, relative CSV load/save parsing, terminal `end` row <-> stored duplicate-row encoding, and manual-series rebuild/sanitization helpers.
@@ -44,6 +46,7 @@
 - `measurement/storage.py`: measurement normalization, CSV read/write helpers, latest persisted per-plant SoC lookup helper, and row-similarity primitives for compression.
 - `istentore_api.py`: API auth, schedule fetch, measurement post, and bounded token re-auth retry on `401`/`403`.
 - `time_utils.py`: timezone normalization and serialization helpers.
+- `time_utils.py` re-exports `DEFAULT_TIMEZONE_NAME` from `runtime/defaults.py` to preserve existing imports while keeping the constant centralized.
 - `logger_config.py`: console/file/session logging setup.
 
 ## Configuration Schema (Current)
