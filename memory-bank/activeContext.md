@@ -16,7 +16,7 @@
 1. Control-engine command queue is serialized and bounded; long safe-stop/transport operations can delay later commands (UI queue/backlog visibility now exists, but per-plant queue topology remains a deferred design decision).
 2. API posting durability remains in-memory only; pending queue is lost on process restart.
 3. Logging retention policy is undefined; date-routed files accumulate without automatic pruning.
-4. Operational validation gap remains for remote transport end-to-end flows.
+4. Operational validation gap remains for remote transport end-to-end flows, although the stale-running-on-switch status symptom is addressed in current runtime code.
 5. Legacy compatibility aliases in `config_loader.py` are now opt-in; removal timeline for the fallback flag remains open.
 6. Lock-discipline target is improved but not complete; high-value measurement cache paths were refactored, and lower-priority measurement/cache paths still need audit.
 7. Historical dense measurement CSV files created while compression was inactive are intentionally not backfilled.
@@ -27,6 +27,23 @@
 12. Dispatch pause semantics intentionally freeze the last setpoint on the plant (no zeroing on pause); operator validation and runbook wording are needed to avoid misuse.
 
 ## Rolling Change Log (Compressed, 30-Day Window)
+
+### 2026-02-27
+- Hardened transport-switch safety/latency path for unreachable remote endpoints:
+  - `control/modbus_io.wait_until_battery_power_below_threshold(...)` now supports fail-fast return on connect failure,
+  - control-engine safe-stop path now enables fail-fast behavior so unreachable endpoints no longer wait the full decay timeout before disable fallback.
+- Hardened transport-switch runtime state handoff to avoid stale UI carryover:
+  - transport-switch flow now invalidates `plant_observed_state_by_plant` entries to explicit stale/unknown values,
+  - transport-switch flow now sets `plant_operating_state_by_plant[*] = "unknown"` immediately and syncs `dispatch_write_status_by_plant[*].sending_enabled = False`.
+- Hardened Status-tab stale handling:
+  - dashboard now derives an effective stale flag from both cached `stale` and `last_success` age guard before rendering physical plant state,
+  - physical state now prefers `Unknown` when observations are effectively stale, preventing stale `Running` display during long control-engine commands.
+- Added targeted regression coverage:
+  - `tests/test_control_modbus_io.py` for fail-fast connect-failure vs reachable-success wait behavior,
+  - expanded `tests/test_dashboard_control_flows.py` transport-switch reset assertions to include observed-state/operating-state/dispatch-mirror invalidation,
+  - expanded `tests/test_dashboard_ui_state.py` for effective stale age-guard helper behavior.
+- Validation:
+  - targeted suite passed in repo venv: `venv/bin/python -m unittest tests.test_dashboard_control_flows tests.test_dashboard_ui_state tests.test_control_modbus_io -v` (`10` tests).
 
 ### 2026-02-26
 - Standardized dashboard binary state controls to segmented toggles across Status/API/Manual UI:

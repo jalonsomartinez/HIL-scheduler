@@ -34,6 +34,8 @@
   - `control/engine_agent.py` serially executes commands and owns control-path Modbus I/O,
   - shared command lifecycle status/history is tracked in bounded shared-state maps/queue,
 - cached plant observed-state publication (`enable`, `p_battery`, `q_battery`, stale/error metadata) for Status-tab control/status rendering (no direct dashboard Modbus polling on those paths),
+- transport-switch flow now invalidates observed/operating caches and dispatch-send mirrors immediately after mode change so stale pre-switch running state is not carried across modes,
+- safe-stop decay waiting now supports fail-fast on connect failure in control-path Modbus I/O, reducing transport-switch blocking time when remote endpoints are unreachable,
 - independent per-plant dispatch-send toggles (`Sending` / `Paused`) in Status cards, command-driven through the control engine (`plant.dispatch_enable` / `plant.dispatch_disable`) and mapped to `scheduler_running_by_plant`,
 - standardized segmented-toggle UI pattern across Status/API/Manual binary controls with semantic positive/negative active colors (green/red) for start/stop and enable/disable semantics; transport remains neutral-colored,
 - physical plant-state cache (`plant_operating_state_by_plant`) derived from observed Modbus enable state and shown separately from control transition state,
@@ -103,6 +105,12 @@
 - new targeted scheduler dispatch-write status regression (`tests/test_scheduler_dispatch_write_status.py`) covers failed-write retry, readback reconciliation (match/mismatch/fallback), and dispatch status publication/formatting.
 - targeted repo-path helper regressions in `tests/test_runtime_paths.py` cover project-root resolution from repo/test and `dashboard/` package anchors.
 - targeted shared-default dedup regression (`tests/test_runtime_defaults_dedup.py`) checks timezone + measurement-compression defaults and measurement posting-status default builders remain centralized across importing modules.
+- targeted transport/state-staleness hardening regressions:
+  - `tests/test_control_modbus_io.py` (fail-fast connect-failure and reachable success behavior for safe-stop decay wait),
+  - expanded `tests/test_dashboard_control_flows.py` transport-switch reset coverage for observed/operating/dispatch runtime state invalidation,
+  - expanded `tests/test_dashboard_ui_state.py` effective observed-state staleness age-guard behavior.
+- latest targeted runtime validation passed in repo venv:
+  - `venv/bin/python -m unittest tests.test_dashboard_control_flows tests.test_dashboard_ui_state tests.test_control_modbus_io -v` (`10` tests).
 7. Dashboard control flow is now separated into `control/flows.py` with dedicated tests for safe-stop and transport switch semantics (source-switch helper removed from active dashboard flow).
 8. Runtime shared-state initialization contract is centralized in `build_initial_shared_data(config)` with schema tests.
  - Shared-state contract now includes local emulator SoC seed request/result maps for dashboard->plant-agent local-start coordination.

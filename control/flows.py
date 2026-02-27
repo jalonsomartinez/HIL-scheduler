@@ -1,6 +1,7 @@
 """Shared control-flow helpers for control-engine safe-stop and transport switches."""
 
 import logging
+import time
 
 import pandas as pd
 
@@ -28,15 +29,25 @@ def safe_stop_plant(
     else:
         logging.warning("Control flow: %s zero setpoints write failed.", plant_id.upper())
 
+    wait_started = time.monotonic()
     reached = wait_until_battery_power_below_threshold(
         plant_id,
         threshold_kw=threshold_kw,
         timeout_s=timeout_s,
     )
+    wait_elapsed_s = time.monotonic() - wait_started
     if not reached:
-        logging.warning("Control flow: safe stop timeout for %s. Forcing disable.", plant_id.upper())
+        logging.warning(
+            "Control flow: safe stop threshold not reached for %s after %.2fs. Forcing disable.",
+            plant_id.upper(),
+            wait_elapsed_s,
+        )
     else:
-        logging.info("Control flow: %s battery power decayed below threshold.", plant_id.upper())
+        logging.info(
+            "Control flow: %s battery power decayed below threshold in %.2fs.",
+            plant_id.upper(),
+            wait_elapsed_s,
+        )
 
     disable_ok = set_enable(plant_id, 0)
     if disable_ok:
@@ -78,12 +89,35 @@ def perform_transport_switch(shared_data, plant_ids, requested_mode, safe_stop_a
         safe_stop_all_plants_fn()
 
         with shared_data["lock"]:
+            observed_state_map = shared_data.setdefault("plant_observed_state_by_plant", {})
+            plant_operating_state_map = shared_data.setdefault("plant_operating_state_by_plant", {})
+            dispatch_write_status_map = shared_data.setdefault("dispatch_write_status_by_plant", {})
             for plant_id in plant_ids:
                 shared_data["scheduler_running_by_plant"][plant_id] = False
                 shared_data["plant_transition_by_plant"][plant_id] = "stopped"
                 shared_data["measurements_filename_by_plant"][plant_id] = None
                 shared_data["current_file_df_by_plant"][plant_id] = pd.DataFrame()
                 shared_data["current_file_path_by_plant"][plant_id] = None
+                prev_observed = dict(observed_state_map.get(plant_id, {}) or {})
+                prev_observed.update(
+                    {
+                        "enable_state": None,
+                        "p_battery_kw": None,
+                        "q_battery_kvar": None,
+                        "last_attempt": None,
+                        "last_success": None,
+                        "error": None,
+                        "read_status": "unknown",
+                        "last_error": None,
+                        "consecutive_failures": 0,
+                        "stale": True,
+                    }
+                )
+                observed_state_map[plant_id] = prev_observed
+                plant_operating_state_map[plant_id] = "unknown"
+                dispatch_state = dict(dispatch_write_status_map.get(plant_id, {}) or {})
+                dispatch_state["sending_enabled"] = False
+                dispatch_write_status_map[plant_id] = dispatch_state
             shared_data["transport_mode"] = requested_mode
             shared_data["transport_switching"] = False
         logging.info("Control flow: transport mode switched to %s", requested_mode)

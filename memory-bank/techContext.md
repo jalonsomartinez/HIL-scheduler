@@ -31,12 +31,13 @@
 - `config_loader.py`: validates/normalizes YAML into runtime dict.
 - `config_loader.py` now imports shared defaults/parsing from `runtime/defaults.py` and `runtime/parsing.py` for timezone and recording-compression fallback consistency (no schema behavior change).
 - `config_loader.py` uses a `5s` fallback for `timing.measurement_period_s` (`MEASUREMENT_PERIOD_S`) when the key is omitted.
-- `dashboard/agent.py`: UI layout and callbacks; enqueues control + settings intents (including per-plant dispatch pause/resume), renders status from shared state/cached plant observations, applies standardized segmented-toggle state rendering, and supports a generic confirmable-toggle modal flow (currently transport + plant power) with server-handoff-aware optimistic transitions for confirmable toggles.
+- `dashboard/agent.py`: UI layout and callbacks; enqueues control + settings intents (including per-plant dispatch pause/resume), renders status from shared state/cached plant observations (including effective stale age-guard handling from observed `last_success`), applies standardized segmented-toggle state rendering, and supports a generic confirmable-toggle modal flow (currently transport + plant power) with server-handoff-aware optimistic transitions for confirmable toggles.
 - `dashboard/layout.py`: Dash layout builder; Status/API/Manual binary controls use standardized segmented toggles, and the layout includes a reusable toggle confirmation modal + stores (`toggle-confirm-request`, `toggle-confirm-action`) in addition to the existing bulk-action confirmation modal.
 - `scheduling/manual_schedule_manager.py`: manual override series metadata, editor breakpoint row conversions/auto-sanitization, relative CSV load/save parsing, terminal `end` row <-> stored duplicate-row encoding, and manual-series rebuild/sanitization helpers.
 - `dashboard/history.py`: historical plots helper utilities (file scan/index, slider range helpers, CSV crop/export serialization).
 - `dashboard/plotting.py`: shared Plotly figure/theme helpers for status and historical plant plots, including optional x-window cropping, Status-tab current-time indicator lines, historical setpoint fallback from measurement rows, and optional voltage y-range padding override.
 - `control/flows.py`: safe-stop/transport-switch control-flow helpers reused by control engine.
+- `control/modbus_io.py`: control-path Modbus read/write helpers for enable/setpoint/safe-stop decay wait, including fail-fast connect-failure behavior for safe-stop decay waiting when enabled by the control engine.
 - `assets/custom.css`: dashboard design tokens, responsive rules, control/tab/modal/log styling.
 - `assets/brand/fonts/*`: locally served dashboard fonts (DM Sans files + OFL license).
 - `api-docs-examples/README.md`: marks API-doc examples/scripts as legacy/reference material (not active runtime code).
@@ -178,9 +179,11 @@ Per-plant config includes:
 - `measurement/agent.py` lock-discipline cleanup now also covers `flush_pending_rows()` pending-row swap/process/merge flow (shorter lock sections during CSV flush prep).
 - Local SoC restore handshake is best-effort by design: control-engine start waits briefly for plant-agent ack and logs timeout, but still proceeds with plant enable/start sequence.
 - Control command execution is serialized through a bounded FIFO queue in shared state; high-latency stop/transport flows can delay later queued commands by design in this first pass.
-- Dashboard status controls now depend on control-engine observed-state cache freshness (`stale` marker) rather than direct Modbus reads; stale cache displays `Unknown` for Modbus enable.
+- Safe-stop decay waiting now supports fail-fast return on connect failure in the control path (used during control-engine safe-stop) so unreachable endpoints do not consume full wait timeout before disable fallback.
+- Dashboard status controls now depend on control-engine observed-state cache freshness (cached `stale` plus `last_success` age guard) rather than direct Modbus reads; effectively stale cache displays `Unknown` for physical Modbus-enable-derived state.
 - Confirmable toggles (transport + plant power) use server-handoff-aware optimistic transition feedback with min/max hold bounds derived from `MEASUREMENT_PERIOD_S`; other toggles currently use a fixed optimistic hold window.
 - Dashboard Status tab health lines are server-published-state-only (control engine + observed-state cache) and include queue/backlog and per-plant Modbus reachability/read-error diagnostics.
+- Transport switch flow now invalidates observed-state/operating-state caches and synchronizes dispatch-send mirrors to `False` before switching mode to prevent stale cross-mode carryover in Status UI.
 - Dashboard Status plant cards now also depend on `dispatch_write_status_by_plant` and `scheduler_running_by_plant` to render independent dispatch send/paused state and last write info.
 - Scheduler-originated dispatch write status attempts now include readback reconciliation telemetry in `last_scheduler_context` (compare source, readback ok/mismatch flags); current dashboard summary displays a compact inline `RB P/Q=...` hint only when the latest dispatch attempt source is `scheduler`.
 - Plant start (`plant.start`) no longer auto-enables `scheduler_running_by_plant`; per-plant dispatch send control is independent and command-driven (`plant.dispatch_enable` / `plant.dispatch_disable`).

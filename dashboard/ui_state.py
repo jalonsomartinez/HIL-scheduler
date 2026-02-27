@@ -1,5 +1,35 @@
 """Pure UI state helpers for dashboard controls."""
 
+from datetime import datetime
+
+
+def _coerce_datetime(value):
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    try:
+        return datetime.fromisoformat(str(value))
+    except Exception:
+        return None
+
+
+def is_observed_state_effectively_stale(observed_state, *, now_ts, stale_after_s=3.0):
+    observed = dict(observed_state or {})
+    if bool(observed.get("stale", True)):
+        return True
+    now_value = _coerce_datetime(now_ts)
+    last_success = _coerce_datetime(observed.get("last_success"))
+    if now_value is None or last_success is None:
+        return True
+    try:
+        age_s = (now_value - last_success).total_seconds()
+    except Exception:
+        return True
+    if age_s < 0:
+        age_s = 0.0
+    return age_s > float(stale_after_s)
+
 
 def resolve_runtime_transition_state(transition_state, enable_state):
     if transition_state == "starting" and enable_state == 1:

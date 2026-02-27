@@ -175,8 +175,9 @@ shared_data = {
 - Sequence:
   1. Set dispatch gate off for the plant.
   2. Write zero active and reactive setpoints.
-  3. Wait for measured battery active/reactive values below threshold.
+  3. Wait for measured battery active/reactive values below threshold, with fail-fast fallback when endpoint connect fails in the control path.
   4. Disable plant.
+- If decay wait cannot verify threshold because control-path reads are unreachable, safe-stop continues to forced disable and returns `threshold_reached=False`.
 - Return payload:
   - `{ "threshold_reached": bool, "disable_ok": bool }`.
 
@@ -187,8 +188,10 @@ shared_data = {
   2. On confirm, dashboard enqueues transport-switch intent and shows target-specific optimistic transition feedback in the toggle.
   3. Control engine sets transport switching flag.
   4. Control engine safe-stops both plants.
-  5. Control engine applies transport selector update.
-  6. Control engine clears switching flag.
+  5. Control engine invalidates per-plant observed-state cache entries and physical operating-state cache to explicit stale/unknown values.
+  6. Control engine syncs dispatch-send status mirrors to `False` for both plants.
+  7. Control engine applies transport selector update.
+  8. Control engine clears switching flag.
 
 ### Fleet Start/Stop Actions
 - Status tab top card provides confirmation-gated bulk controls.
@@ -216,6 +219,7 @@ shared_data = {
 - Cache entries track `last_attempt`, `last_success`, `error`, `read_status`, `last_error`, `consecutive_failures`, and `stale`.
 - Control engine also publishes `plant_operating_state_by_plant` from observed enable level and staleness.
 - Dashboard Status tab consumes this cache and does not perform direct Modbus polling for control/status paths.
+- Dashboard rendering treats observed freshness as an effective contract (`stale` marker plus `last_success` age guard) so long-running commands do not leave stale physical `running` state visible.
 - Plant state semantics in UI/runtime:
   - `starting` / `stopping` are authoritative runtime transition states owned by the control engine (`plant_transition_by_plant`).
   - Physical plant `running` / `stopped` are derived from observed Modbus `enable` (`plant_operating_state_by_plant`).

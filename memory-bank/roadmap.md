@@ -9,7 +9,7 @@ Increase reliability and operator confidence without changing the core dual-plan
 1. Add remote transport smoke coverage equivalent to local smoke checks.
 2. Keep compile + unittest checks green in CI on every PR/push.
 3. Expand integration wiring coverage beyond the current control/settings happy-path engine-cycle tests (for example callback-level regressions, bulk actions, and rejection/error paths).
-4. Add safe-stop timeout-path regression test (`threshold_reached=False`, disable fallback).
+4. Expand transport hardening regression coverage beyond helper tests (engine-level transport-switch latency bounds, cache invalidation handoff, and queued-command behavior under unreachable remote endpoints).
 5. Keep measurement compression and config-loader schema regression coverage green to prevent config/runtime drift.
 6. Keep API schedule fetcher poll-gate/config regression coverage green (`tomorrow_poll_start_time` parsing, gate timing, partial-window status semantics).
 7. Add dashboard/manual-editor callback regressions for key manual override UX flows (series selector load, CSV upload, forced terminal `end` row behavior, breakpoint add/delete, row time auto-clamping).

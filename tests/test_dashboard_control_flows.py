@@ -17,6 +17,37 @@ def _shared_data():
         "measurements_filename_by_plant": {"lib": "data/file.csv", "vrfb": "data/file2.csv"},
         "current_file_path_by_plant": {"lib": "data/file.csv", "vrfb": "data/file2.csv"},
         "current_file_df_by_plant": {"lib": pd.DataFrame([{"a": 1}]), "vrfb": pd.DataFrame([{"a": 2}])},
+        "plant_observed_state_by_plant": {
+            "lib": {
+                "enable_state": 1,
+                "p_battery_kw": 10.0,
+                "q_battery_kvar": -2.0,
+                "last_attempt": "2026-02-26T10:00:00+00:00",
+                "last_success": "2026-02-26T10:00:00+00:00",
+                "error": None,
+                "read_status": "ok",
+                "last_error": None,
+                "consecutive_failures": 0,
+                "stale": False,
+            },
+            "vrfb": {
+                "enable_state": 1,
+                "p_battery_kw": 5.0,
+                "q_battery_kvar": 0.5,
+                "last_attempt": "2026-02-26T10:00:00+00:00",
+                "last_success": "2026-02-26T10:00:00+00:00",
+                "error": None,
+                "read_status": "ok",
+                "last_error": None,
+                "consecutive_failures": 0,
+                "stale": False,
+            },
+        },
+        "plant_operating_state_by_plant": {"lib": "running", "vrfb": "running"},
+        "dispatch_write_status_by_plant": {
+            "lib": {"sending_enabled": True, "last_attempt_status": "ok"},
+            "vrfb": {"sending_enabled": True, "last_attempt_status": "ok"},
+        },
         "transport_mode": "local",
         "transport_switching": False,
     }
@@ -76,6 +107,12 @@ class DashboardControlFlowTests(unittest.TestCase):
             self.assertIsNone(shared_data["measurements_filename_by_plant"][plant_id])
             self.assertIsNone(shared_data["current_file_path_by_plant"][plant_id])
             self.assertTrue(shared_data["current_file_df_by_plant"][plant_id].empty)
+            self.assertTrue(shared_data["plant_observed_state_by_plant"][plant_id]["stale"])
+            self.assertIsNone(shared_data["plant_observed_state_by_plant"][plant_id]["enable_state"])
+            self.assertIsNone(shared_data["plant_observed_state_by_plant"][plant_id]["last_success"])
+            self.assertEqual(shared_data["plant_observed_state_by_plant"][plant_id]["read_status"], "unknown")
+            self.assertEqual(shared_data["plant_operating_state_by_plant"][plant_id], "unknown")
+            self.assertFalse(shared_data["dispatch_write_status_by_plant"][plant_id]["sending_enabled"])
 
     def test_safe_stop_plant_timeout_path_propagates_result(self):
         shared_data = _shared_data()

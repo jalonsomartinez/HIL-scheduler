@@ -33,7 +33,7 @@ The system closes the operational gap between market/control schedules and plant
 - Start enables/stops the plant control path but does not auto-enable scheduler sending.
 - Start resolves immediate setpoint selection from the merged effective schedule (API base + enabled manual overrides); the initial write is sent only if dispatch sending is enabled, otherwise it is skipped and surfaced in status.
 - Pausing dispatch intentionally freezes the last setpoint already in the plant (no automatic zeroing on pause).
-- Stop executes safe-stop flow (gate off, zero setpoints, decay wait, disable).
+- Stop executes safe-stop flow (gate off, zero setpoints, decay wait, disable), with fail-fast decay-wait fallback on control-path connect failure.
 
 ### Recording
 - Recording enable is per plant through `measurements_filename_by_plant`.
@@ -46,6 +46,7 @@ The system closes the operational gap between market/control schedules and plant
 - API measurement posting toggle gates posting of actual measurements regardless of manual override usage.
 - Status tab (renamed from `Status & Plots`) keeps inline API summary with today/tomorrow fetched-point counts for both plants.
 - Status tab plant-state controls/status now render from cached runtime-published plant observed state (no direct dashboard Modbus polling for control/status paths).
+- After transport changes (especially to unreachable remote endpoints), Status intentionally prefers physical `Unknown` until fresh observations arrive to avoid showing stale pre-switch `Running` state.
 - Status tab now separates physical plant state, control transition state, and dispatch send/paused state per plant.
 - Status tab now shows the latest commanded/sent setpoint write info per plant (P/Q, timestamp, source, status/error) from runtime-published dispatch-write status cache.
 - Binary state controls across Status/API/Manual tabs are standardized to segmented toggles with stateful labels (for example `Run/Running`, `Record/Recording`, `Send/Sending`, `Pause/Paused`, `Connect/Connected`).
@@ -94,7 +95,7 @@ The system closes the operational gap between market/control schedules and plant
 ### Switch Transport
 1. User selects target transport in the segmented toggle and confirms in the generic toggle confirmation modal.
 2. Dashboard enqueues a transport-switch command on confirm and shows target-specific optimistic selector feedback (`Switching to Local...` / `Switching to Remote...`).
-3. Control engine safely stops both plants, applies transport mode, and clears switching flag.
+3. Control engine safely stops both plants, invalidates observed/physical cache state to stale `Unknown`, applies transport mode, and clears switching flag.
 
 ### Record Session
 1. User sets recording on for one plant.

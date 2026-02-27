@@ -71,9 +71,22 @@ def _read_enable_state(config, shared_data, plant_id, transport_mode=None):
     return read_enable_state_io(cfg)
 
 
-def _wait_until_battery_power_below_threshold(config, shared_data, plant_id, threshold_kw=1.0, timeout_s=30):
+def _wait_until_battery_power_below_threshold(
+    config,
+    shared_data,
+    plant_id,
+    threshold_kw=1.0,
+    timeout_s=30,
+    *,
+    fail_fast_on_connect_failure=True,
+):
     cfg = _get_plant_modbus_config(config, shared_data, plant_id)
-    return wait_until_battery_power_below_threshold_io(cfg, threshold_kw=threshold_kw, timeout_s=timeout_s)
+    return wait_until_battery_power_below_threshold_io(
+        cfg,
+        threshold_kw=threshold_kw,
+        timeout_s=timeout_s,
+        fail_fast_on_connect_failure=fail_fast_on_connect_failure,
+    )
 
 
 def _read_observed_points(config, shared_data, plant_id, transport_mode=None):
@@ -384,6 +397,7 @@ def _safe_stop_plant(config, shared_data, plant_id, *, threshold_kw=1.0, timeout
             pid,
             threshold_kw=threshold_kw,
             timeout_s=timeout_s,
+            fail_fast_on_connect_failure=True,
         ),
         set_enable=lambda pid, value: _set_enable(config, shared_data, pid, value),
         threshold_kw=threshold_kw,

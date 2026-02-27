@@ -1,9 +1,10 @@
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from dashboard.ui_state import (
     get_plant_power_toggle_state,
     get_recording_toggle_state,
+    is_observed_state_effectively_stale,
     resolve_click_feedback_transition_state,
     resolve_runtime_transition_state,
 )
@@ -110,6 +111,35 @@ class DashboardUiStateTests(unittest.TestCase):
         self.assertEqual(stopping["active_side"], "negative")
         self.assertTrue(stopping["positive_disabled"])
         self.assertTrue(stopping["negative_disabled"])
+
+    def test_observed_state_effective_stale_uses_age_guard(self):
+        now_ts = datetime(2026, 2, 26, 12, 0, 10, tzinfo=timezone.utc)
+        self.assertTrue(
+            is_observed_state_effectively_stale(
+                {"stale": True, "last_success": now_ts.isoformat()},
+                now_ts=now_ts,
+            )
+        )
+        self.assertFalse(
+            is_observed_state_effectively_stale(
+                {"stale": False, "last_success": (now_ts - timedelta(seconds=2)).isoformat()},
+                now_ts=now_ts,
+                stale_after_s=3.0,
+            )
+        )
+        self.assertTrue(
+            is_observed_state_effectively_stale(
+                {"stale": False, "last_success": (now_ts - timedelta(seconds=5)).isoformat()},
+                now_ts=now_ts,
+                stale_after_s=3.0,
+            )
+        )
+        self.assertTrue(
+            is_observed_state_effectively_stale(
+                {"stale": False, "last_success": None},
+                now_ts=now_ts,
+            )
+        )
 
 
 if __name__ == "__main__":

@@ -46,6 +46,7 @@ from dashboard.plotting import (
 from dashboard.ui_state import (
     get_plant_power_toggle_state,
     get_recording_toggle_state,
+    is_observed_state_effectively_stale,
     resolve_click_feedback_transition_state,
     resolve_runtime_transition_state,
 )
@@ -1864,9 +1865,15 @@ def dashboard_agent(config, shared_data):
 
         status_now = now_tz(config)
         enable_state_by_plant = {}
+        observed_effective_stale_by_plant = {}
         for plant_id in plant_ids:
             observed = dict(observed_state_by_plant.get(plant_id, {}) or {})
-            if bool(observed.get("stale", True)):
+            effective_stale = is_observed_state_effectively_stale(
+                observed,
+                now_ts=status_now,
+            )
+            observed_effective_stale_by_plant[plant_id] = bool(effective_stale)
+            if effective_stale:
                 enable_state_by_plant[plant_id] = None
             else:
                 enable_state_by_plant[plant_id] = observed.get("enable_state")
@@ -1952,10 +1959,16 @@ def dashboard_agent(config, shared_data):
         def plant_status_text(plant_id):
             recording = recording_files.get(plant_id)
             runtime_state = runtime_state_by_plant.get(plant_id, "unknown")
-            physical_state = str(plant_operating_state_by_plant.get(plant_id, runtime_state) or "unknown")
+            effective_stale = bool(observed_effective_stale_by_plant.get(plant_id, True))
+            physical_state = (
+                "unknown"
+                if effective_stale
+                else str(plant_operating_state_by_plant.get(plant_id, runtime_state) or "unknown")
+            )
             dispatch_enabled = bool(scheduler_running.get(plant_id, False))
             rec_text = f"Recording: On ({os.path.basename(recording)})" if recording else "Recording: Off"
             observed = dict(observed_state_by_plant.get(plant_id, {}) or {})
+            observed["stale"] = effective_stale
             dispatch_write_state = dict(dispatch_write_status_by_plant.get(plant_id, {}) or {})
             health_lines = summarize_plant_modbus_health(observed, status_now)
             dispatch_lines = summarize_dispatch_write_status(dispatch_write_state, dispatch_enabled=dispatch_enabled)
