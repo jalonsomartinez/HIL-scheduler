@@ -33,6 +33,16 @@ Edit `config.yaml` as needed:
 - `startup.initial_soc_pu`: shared local-emulation startup SoC for all plants
 - `plants.lib` / `plants.vrfb`: model limits, Modbus endpoints, register maps
 - `time.timezone`: runtime timezone
+- `dashboard.private.host` / `dashboard.private.port`: private ops dashboard bind
+- `dashboard.public_readonly.enabled`: enable separate public read-only dashboard
+- `dashboard.public_readonly.host` / `dashboard.public_readonly.port`: public dashboard bind
+- `dashboard.public_readonly.auth.mode`: `basic` or `none`
+
+If `dashboard.public_readonly.enabled: true` and auth mode is `basic`, set:
+```bash
+export HIL_PUBLIC_DASH_USER='your-user'
+export HIL_PUBLIC_DASH_PASS='your-password'
+```
 
 For local testing, keep `startup.transport_mode: "local"` (default), which starts local Modbus servers for both plants.
 
@@ -43,7 +53,8 @@ python3 hil_scheduler.py
 ```
 
 Open the dashboard at:
-- `http://127.0.0.1:8050/`
+- Private ops dashboard: `http://127.0.0.1:8050/` (default)
+- Public read-only dashboard: `http://127.0.0.1:8060/` (if enabled)
 
 ## Basic Dashboard Workflow
 1. Select source (`Manual` or `API`) and transport mode (`Local` or `Remote`).

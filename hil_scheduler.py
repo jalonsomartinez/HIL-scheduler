@@ -13,6 +13,7 @@ import scheduling.manual_schedule_manager as msm
 from config_loader import load_config
 from control.engine_agent import control_engine_agent
 from dashboard.agent import dashboard_agent
+from dashboard.public_agent import public_dashboard_agent
 from data_fetcher_agent import data_fetcher_agent
 from logger_config import setup_logging
 from measurement.agent import measurement_agent
@@ -173,6 +174,21 @@ def build_initial_shared_data(config):
     }
 
 
+def build_agent_threads(config, shared_data):
+    threads = [
+        threading.Thread(target=data_fetcher_agent, args=(config, shared_data), daemon=True),
+        threading.Thread(target=scheduler_agent, args=(config, shared_data), daemon=True),
+        threading.Thread(target=plant_agent, args=(config, shared_data), daemon=True),
+        threading.Thread(target=measurement_agent, args=(config, shared_data), daemon=True),
+        threading.Thread(target=control_engine_agent, args=(config, shared_data), daemon=True),
+        threading.Thread(target=settings_engine_agent, args=(config, shared_data), daemon=True),
+        threading.Thread(target=dashboard_agent, args=(config, shared_data), daemon=True),
+    ]
+    if bool(config.get("DASHBOARD_PUBLIC_READONLY_ENABLED", False)):
+        threads.append(threading.Thread(target=public_dashboard_agent, args=(config, shared_data), daemon=True))
+    return threads
+
+
 def main():
     """Director agent: load config, initialize shared runtime, and start agents."""
     config = load_config("config.yaml")
@@ -183,21 +199,19 @@ def main():
 
     threads = []
     try:
-        threads = [
-            threading.Thread(target=data_fetcher_agent, args=(config, shared_data), daemon=True),
-            threading.Thread(target=scheduler_agent, args=(config, shared_data), daemon=True),
-            threading.Thread(target=plant_agent, args=(config, shared_data), daemon=True),
-            threading.Thread(target=measurement_agent, args=(config, shared_data), daemon=True),
-            threading.Thread(target=control_engine_agent, args=(config, shared_data), daemon=True),
-            threading.Thread(target=settings_engine_agent, args=(config, shared_data), daemon=True),
-            threading.Thread(target=dashboard_agent, args=(config, shared_data), daemon=True),
-        ]
+        threads = build_agent_threads(config, shared_data)
 
         for thread in threads:
             thread.start()
 
         logging.info("All agents started.")
-        logging.info("Dashboard available at http://127.0.0.1:8050/")
+        private_host = str(config.get("DASHBOARD_PRIVATE_HOST", "127.0.0.1"))
+        private_port = int(config.get("DASHBOARD_PRIVATE_PORT", 8050))
+        logging.info("Private dashboard available at http://%s:%s/", private_host, private_port)
+        if bool(config.get("DASHBOARD_PUBLIC_READONLY_ENABLED", False)):
+            public_host = str(config.get("DASHBOARD_PUBLIC_READONLY_HOST", "127.0.0.1"))
+            public_port = int(config.get("DASHBOARD_PUBLIC_READONLY_PORT", 8060))
+            logging.info("Public read-only dashboard available at http://%s:%s/", public_host, public_port)
 
         while not shared_data["shutdown_event"].is_set():
             time.sleep(1)

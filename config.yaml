@@ -34,6 +34,17 @@ timing:
   measurement_period_s: 2
   measurements_write_period_s: 60
 
+dashboard:
+  private:
+    host: "127.0.0.1"
+    port: 8050
+  public_readonly:
+    enabled: true
+    host: "127.0.0.1"
+    port: 8060
+    auth:
+      mode: "none"  # basic | none
+
 recording:
   compression:
     enabled: true

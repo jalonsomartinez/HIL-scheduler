@@ -19,6 +19,12 @@ from runtime.defaults import (
 from runtime.parsing import parse_bool
 
 DEFAULT_STARTUP_INITIAL_SOC_PU = 0.5
+DEFAULT_DASHBOARD_PRIVATE_HOST = "127.0.0.1"
+DEFAULT_DASHBOARD_PRIVATE_PORT = 8050
+DEFAULT_DASHBOARD_PUBLIC_READONLY_ENABLED = False
+DEFAULT_DASHBOARD_PUBLIC_READONLY_HOST = "127.0.0.1"
+DEFAULT_DASHBOARD_PUBLIC_READONLY_PORT = 8060
+DEFAULT_DASHBOARD_PUBLIC_READONLY_AUTH_MODE = "basic"
 DEFAULT_MODEL = {
     "capacity_kwh": 50.0,
     "power_limits": {
@@ -111,6 +117,33 @@ def _parse_choice_required(value, allowed_values, key_name):
         allowed_text = ", ".join(sorted(allowed_values))
         raise ValueError(f"Invalid {key_name}='{value}'. Allowed values: {allowed_text}.")
     return normalized
+
+
+def _parse_choice(value, allowed_values, default, key_name):
+    if value is None:
+        return default
+    normalized = str(value).strip().lower()
+    if normalized not in allowed_values:
+        allowed_text = ", ".join(sorted(allowed_values))
+        logging.warning(
+            "Invalid %s='%s'. Using default '%s'. Allowed values: %s.",
+            key_name,
+            value,
+            default,
+            allowed_text,
+        )
+        return default
+    return normalized
+
+
+def _parse_host(value, default, key_name):
+    if value is None:
+        return default
+    host = str(value).strip()
+    if not host:
+        logging.warning("Invalid %s='%s'. Using default '%s'.", key_name, value, default)
+        return default
+    return host
 
 
 def _normalize_modbus_point(point_name, raw_point, prefix):
@@ -481,6 +514,44 @@ def load_config(config_path="config.yaml"):
         60,
         "timing.measurements_write_period_s",
         min_value=0.1,
+    )
+
+    dashboard_cfg = yaml_config.get("dashboard", {})
+    dashboard_private_cfg = dashboard_cfg.get("private", {})
+    dashboard_public_cfg = dashboard_cfg.get("public_readonly", {})
+    dashboard_public_auth_cfg = dashboard_public_cfg.get("auth", {})
+
+    config["DASHBOARD_PRIVATE_HOST"] = _parse_host(
+        dashboard_private_cfg.get("host", DEFAULT_DASHBOARD_PRIVATE_HOST),
+        DEFAULT_DASHBOARD_PRIVATE_HOST,
+        "dashboard.private.host",
+    )
+    config["DASHBOARD_PRIVATE_PORT"] = _parse_int(
+        dashboard_private_cfg.get("port", DEFAULT_DASHBOARD_PRIVATE_PORT),
+        DEFAULT_DASHBOARD_PRIVATE_PORT,
+        "dashboard.private.port",
+        min_value=1,
+    )
+    config["DASHBOARD_PUBLIC_READONLY_ENABLED"] = _parse_bool(
+        dashboard_public_cfg.get("enabled", DEFAULT_DASHBOARD_PUBLIC_READONLY_ENABLED),
+        DEFAULT_DASHBOARD_PUBLIC_READONLY_ENABLED,
+    )
+    config["DASHBOARD_PUBLIC_READONLY_HOST"] = _parse_host(
+        dashboard_public_cfg.get("host", DEFAULT_DASHBOARD_PUBLIC_READONLY_HOST),
+        DEFAULT_DASHBOARD_PUBLIC_READONLY_HOST,
+        "dashboard.public_readonly.host",
+    )
+    config["DASHBOARD_PUBLIC_READONLY_PORT"] = _parse_int(
+        dashboard_public_cfg.get("port", DEFAULT_DASHBOARD_PUBLIC_READONLY_PORT),
+        DEFAULT_DASHBOARD_PUBLIC_READONLY_PORT,
+        "dashboard.public_readonly.port",
+        min_value=1,
+    )
+    config["DASHBOARD_PUBLIC_READONLY_AUTH_MODE"] = _parse_choice(
+        dashboard_public_auth_cfg.get("mode", DEFAULT_DASHBOARD_PUBLIC_READONLY_AUTH_MODE),
+        {"basic", "none"},
+        DEFAULT_DASHBOARD_PUBLIC_READONLY_AUTH_MODE,
+        "dashboard.public_readonly.auth.mode",
     )
 
     recording_cfg = yaml_config.get("recording", {})

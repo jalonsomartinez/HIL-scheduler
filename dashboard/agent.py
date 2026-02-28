@@ -2368,8 +2368,11 @@ def dashboard_agent(config, shared_data):
             message = f"Error reading log file: {exc}"
             return [html.Div(message, className="logs-error")], f"Error: {selected}"
 
+    dashboard_host = str(config.get("DASHBOARD_PRIVATE_HOST", "127.0.0.1"))
+    dashboard_port = int(config.get("DASHBOARD_PRIVATE_PORT", 8050))
+
     def run_app():
-        app.run(host="0.0.0.0", port="8050", debug=False, threaded=True)
+        app.run(host=dashboard_host, port=dashboard_port, debug=False, threaded=True)
 
     thread = threading.Thread(target=run_app, daemon=True)
     thread.start()
