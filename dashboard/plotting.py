@@ -20,11 +20,11 @@ DEFAULT_PLOT_THEME = {
 DEFAULT_TRACE_COLORS = {
     "p_setpoint": "#00945a",
     "q_setpoint": "#8d7b00",
-    "p_poi": "#1f7ea5",
-    "p_battery": "#00c072",
+    "p_poi": "#006f9e",
+    "p_battery": "#8fd4b2",
     "soc": "#6756d6",
-    "q_poi": "#1f7ea5",
-    "q_battery": "#3d8f65",
+    "q_poi": "#006f9e",
+    "q_battery": "#b2d8c3",
     "v_poi": "#c66a00",
     "api_lib": "#00945a",
     "api_vrfb": "#3f65c8",
@@ -102,9 +102,6 @@ def create_plant_figure(
         ),
     )
 
-    p_setpoint_added = False
-    q_setpoint_added = False
-
     if schedule_df is not None and not schedule_df.empty:
         schedule_plot_df = schedule_df
         if x_window_start is not None:
@@ -113,36 +110,6 @@ def create_plant_figure(
             schedule_plot_df = schedule_plot_df.loc[schedule_plot_df.index < x_window_end]
     else:
         schedule_plot_df = None
-
-    if schedule_plot_df is not None and not schedule_plot_df.empty:
-        fig.add_trace(
-            go.Scatter(
-                x=schedule_plot_df.index,
-                y=schedule_plot_df.get("power_setpoint_kw", []),
-                mode="lines",
-                line_shape="hv",
-                name=f"{plant_name_fn(plant_id)} P Setpoint",
-                line=dict(color=trace_colors["p_setpoint"], width=2),
-            ),
-            row=1,
-            col=1,
-        )
-        p_setpoint_added = True
-
-        if "reactive_power_setpoint_kvar" in schedule_plot_df.columns:
-            fig.add_trace(
-                go.Scatter(
-                    x=schedule_plot_df.index,
-                    y=schedule_plot_df["reactive_power_setpoint_kvar"],
-                    mode="lines",
-                    line_shape="hv",
-                    name=f"{plant_name_fn(plant_id)} Q Setpoint",
-                    line=dict(color=trace_colors["q_setpoint"], width=2),
-                ),
-                row=3,
-                col=1,
-            )
-            q_setpoint_added = True
 
     if measurements_df is not None and not measurements_df.empty:
         df = measurements_df.copy()
@@ -156,123 +123,184 @@ def create_plant_figure(
             df = df.loc[df["datetime"] >= x_window_start]
         if x_window_end is not None:
             df = df.loc[df["datetime"] < x_window_end]
+    else:
+        df = pd.DataFrame()
 
-        if not df.empty:
-            if not p_setpoint_added and "p_setpoint_kw" in df.columns:
-                fig.add_trace(
-                    go.Scatter(
-                        x=df["datetime"],
-                        y=df["p_setpoint_kw"],
-                        mode="lines",
-                        line_shape="hv",
-                        name=f"{plant_name_fn(plant_id)} P Setpoint",
-                        line=dict(color=trace_colors["p_setpoint"], width=2),
-                    ),
-                    row=1,
-                    col=1,
-                )
-                p_setpoint_added = True
-            if not q_setpoint_added and "q_setpoint_kvar" in df.columns:
-                fig.add_trace(
-                    go.Scatter(
-                        x=df["datetime"],
-                        y=df["q_setpoint_kvar"],
-                        mode="lines",
-                        line_shape="hv",
-                        name=f"{plant_name_fn(plant_id)} Q Setpoint",
-                        line=dict(color=trace_colors["q_setpoint"], width=2),
-                    ),
-                    row=3,
-                    col=1,
-                )
-                q_setpoint_added = True
-            fig.add_trace(
-                go.Scatter(
-                    x=df["datetime"],
-                    y=df["p_poi_kw"],
-                    mode="lines",
-                    line_shape="hv",
-                    name=f"{plant_name_fn(plant_id)} P POI",
-                    line=dict(color=trace_colors["p_poi"], width=2, dash="dot"),
-                ),
-                row=1,
-                col=1,
-            )
+    pref_x = None
+    pref_y = None
+    if schedule_plot_df is not None and not schedule_plot_df.empty and "power_setpoint_kw" in schedule_plot_df.columns:
+        pref_x = schedule_plot_df.index
+        pref_y = schedule_plot_df["power_setpoint_kw"]
+    elif not df.empty and "p_setpoint_kw" in df.columns:
+        pref_x = df["datetime"]
+        pref_y = df["p_setpoint_kw"]
+
+    qref_x = None
+    qref_y = None
+    if schedule_plot_df is not None and not schedule_plot_df.empty and "reactive_power_setpoint_kvar" in schedule_plot_df.columns:
+        qref_x = schedule_plot_df.index
+        qref_y = schedule_plot_df["reactive_power_setpoint_kvar"]
+    elif not df.empty and "q_setpoint_kvar" in df.columns:
+        qref_x = df["datetime"]
+        qref_y = df["q_setpoint_kvar"]
+
+    legend_rank = {
+        "Pref": 10,
+        "P POI": 20,
+        "P Bat": 30,
+        "SoC": 40,
+        "Qref": 50,
+        "Q POI": 60,
+        "Q Bat": 70,
+        "Voltage": 80,
+    }
+
+    # Legend order (when traces are present): Pref, P POI, P Bat, SoC, Qref, Q POI, Q Bat, Voltage.
+    if pref_x is not None and pref_y is not None:
+        fig.add_trace(
+            go.Scatter(
+                x=pref_x,
+                y=pref_y,
+                mode="lines",
+                line_shape="hv",
+                name="Pref",
+                line=dict(color=trace_colors["p_setpoint"], width=2, dash="dot"),
+                legendrank=legend_rank["Pref"],
+            ),
+            row=1,
+            col=1,
+        )
+
+    if not df.empty:
+        if "battery_active_power_kw" in df.columns:
             fig.add_trace(
                 go.Scatter(
                     x=df["datetime"],
                     y=df["battery_active_power_kw"],
                     mode="lines",
                     line_shape="hv",
-                    name=f"{plant_name_fn(plant_id)} P Battery",
+                    name="P Bat",
                     line=dict(color=trace_colors["p_battery"], width=2),
+                    legendrank=legend_rank["P Bat"],
                 ),
                 row=1,
                 col=1,
             )
+        if "p_poi_kw" in df.columns:
+            fig.add_trace(
+                go.Scatter(
+                    x=df["datetime"],
+                    y=df["p_poi_kw"],
+                    mode="lines",
+                    line_shape="hv",
+                    name="P POI",
+                    line=dict(color=trace_colors["p_poi"], width=2),
+                    legendrank=legend_rank["P POI"],
+                ),
+                row=1,
+                col=1,
+            )
+        if "soc_pu" in df.columns:
             fig.add_trace(
                 go.Scatter(
                     x=df["datetime"],
                     y=df["soc_pu"],
                     mode="lines",
-                    name=f"{plant_name_fn(plant_id)} SoC",
+                    name="SoC",
                     line=dict(color=trace_colors["soc"], width=2),
+                    legendrank=legend_rank["SoC"],
                 ),
                 row=2,
                 col=1,
             )
+
+        if qref_x is not None and qref_y is not None:
             fig.add_trace(
                 go.Scatter(
-                    x=df["datetime"],
-                    y=df["q_poi_kvar"],
+                    x=qref_x,
+                    y=qref_y,
                     mode="lines",
                     line_shape="hv",
-                    name=f"{plant_name_fn(plant_id)} Q POI",
-                    line=dict(color=trace_colors["q_poi"], width=2, dash="dot"),
+                    name="Qref",
+                    line=dict(color=trace_colors["q_setpoint"], width=2, dash="dot"),
+                    legendrank=legend_rank["Qref"],
                 ),
                 row=3,
                 col=1,
             )
+        if "battery_reactive_power_kvar" in df.columns:
             fig.add_trace(
                 go.Scatter(
                     x=df["datetime"],
                     y=df["battery_reactive_power_kvar"],
                     mode="lines",
                     line_shape="hv",
-                    name=f"{plant_name_fn(plant_id)} Q Battery",
+                    name="Q Bat",
                     line=dict(color=trace_colors["q_battery"], width=2),
+                    legendrank=legend_rank["Q Bat"],
                 ),
                 row=3,
                 col=1,
             )
-            if "v_poi_kV" in df.columns:
-                voltage_series = pd.to_numeric(df["v_poi_kV"], errors="coerce")
-                fig.add_trace(
-                    go.Scatter(
-                        x=df["datetime"],
-                        y=df["v_poi_kV"],
-                        mode="lines",
-                        name=f"{plant_name_fn(plant_id)} Voltage",
-                        line=dict(color=trace_colors["v_poi"], width=2),
-                    ),
-                    row=4,
-                    col=1,
-                )
+        if "q_poi_kvar" in df.columns:
+            fig.add_trace(
+                go.Scatter(
+                    x=df["datetime"],
+                    y=df["q_poi_kvar"],
+                    mode="lines",
+                    line_shape="hv",
+                    name="Q POI",
+                    line=dict(color=trace_colors["q_poi"], width=2),
+                    legendrank=legend_rank["Q POI"],
+                ),
+                row=3,
+                col=1,
+            )
+        if "v_poi_kV" in df.columns:
+            voltage_series = pd.to_numeric(df["v_poi_kV"], errors="coerce")
+            fig.add_trace(
+                go.Scatter(
+                    x=df["datetime"],
+                    y=df["v_poi_kV"],
+                    mode="lines",
+                    name="Voltage",
+                    line=dict(color=trace_colors["v_poi"], width=2),
+                    legendrank=legend_rank["Voltage"],
+                ),
+                row=4,
+                col=1,
+            )
+            try:
+                voltage_padding = float(voltage_autorange_padding_kv)
+            except (TypeError, ValueError):
+                voltage_padding = None
+            if voltage_padding is not None and voltage_padding > 0.0:
+                v_min = voltage_series.min(skipna=True)
+                v_max = voltage_series.max(skipna=True)
                 try:
-                    voltage_padding = float(voltage_autorange_padding_kv)
-                except (TypeError, ValueError):
-                    voltage_padding = None
-                if voltage_padding is not None and voltage_padding > 0.0:
-                    v_min = voltage_series.min(skipna=True)
-                    v_max = voltage_series.max(skipna=True)
-                    try:
-                        fig.update_yaxes(
-                            range=[float(v_min) - voltage_padding, float(v_max) + voltage_padding],
-                            row=4,
-                            col=1,
-                        )
-                    except Exception:
-                        pass
+                    fig.update_yaxes(
+                        range=[float(v_min) - voltage_padding, float(v_max) + voltage_padding],
+                        row=4,
+                        col=1,
+                    )
+                except Exception:
+                    pass
+
+    elif qref_x is not None and qref_y is not None:
+        # Preserve Q reference visibility when only schedule data is available.
+        fig.add_trace(
+            go.Scatter(
+                x=qref_x,
+                y=qref_y,
+                mode="lines",
+                line_shape="hv",
+                name="Qref",
+                line=dict(color=trace_colors["q_setpoint"], width=2, dash="dot"),
+                legendrank=legend_rank["Qref"],
+            ),
+            row=3,
+            col=1,
+        )
 
     apply_figure_theme(
         fig,
@@ -292,10 +320,6 @@ def create_plant_figure(
                 line_color=plot_theme["muted"],
                 opacity=0.8,
             )
-    fig.update_yaxes(title_text="kW", row=1, col=1)
-    fig.update_yaxes(title_text="pu", row=2, col=1)
-    fig.update_yaxes(title_text="kvar", row=3, col=1)
-    fig.update_yaxes(title_text="kV", row=4, col=1)
     fig.update_xaxes(title_text="Time", row=4, col=1)
     return fig
 

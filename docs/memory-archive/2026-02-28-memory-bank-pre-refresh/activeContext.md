@@ -1,0 +1,447 @@
+# Active Context: HIL Scheduler
+
+## Current Focus (Now)
+1. Keep memory bank and audit artifacts aligned with the current dual-plant runtime and refactor outcomes.
+2. Maintain robust plant control safety (per-plant transitions, guarded transport switching, confirmation-gated fleet actions, and confirmation-gated plant `Run/Stop` toggles).
+3. Stabilize and validate dashboard time-window semantics:
+ - Status tab should show only immediate context (current day + next day),
+ - Plots tab remains the path for historical inspection.
+4. Stabilize the new merged schedule dispatch model (API base + per-signal manual overrides) and the redesigned Manual Schedule editor UX, now split into dashboard-owned drafts + settings-engine activation/update commands.
+5. Validate the standardized binary-toggle UX (semantic colors/stateful labels), per-plant dispatch send semantics (`Sending`/`Paused`), and Status-tab sent-setpoint/readback observability on real remote plants.
+6. Validate confirmable-toggle server-handoff optimistic timing for plant power/transport after raising the config-loader default `MEASUREMENT_PERIOD_S` to `5s`.
+7. Keep reliability guardrails green via automated regression tests and CI enforcement, including measurement compression, posting-gate semantics, schedule-window pruning behavior, and scheduler write-retry visibility.
+8. Prepare follow-up hardening for remaining high-risk paths (posting durability, remote smoke coverage, queue topology tradeoffs/prioritization).
+
+## Open Decisions and Risks
+1. Control-engine command queue is serialized and bounded; long safe-stop/transport operations can delay later commands (UI queue/backlog visibility now exists, but per-plant queue topology remains a deferred design decision).
+2. API posting durability remains in-memory only; pending queue is lost on process restart.
+3. Logging retention policy is undefined; date-routed files accumulate without automatic pruning.
+4. Operational validation gap remains for remote transport end-to-end flows, although the stale-running-on-switch status symptom is addressed in current runtime code.
+5. Legacy compatibility aliases in `config_loader.py` are now opt-in; removal timeline for the fallback flag remains open.
+6. Lock-discipline target is improved but not complete; high-value measurement cache paths were refactored, and lower-priority measurement/cache paths still need audit.
+7. Historical dense measurement CSV files created while compression was inactive are intentionally not backfilled.
+8. Historical plots tab currently rescans and reloads CSV files on demand; performance may degrade with very large `data/` directories.
+9. Transition UX now combines optimistic overlay + server/runtime transition state + Modbus confirmation; confirmable toggles use server-handoff-aware min/max holds (floor tied to `MEASUREMENT_PERIOD_S`), and timing still needs operator validation across remote latency conditions.
+10. Modbus error strings are now surfaced to operators; message wording/aggregation may need refinement to avoid noisy UI on unstable links.
+11. Manual schedule editor drafts are stored in shared runtime state (`manual_schedule_draft_series_df_by_key`), so concurrent dashboard sessions can overwrite each other's draft edits (per-session isolation deferred; single-operator assumption currently accepted).
+12. Dispatch pause semantics intentionally freeze the last setpoint on the plant (no zeroing on pause); operator validation and runbook wording are needed to avoid misuse.
+
+## Rolling Change Log (Compressed, 30-Day Window)
+
+### 2026-02-27
+- Hardened transport-switch safety/latency path for unreachable remote endpoints:
+  - `control/modbus_io.wait_until_battery_power_below_threshold(...)` now supports fail-fast return on connect failure,
+  - control-engine safe-stop path now enables fail-fast behavior so unreachable endpoints no longer wait the full decay timeout before disable fallback.
+- Hardened transport-switch runtime state handoff to avoid stale UI carryover:
+  - transport-switch flow now invalidates `plant_observed_state_by_plant` entries to explicit stale/unknown values,
+  - transport-switch flow now sets `plant_operating_state_by_plant[*] = "unknown"` immediately and syncs `dispatch_write_status_by_plant[*].sending_enabled = False`.
+- Hardened Status-tab stale handling:
+  - dashboard now derives an effective stale flag from both cached `stale` and `last_success` age guard before rendering physical plant state,
+  - physical state now prefers `Unknown` when observations are effectively stale, preventing stale `Running` display during long control-engine commands.
+- Added targeted regression coverage:
+  - `tests/test_control_modbus_io.py` for fail-fast connect-failure vs reachable-success wait behavior,
+  - expanded `tests/test_dashboard_control_flows.py` transport-switch reset assertions to include observed-state/operating-state/dispatch-mirror invalidation,
+  - expanded `tests/test_dashboard_ui_state.py` for effective stale age-guard helper behavior.
+- Validation:
+  - targeted suite passed in repo venv: `venv/bin/python -m unittest tests.test_dashboard_control_flows tests.test_dashboard_ui_state tests.test_control_modbus_io -v` (`10` tests).
+
+### 2026-02-26
+- Standardized dashboard binary state controls to segmented toggles across Status/API/Manual UI:
+  - converted plant power, recording, API connect/disconnect, API posting, and manual activate/inactivate controls to a common segmented-toggle pattern,
+  - added semantic positive/negative selected-state colors (green/red) for start/stop and enable/disable style toggles (transport intentionally remains neutral),
+  - normalized stateful labels (for example `Run/Running`, `Record/Recording/Stopped`, `Send/Sending`, `Pause/Paused`, API `Connect/Connected`, posting `Enable/Enabled`, manual `Inactivate`).
+- Added generic confirmable-toggle infrastructure in dashboard UI for high-impact toggles:
+  - reusable toggle confirmation modal + stores (`toggle-confirm-request`, `toggle-confirm-action`),
+  - transport and plant power (`Run/Stop`) now use the generic confirmation flow with no pre-confirm target preview,
+  - transport toggle now shows target-specific transition labels (`Switching to Local...` / `Switching to Remote...`).
+- Improved confirmable-toggle optimistic transition handoff to reduce flicker:
+  - plant power and transport optimistic transitions now wait for a minimum hold plus next server-state change before falling back (with max-hold fallback),
+  - min/max hold bounds are derived from `MEASUREMENT_PERIOD_S`.
+- Updated config-loader timing default:
+  - `timing.measurement_period_s` / `MEASUREMENT_PERIOD_S` default changed from `1s` to `5s` when omitted from `config.yaml`.
+- Updated fleet control-engine runtime behavior:
+  - `fleet.start_all` now enables dispatch-send gates and dispatch status mirrors for both plants before starting each plant (in addition to enabling recording),
+  - `fleet.stop_all` now explicitly syncs dispatch-send status mirrors to `False` after safe-stop before clearing recording flags.
+- Added/updated targeted regressions for:
+  - dashboard toggle/ui-state/settings-state and intent/wiring behavior during toggle standardization + confirmable-toggle refactor,
+  - control-engine fleet start/stop behavior to cover dispatch gate/mirror updates and fleet start ordering.
+- Completed a second safe dedup pass (targets #1 and #2 from the duplicate audit; no behavior/schema changes):
+  - centralized measurement posting-status default shape builders in `runtime/defaults.py` (`default_measurement_post_status`, `default_measurement_post_status_by_plant`) and reused them from `hil_scheduler.py` shared-state init and `measurement/agent.py` runtime status normalization,
+  - removed the remaining exact cross-file helper clone for manual editor `end`-row detection by reusing `scheduling.manual_schedule_manager._is_end_editor_row` in the dashboard callback path,
+  - expanded `tests/test_runtime_defaults_dedup.py` to cover shared measurement posting-status default builders.
+- Validation for second dedup pass:
+  - targeted unittest checks passed,
+  - full unittest suite passed in repo virtualenv (`venv/bin/python -m unittest discover -s tests -v`, `177` tests).
+- Completed a safe dedup pass for duplicated constants/helpers (no behavior/schema changes):
+  - added lightweight shared modules `runtime/defaults.py` (timezone + measurement-compression defaults) and `runtime/parsing.py` (`parse_bool`),
+  - updated `config_loader.py`, `time_utils.py`, and `measurement/agent.py` to import shared defaults/helpers instead of keeping duplicate local definitions,
+  - removed duplicated `default_engine_status(...)` wrapper helpers from `hil_scheduler.py` by inlining the calls in shared-state initialization,
+  - added `tests/test_runtime_defaults_dedup.py` to lock shared-default consistency and prevent future drift.
+- Validation for dedup pass:
+  - targeted compile checks passed for changed files,
+  - full unittest suite passed in repo virtualenv (`venv/bin/python -m unittest discover -s tests -v`, `176` tests).
+- Implemented balanced repo package reorganization (no `src/` migration):
+  - moved active runtime modules into domain packages (`dashboard/`, `control/`, `settings/`, `measurement/`, `scheduling/`, `modbus/`, `runtime/`) while keeping `hil_scheduler.py` as the root launcher,
+  - renamed stale control-path modules for clarity (`dashboard_modbus_io.py` -> `control/modbus_io.py`, `dashboard_control.py` -> `control/flows.py`) and renamed generic `utils.py` to `modbus/legacy_scaling.py`,
+  - rewrote active runtime/test imports to package paths and kept `python3 hil_scheduler.py` working,
+  - removed cache-only `dashboard_web/` directory.
+- Fixed dashboard resource path regressions introduced by the package move:
+  - `dashboard/agent.py` now sets Dash `assets_folder` explicitly to repo-root `assets/` so `assets/custom.css` and brand assets load correctly,
+  - `dashboard/logs.py` now resolves project root from either repo root or `dashboard/` package dir so dashboard log browsing/Today tail reads from the repo-root `logs/` directory.
+- Validation after reorg/path fixes:
+  - compile check updated for package layout and passed,
+  - full unittest suite passed (`170` tests),
+  - launcher smoke confirmed startup/import wiring; sandbox prevented socket operations (expected in this environment).
+- Added follow-up project-structure hygiene after the package reorg:
+  - introduced `runtime/paths.py` to centralize repo-root path resolution (`assets/`, `logs/`, `data/`) and removed duplicated path heuristics in dashboard/logging code,
+  - wired dashboard/logging/control-engine path usage to the shared helper (keeps dashboard styling/log browsing and recording path generation robust to package/module moves),
+  - tightened `.gitignore` for Python/cache/tooling artifacts (`**/__pycache__/`, `*.pyc`, `.DS_Store`, `.pytest_cache/`, `.mypy_cache/`),
+  - added `api-docs-examples/README.md` to explicitly mark examples as legacy/reference (not active runtime code).
+- Added targeted regression coverage for repo path resolution:
+  - `tests/test_runtime_paths.py` validates project-root and `assets/`/`logs/`/`data/` path helper behavior from both repo/test and `dashboard/` package anchor contexts.
+- Implemented per-plant dispatch send control and sent-setpoint observability:
+  - added independent Status-tab dispatch toggle (`Sending` / `Paused`) per plant that controls only `scheduler_running_by_plant` (no plant enable/disable side effects),
+  - start flow now preserves the existing dispatch gate (no auto-enable of scheduler sending); if paused, initial setpoint write is skipped and published as `skipped`,
+  - stop/safe-stop flows still force dispatch gate off and now publish control-path setpoint write outcomes (`control_engine.safe_stop`) to shared dispatch-write runtime state,
+  - added authoritative shared runtime caches `plant_operating_state_by_plant` (physical `running|stopped|unknown`) and `dispatch_write_status_by_plant` (last attempt/success P/Q, timestamps, source, status, error, scheduler context),
+  - scheduler now publishes combined per-cycle P/Q write attempt status (`ok|partial|failed`) and no longer caches failed writes as sent (failed writes retry next loop),
+  - Status-tab plant status lines now show separate physical plant state + control transition state + dispatch sending/paused state and latest sent/attempted P/Q setpoint info.
+- Implemented scheduler setpoint readback reconciliation and inline readback telemetry:
+  - scheduler now reads plant `p_setpoint`/`q_setpoint` registers and compares raw words to encoded target words (`register_exact`) before deciding whether to write, correcting external drift even when the target value is unchanged,
+  - if scheduler readback fails for a point, write/no-write falls back to local last-success cache dedupe for that point (preserves retry/no-spam behavior),
+  - scheduler publishes readback telemetry in `dispatch_write_status_by_plant[*].last_scheduler_context` on scheduler write attempts (`*_compare_source`, `*_readback_ok`, `*_readback_mismatch`, compare mode),
+  - Status-tab dispatch status line now appends a compact inline `RB P/Q=...` hint when the latest dispatch attempt source is `scheduler`.
+- Added targeted regression coverage for:
+  - new dispatch toggle command intents and control-engine command handling,
+  - shared-state contract keys/defaults for plant operating state + dispatch write status,
+  - dispatch status formatting helpers,
+  - dashboard engine wiring for dispatch toggle intents,
+  - scheduler failed-write retry + dispatch-write-status publication (`tests/test_scheduler_dispatch_write_status.py`).
+- Refined Manual Schedule end-of-override semantics and editor UX:
+  - replaced separate manual end-time runtime/payload contract with canonical terminal duplicate-row encoding in stored manual series (UI/CSV still represent terminal row as `end`),
+  - scheduler and merged effective-schedule helpers now derive manual override end cutoff from terminal manual-series row timestamp (`now < end_ts`),
+  - manual editor now forces a terminal `end` row for any non-empty schedule and removes explicit `Add End` / `Remove End` controls,
+  - manual editor row times are auto-sanitized forward (minimum gap currently `60s`) instead of failing on non-increasing edits,
+  - empty selected manual series now default editor start datetime to the next local `10-minute` boundary,
+  - first manual breakpoint row no longer shows a delete action and delete requests for row 0 are rejected server-side.
+- Added/updated targeted regression coverage for the manual terminal-end-row model:
+  - `tests/test_manual_schedule_manager_end_rows.py` (CSV roundtrip, missing-end sanitization, duplicate-terminal-row import mapping, auto-gap clamping),
+  - `tests/test_schedule_runtime_end_times.py` (terminal-row-derived end cutoff in merged effective schedule),
+  - updated settings/dashboard/scheduler/shared-state regressions for removal of separate manual end-time payload/runtime maps.
+- Updated shared dashboard plant plotting (`dashboard/plotting.py`) used by both `Status` and historical `Plots` tabs:
+  - expanded plant figures from 3 to 4 rows to include a dedicated voltage subplot (`v_poi_kV` in kV),
+  - added measurement-recorded setpoint fallback traces (`p_setpoint_kw`, `q_setpoint_kvar`) for historical plots when no schedule dataframe is supplied,
+  - added optional current-time vertical dashed line support; Status-tab plant figures now pass a live `now` marker while historical plots do not.
+- Added voltage-axis scaling refinement for low-voltage plants in dashboard callbacks:
+  - per-plant voltage y-padding is derived from `plants.*.model.poi_voltage_kv` (`5%` of nominal),
+  - custom voltage y-range padding is only applied when nominal voltage is `< 10 kV` (for example `vrfb`); higher-voltage plants fall back to Plotly autorange,
+  - invalid computed voltage min/max now leaves Plotly autorange in control (no forced fallback range).
+- Expanded `tests/test_dashboard_plotting.py` coverage for:
+  - voltage trace rendering,
+  - historical setpoint fallback and duplicate prevention,
+  - Status-tab time indicator vertical-line shapes,
+  - explicit voltage-axis range behavior (padding/no-padding/missing voltage/flatline voltage).
+
+### 2026-02-25
+- Continued internal refactor cleanup without behavior changes:
+  - extracted generic command lifecycle bookkeeping into `runtime/command_runtime.py` and reduced `control/command_runtime.py` / `settings/command_runtime.py` to thin wrappers,
+  - extracted shared engine command-cycle execution bookkeeping into `runtime/engine_command_cycle_runtime.py` and refactored control/settings engines to reuse it,
+  - refactored `measurement/agent.py` `flush_pending_rows()` to swap/process/merge pending rows with shorter lock hold times,
+  - added focused integration wiring regressions (`tests/test_dashboard_engine_wiring.py`) covering intent helper -> enqueue -> engine single-cycle -> shared-state mutation for both control and settings paths,
+  - reduced enqueue callback duplication in `dashboard/agent.py` by centralizing command enqueue/token/log helper logic.
+- Completed compatibility-contract cleanup and concurrency hygiene pass:
+  - retired compatibility-only shared-state keys `active_schedule_source`, `schedule_switching`, and `measurement_posting_enabled` from runtime init/consumers/tests,
+  - `posting_runtime.policy_enabled` is now the only canonical runtime posting-policy source,
+  - removed deprecated `schedule_manager.py` from the active repository after migration,
+  - reduced `measurement/agent.py` lock hold time in aggregate cache rebuild and current-file cache upsert by moving pandas-heavy work outside `shared_data["lock"]`.
+- Strengthened API runtime state authority and engine helper de-dup:
+  - added `runtime/api_runtime_state.py` to centralize `api_connection_runtime` normalization/recompute and sub-health publication (`fetch_health`, `posting_health`),
+  - `settings/engine_agent.py` now publishes connect/disconnect transitions and probe results through the shared API runtime helper,
+  - `data_fetcher_agent.py` publishes fetch health (`ok` / `error` / `disabled`) into `api_connection_runtime.fetch_health`,
+  - `measurement/agent.py` publishes posting health (`ok` / `error` / `idle` / `disabled`) into `api_connection_runtime.posting_health`,
+  - dashboard API controls/status rendering now uses authoritative `api_connection_runtime.state` / `last_error` only (no dashboard-derived API `Error` state).
+- Reduced engine status duplication:
+  - added `runtime/engine_status_runtime.py` and refactored `control/engine_agent.py` + `settings/engine_agent.py` to reuse shared queue/active-command/failed-recent status publishing helpers.
+- Added regression coverage for:
+  - `runtime/api_runtime_state.py` state recompute/transition/error-clearing semantics,
+  - `runtime/engine_status_runtime.py` queue metrics + active-command metadata,
+  - fetcher/measurement/settings/shared-state tests updated for nested API sub-health runtime contract.
+- Implemented second-pass UI separation for settings/manual/API paths:
+  - added `settings/engine_agent.py` + `settings/command_runtime.py` with separate FIFO settings queue and command lifecycle tracking (`settings_command_*` keys),
+  - added server-owned runtime state for manual series activation (`manual_series_runtime_state_by_key`), API connection (`api_connection_runtime`), and posting policy (`posting_runtime`),
+  - added dashboard helper modules `dashboard/settings_intents.py` and `dashboard/settings_ui_state.py`.
+- Manual Schedule tab behavior changed:
+  - editor/load/save now writes dashboard-owned draft series (`manual_schedule_draft_series_df_by_key`) instead of directly mutating scheduler-applied manual series,
+  - per-series controls are now command-driven `Activate` / `Inactivate` / `Update`,
+  - per-series UI shows server-owned transition/runtime state via button labels (`Activate/Activating.../Active`, `Inactive/Inactivating...`) with short optimistic button feedback,
+  - manual series plots now overlay `Staged (Editor)` vs `Applied (Server)` schedules to make resend/update differences visible,
+  - redundant per-series status text lines were removed (buttons carry the activation state).
+- API tab behavior changed:
+  - `Set Password` button replaced with `Connect` semantics (use input password if present, otherwise stored password),
+  - `Disconnect` now intentionally disconnects API runtime without clearing stored password,
+  - posting enable/disable is settings-command driven with transition states and separate policy vs effective posting status display,
+  - terminal button labels now show `Connected` / `Disconnected` on the API connect/disconnect pair.
+- Runtime gating updates:
+  - `measurement/agent.py` posting-effective gate now considers `posting_runtime` and `api_connection_runtime` (with backward-compatible fallback),
+  - `data_fetcher_agent.py` respects intentional API disconnect via `api_connection_runtime` (with backward-compatible fallback).
+- Added regression coverage for settings command runtime/engine and dashboard settings intent/UI helper behavior; full suite remains green (`125 tests`).
+ - Follow-up refactor/test additions increased full-suite coverage count to `140` tests while preserving green status.
+- Added Status-tab runtime health surfacing for operator visibility:
+  - top-card control-engine summary (`alive`, active command, last finished command, last loop error),
+  - top-card command queue summary (`queued`, `running`, recent failed/rejected count, backlog-high hint).
+- Extended `plant_observed_state_by_plant` runtime schema with Modbus diagnostics:
+  - `read_status` (`ok` / `connect_failed` / `read_error` / `unknown`),
+  - `last_error` structured payload (`timestamp`, `code`, `message`),
+  - `consecutive_failures`.
+- Control engine now publishes `control_engine_status` in shared state each loop with queue metrics and runtime health metadata for UI consumption.
+- Status-tab per-plant status UI now shows cached Modbus link condition, observed freshness age/stale marker, failure count, and last error message (no direct dashboard Modbus reads).
+- Simplified Status-tab primary per-plant status line for operators:
+  - renamed `State` -> `Plant State`,
+  - removed internal `Scheduler gate` field,
+  - removed redundant raw `Modbus enable` field from the primary line (detailed Modbus diagnostics remain below).
+- Added pure formatting helpers in `dashboard/control_health.py` plus regression coverage for control-engine/queue and per-plant Modbus health summaries.
+- Extended control-engine regression coverage for:
+  - `control_engine_status` loop publishing (`last_loop_*`, `last_observed_refresh`, queue/running counts, last finished command),
+  - command-crash `last_exception` publishing,
+  - observed-state error classification/reset semantics.
+- Implemented first-pass control-path UI/engine separation hardening:
+  - added `control/engine_agent.py` to own start/stop/fleet/transport/record command execution and control-path Modbus I/O,
+  - added bounded FIFO control command queue + lifecycle status tracking in shared state (`control_command_queue`, `control_command_status_by_id`, `control_command_history_ids`, `control_command_active_id`, `control_command_next_id`),
+  - dashboard control callbacks now enqueue normalized command intents instead of executing control flows or spawning execution threads.
+- Added cached plant observed-state publication (`plant_observed_state_by_plant`) in control engine (`enable`, `p_battery`, `q_battery`, freshness/error/stale metadata); Status tab no longer performs direct Modbus polling for control/status paths.
+- Added pure dashboard trigger->command intent helpers (`dashboard/command_intents.py`) and targeted regression coverage for intent mapping.
+- Added command runtime and control-engine regression coverage:
+  - queue/lifecycle bookkeeping,
+  - command execution ordering and idempotent record on/off behavior,
+  - observed-state cache stale/failure behavior.
+- Updated shared-state contract regression coverage for new command queue and observed-state keys.
+- Fixed local runtime smoke-test fixture drift after scheduler/manual-series contract changes and normalized dashboard-plotting timezone assertions (Plotly timestamp serialization behavior).
+- Refined dashboard control transition UX after hardening:
+  - immediate click feedback for `starting`/`stopping` without waiting for enqueue success,
+  - short forced transition overlay window (currently `2s`),
+  - server/runtime `starting`/`stopping` persists until Modbus `enable` confirms `running`/`stopped`.
+- Replaced runtime manual/API source switching dispatch behavior with merged dispatch:
+  - API schedules are now the base,
+  - manual overrides are stored as four independent series (`lib_p`, `lib_q`, `vrfb_p`, `vrfb_q`),
+  - per-series active/inactive toggles control overwrite participation for `P`/`Q`.
+- Added shared-state contract keys for manual override series and merge-enable flags:
+  - `manual_schedule_series_df_by_key`,
+  - `manual_schedule_merge_enabled_by_key`.
+- Kept `manual_schedule_df_by_plant` as a derived compatibility/display cache rebuilt from manual series.
+- Updated scheduler runtime semantics:
+  - API staleness still zeros the API base values,
+  - enabled manual overrides can still supply `P` and/or `Q` during API staleness,
+  - manual override series are pruned on day rollover to local `current day + next day`.
+- Removed dashboard schedule-source switch UI/callback flow (transport switch unchanged).
+- Updated Status-tab schedule overlays to render the merged effective schedule instead of branching on source.
+- Rebuilt Manual Schedule tab:
+  - four always-visible manual override plots (`LIB/VRFB` x `P/Q`) with active/inactive toggles,
+  - compact right-side breakpoint editor (responsive stacked on small screens),
+  - relative breakpoint CSV save/load (`hours, minutes, seconds, setpoint`) for the selected series,
+  - row-level add/delete controls and first-row `00:00:00` enforcement,
+  - runtime/manual-series sanitization to local `current day + next day`.
+- Removed random manual schedule generator from the active Manual tab workflow.
+- Updated API measurement posting gate semantics:
+  - runtime posting toggle + API password now control posting eligibility,
+  - manual override usage no longer suppresses measurement posting.
+- Added/updated targeted regression coverage for:
+  - scheduler merged dispatch priority and stale-base/manual-override behavior,
+  - shared-state contract keys,
+  - measurement posting gate independent of `active_schedule_source`,
+  - dashboard control test cleanup after source-switch helper removal.
+- Performed iterative Manual editor UI refinements (compact selector/date/time/breakpoint rows, button-only CSV load control, responsive plots/editor balance, dropdown menu fixes, reduced visual clutter).
+
+### 2026-02-24
+- Fixed historical `Plots` tab range-slider default behavior:
+  - `dashboard_history.clamp_epoch_range()` now treats fully out-of-domain selections (including the initial layout placeholder `[0, 1]`) as stale and defaults back to the full discovered history range,
+  - prevents first-load collapsed selection at the left edge and empty-looking historical plots.
+- Added/extended `tests/test_dashboard_history.py` clamp-range regression coverage for:
+  - stale placeholder below-domain selection,
+  - fully above-domain selection,
+  - partial overlap clamping behavior.
+- Compacted the `Plots` tab historical availability timeline (`LIB` / `VRFB`) in `dashboard/agent.py` by reducing figure height/margins and lowering legend placement so the bars render closer together with less vertical whitespace.
+- Bounded API schedule runtime retention in `data_fetcher_agent.py` to the local calendar window `[today 00:00, day+2 00:00)` so `api_schedule_df_by_plant` no longer grows indefinitely across days.
+- Updated API `today` fetch writes to merge with existing in-window rows (instead of blind overwrite) so previously fetched tomorrow rows are preserved during same-day retries.
+- Constrained Status-tab plots (all sources: `manual` and `api`) to the same local `current day + next day` window via optional plot-helper x-window filtering.
+- Added regression coverage for:
+  - API schedule pruning/retention and bounded tomorrow merges in `tests/test_data_fetcher_agent.py`,
+  - plot-helper schedule/measurement x-window cropping and boundary semantics in `tests/test_dashboard_plotting.py`.
+- Added local-mode plant-start SoC restore from persisted measurements:
+  - dashboard start flow now looks up the latest on-disk non-null `soc_pu` for the target plant from `data/YYYYMMDD_<plant>.csv`,
+  - falls back to `STARTUP_INITIAL_SOC_PU` when no persisted SoC is available,
+  - local-only behavior (remote transport start path unchanged).
+- Added explicit dashboard->plant-agent local emulator SoC seed handshake in shared state:
+  - `local_emulator_soc_seed_request_by_plant`,
+  - `local_emulator_soc_seed_result_by_plant`.
+- Updated `plant_agent.py` to apply SoC seed requests only while the local emulator plant is disabled (guard against mid-run SoC resets), then acknowledge `applied|skipped|error`.
+- Added regression coverage for:
+  - latest persisted SoC lookup helper behavior (latest row selection, null-boundary ignore, suffix filtering, clamping),
+  - plant-agent seed request handling (`applied` when disabled, `skipped` when enabled),
+  - shared-state contract keys for the new seed request/ack maps.
+
+### 2026-02-23
+- Implemented unit-aware Modbus point conversions on top of binary codec:
+  - point `unit` now drives conversions between external Modbus engineering values and internal runtime units,
+  - supported units include SoC (`pc`/`%`/`pu`), active/reactive power (`W/kW/MW`, `var/kvar/Mvar`), and voltage (`V/kV`).
+- Performed internal voltage migration from per-unit to absolute kV:
+  - runtime/measurement field renamed `v_poi_pu` -> `v_poi_kV`,
+  - API posting voltage now uses `v_poi_kV * 1000` (no pu reconstruction),
+  - compression tolerance key renamed to `recording.compression.tolerances.v_poi_kV`,
+  - plant model nominal voltage renamed `poi_voltage_v` -> `poi_voltage_kv`.
+- Implemented Modbus point-schema refactor (breaking config migration):
+  - replaced endpoint `registers` integer maps with structured `points` metadata in `config.yaml`,
+  - required explicit endpoint `byte_order` / `word_order` for every `local`/`remote` Modbus endpoint (no defaults),
+  - added shared `modbus/codec.py` for holding-register encode/decode (supports `int16`/`uint16`/`int32`/`uint32`/`float32`),
+  - refactored scheduler, measurement sampling, dashboard Modbus helpers, and local plant emulation to use shared codec + normalized point specs,
+  - runtime resolver now exposes endpoint ordering + `points`,
+  - preserved current on-wire behavior for existing P/Q and SoC points (P/Q int16 hW, `soc` `/10000`) and retained optional `start_command` / `stop_command` point definitions (voltage semantics were changed later the same day in the kV migration).
+- Added regression coverage for:
+  - Modbus codec roundtrips/overflow/quantization and float32 ordering behavior,
+  - config-loader point-schema normalization, required endpoint ordering, and legacy `registers` rejection.
+- Diagnosed CI failure source as a brittle config-loader regression test (`tests/test_config_loader_recording_compression.py`) that pinned `recording.compression.max_kept_gap_s` to `3600.0` despite `config.yaml` using `360`.
+- Relaxed the compression-gap config-loader test to validate contract shape (present, non-negative, float) instead of enforcing a specific configured value, so operator tuning of `max_kept_gap_s` does not break CI.
+- Verified full test suite passes in the project virtualenv (`venv/bin/python -m unittest discover -s tests -v`); earlier pandas-related skips were due to using system `/usr/bin/python3` instead of repo `venv`.
+- Hardened API schedule fetcher observability and next-day polling gate:
+  - renamed config key `istentore_api.poll_start_time` -> `istentore_api.tomorrow_poll_start_time` (breaking change, no compatibility alias),
+  - `config_loader.py` now normalizes `tomorrow_poll_start_time` to `HH:MM` and rejects legacy key usage,
+  - `data_fetcher_agent.py` now compares next-day poll gate time numerically (fixes fragile string comparison for values like `9:00`),
+  - added explicit fetch-attempt logs with `purpose=today|tomorrow`, local request window, and trigger reason,
+  - added throttled tomorrow-gate state logs (`waiting` / `eligible`),
+  - fixed partial `tomorrow` fetch status/logging to preserve retryable partial writes while surfacing window-specific error messages.
+- Added regression coverage for:
+  - `tomorrow_poll_start_time` parsing/normalization and legacy-key rejection in `config_loader.py`,
+  - data fetcher next-day gate timing, partial/complete tomorrow fetch handling, and rollover promotion behavior (environment-dependent on local pandas install).
+- Renamed per-plant Modbus register map setpoint keys from `p_setpoint_in` / `q_setpoint_in` to canonical `p_setpoint` / `q_setpoint` across runtime agents, config, and tests.
+- Updated `config_loader.py` register normalization to accept legacy `*_in` setpoint keys as backward-compatible input aliases while emitting canonical runtime register maps.
+- Moved local-emulation startup SoC config from per-plant `plants.*.model.initial_soc_pu` to shared `startup.initial_soc_pu`.
+- Updated config-loader runtime contract to expose `STARTUP_INITIAL_SOC_PU` and removed `initial_soc_pu` from normalized `PLANTS[*].model`.
+- Kept opt-in legacy alias compatibility (`PLANT_INITIAL_SOC_PU`) by sourcing it from `STARTUP_INITIAL_SOC_PU`.
+- Updated local plant emulator startup initialization to apply one shared startup SoC for both plants.
+- Added config-loader regression coverage for shared startup SoC parsing, plant-model schema removal, and alias mapping.
+- Added configurable measurement compression keep-gap threshold `recording.compression.max_kept_gap_s` (flattened as `MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S`; default `3600s`).
+- Updated measurement compression semantics so both tolerance comparison and keep-gap comparison are anchored to the last kept real row (not the last raw sample), preventing drift in long stable runs.
+- Added/updated regression coverage for:
+  - keep-gap retention when stable samples exceed the configured interval,
+  - drift prevention by comparing against the last kept row,
+  - config-loader parsing of the new compression key.
+  - scheduler setpoint-register access updated to canonical keys in source-switch regression coverage.
+
+### 2026-02-22
+- Renamed dashboard `Status & Plots` tab to `Status` (functionality unchanged for live controls/status plots).
+- Added new dashboard `Plots` tab for historical measurement browsing:
+  - scans `data/*.csv` for known plant files (`lib`, `vrfb`) using sanitized filename suffix matching,
+  - builds a full-range timeline across discovered measurement timestamps,
+  - exposes a range slider (epoch-ms backed, timezone-formatted labels),
+  - renders per-plant historical measurement plots using the shared plant-figure helper (measurements only; no schedule overlay).
+- Added per-plant historical export actions:
+  - cropped CSV download for selected range,
+  - PNG export of current graph via client-side Plotly download (no `kaleido` dependency).
+- Added `dashboard/history.py` helper module for history scan/index, range clamping, crop loading, and CSV serialization.
+- Added `tests/test_dashboard_history.py` coverage for helper behaviors (scan mapping, clamp logic, inclusive crop, serialization, slider marks).
+
+### 2026-02-21
+- Added dashboard UI/operator-control updates:
+  - `Start All` / `Stop All` actions in Status top card with dedicated confirmation modal,
+  - removed redundant `Source | Transport` status line from top card,
+  - API-tab runtime posting toggle (`Enabled`/`Disabled`) for read-only API-mode testing,
+  - modal `Cancel` buttons now red,
+  - recording stop buttons now red.
+- Applied additional UI layout refinements for flatter/readability-focused operator view:
+  - page background switched to white,
+  - reduced header vertical padding,
+  - menu-like tab strip styling (no outer card shell),
+  - tab-content cards now align to tab width (removed side margins),
+  - mobile `Start All` / `Stop All` kept on one row,
+  - overall style flattened with minimal radius and reduced depth.
+- Expanded Status-tab API inline text to show both today and tomorrow per-plant fetched-point counts.
+- Added runtime posting control contract:
+  - `shared_data["measurement_posting_enabled"]` initialized from `ISTENTORE_POST_MEASUREMENTS_IN_API_MODE`,
+  - measurement posting gate now evaluates runtime toggle + API source + password.
+- Added regression coverage for runtime posting toggle-off behavior in `tests/test_measurement_posting_telemetry.py`.
+- Adjusted page background to white per operator UX request.
+- Completed staged cleanup plan across Stage A/B/C:
+  - Stage A shared helper extraction (`runtime/contracts.py`, `scheduling/runtime.py`, `runtime/shared_state.py`).
+  - Stage B concern split for dashboard and measurement helpers/modules.
+  - Stage C legacy-path cleanup progressed: `schedule_manager.py` removed after migration to `scheduling/manual_schedule_manager.py` / `scheduling/runtime.py`; legacy config aliases remain gated behind `HIL_ENABLE_LEGACY_CONFIG_ALIASES=1`.
+- Fixed Stage B regressions:
+  - restored measurement recording start path (`sanitize_plant_name` import in `measurement/agent.py`),
+  - fixed logs parsing in `dashboard/logs.py` regex.
+- Added regression test suite under `tests/` covering:
+  - logs parsing/today-file behavior,
+  - measurement record-start boundary behavior,
+  - local runtime start/record/stop smoke flow,
+  - scheduler manual->API stale zero-dispatch behavior,
+  - measurement posting telemetry failure->recovery behavior,
+  - measurement posting queue maxlen overflow behavior,
+  - dashboard safe-stop/source-switch/transport-switch control flows.
+- Added CI workflow (`.github/workflows/ci.yml`) running compile + unittest checks.
+- Restored measurement compression behavior in active runtime:
+  - `recording.compression.enabled` and `recording.compression.tolerances.*` are now applied in `measurement/agent.py`,
+  - stable runs keep first/latest points while null boundaries remain explicit,
+  - non-force flush retains one tail row per active recording file to preserve continuity.
+- Added regression tests in `tests/test_measurement_compression.py` for:
+  - compression-enabled stable run compaction,
+  - compression-disabled full-row persistence,
+  - periodic flush continuity with retained mutable tail.
+- Extracted dashboard control flow helpers to `control/flows.py` and wired `dashboard/agent.py` to shared safe-stop/switch helpers.
+- Added explicit `build_initial_shared_data(config)` contract constructor in `hil_scheduler.py` plus schema regression tests.
+- Implemented timezone-aware date-routed logging in `logger_config.py`:
+  - each log record writes to `logs/YYYY-MM-DD_hil_scheduler.log` based on record timestamp date,
+  - active file switch updates `shared_data["log_file_path"]`.
+- Updated dashboard logs UX:
+  - dropdown default/value changed from `current_session` to `today`,
+  - top option relabeled to `Today`,
+  - logs view reads the tail of today's file for live updates and keeps historical file browsing.
+- Fixed dashboard logs callback regression introduced during logs refactor:
+  - replaced incorrect `now_tz(tz)` call with timezone-aware `datetime.now(tz)` in today-file path helper.
+- Reworked dashboard presentation layer to a tokenized CSS system aligned with i-STENTORE branding.
+- Refactored dashboard layout styling hooks:
+  - branded header block and logo integration,
+  - class-based tab styling,
+  - class-based modal/logs/posting-card styling (reduced inline styles).
+- Added local font assets for dashboard UI rendering:
+  - `assets/brand/fonts/DMSans-Regular.ttf`,
+  - `assets/brand/fonts/DMSans-Bold.ttf`,
+  - `assets/brand/fonts/OFL.txt`.
+- Updated Plotly figure presentation through shared theme helpers while preserving existing `uirevision` and callback behavior.
+- Applied operator-requested visual refinements:
+  - green-only background treatment, then flat corporate-green page background, and finally white page background,
+  - non-signature logo variant,
+  - stronger toggle selected-state contrast,
+  - flat (non-gradient) green/red button styling.
+
+### 2026-02-20
+- Updated Istentore API auth-retry policy to treat `403` like `401` for token renewal.
+- Bounded schedule fetch auth recovery to a single re-auth retry to avoid unbounded recursion.
+- Kept measurement post auth recovery as one retry, now triggered by either `401` or `403`.
+
+### 2026-02-19
+- Completed dual-plant runtime consolidation across config, scheduler, measurement, dashboard, and fetcher.
+- Restored dashboard safety/observability features after migration:
+  - logs tab,
+  - source switch confirmation and safe-stop flow,
+  - per-plant transition-aware controls,
+  - stable plot `uirevision` behavior.
+- Added measurement posting observability state and API-tab summaries per plant.
+- Hardened posting payload conversion/validation and queue attribution metadata.
+
+### 2026-02-18
+- Added deterministic today/tomorrow rollover reconciliation in fetcher status.
+- Added stale API setpoint cutoff in scheduler and immediate-start setpoint selection path.
+- Introduced anchored monotonic measurement step scheduling to remove trigger drift.
+- Added independent API measurement post cadence with bounded retry queue and backoff.
+
+### 2026-02-17
+- Standardized timezone-aware schedule and measurement handling across agents.
+- Refactored recording to daily per-plant files with timestamp-based row routing and cache-backed plots.
+- Decoupled dispatch control from recording control while preserving safe-stop semantics.
+
+### 2026-02-02
+- Improved dashboard state transitions with clearer intermediate states and faster refresh cadence.
+- Added dashboard logs experience for live session stream and historical file viewing.
+- Resolved initialization behavior for startup selector state loading.
+
+### 2026-02-01
+- Refactored schedule architecture to separate manual and API schedule maps.
+- Simplified data fetcher polling/backoff behavior.
+- Reduced lock contention in scheduler/measurement/dashboard paths for responsiveness.

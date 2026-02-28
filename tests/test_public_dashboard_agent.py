@@ -38,6 +38,20 @@ def _minimal_shared_data():
     }
 
 
+def _index_components_by_id(component, output):
+    if component is None:
+        return
+    component_id = getattr(component, "id", None)
+    if component_id is not None:
+        output[component_id] = component
+    children = getattr(component, "children", None)
+    if isinstance(children, (list, tuple)):
+        for child in children:
+            _index_components_by_id(child, output)
+        return
+    _index_components_by_id(children, output)
+
+
 class PublicDashboardAgentTests(unittest.TestCase):
     def test_public_module_does_not_reference_enqueue_command_helpers(self):
         import dashboard.public_agent as public_agent_module
@@ -105,6 +119,46 @@ class PublicDashboardAgentTests(unittest.TestCase):
 
         self.assertEqual(shared_data["control_command_queue"].qsize(), before_control)
         self.assertEqual(shared_data["settings_command_queue"].qsize(), before_settings)
+
+    def test_public_status_controls_render_readonly_buttons(self):
+        config = load_config("config.yaml")
+        config["DASHBOARD_PUBLIC_READONLY_AUTH_MODE"] = "none"
+        app = build_public_readonly_app(config, _minimal_shared_data())
+
+        by_id = {}
+        _index_components_by_id(app.layout, by_id)
+
+        button_ids = [
+            "public-start-lib",
+            "public-stop-lib",
+            "public-dispatch-enable-lib",
+            "public-dispatch-disable-lib",
+            "public-record-lib",
+            "public-record-stop-lib",
+            "public-start-vrfb",
+            "public-stop-vrfb",
+            "public-dispatch-enable-vrfb",
+            "public-dispatch-disable-vrfb",
+            "public-record-vrfb",
+            "public-record-stop-vrfb",
+        ]
+        for button_id in button_ids:
+            self.assertIn(button_id, by_id)
+            self.assertTrue(bool(getattr(by_id[button_id], "disabled", False)))
+
+        indicator_ids = [
+            "public-api-connection-indicator",
+            "public-api-today-indicator",
+            "public-api-tomorrow-indicator",
+            "public-transport-text",
+            "public-error-text",
+            "public-plant-summary-table",
+        ]
+        for indicator_id in indicator_ids:
+            self.assertIn(indicator_id, by_id)
+
+        self.assertNotIn("public-status-lib", by_id)
+        self.assertNotIn("public-status-vrfb", by_id)
 
     def test_public_basic_auth_challenges_unauthenticated_requests(self):
         if importlib.util.find_spec("dash_auth") is None:

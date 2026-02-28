@@ -49,10 +49,10 @@ def build_dashboard_layout(
                                 className="control-panel",
                                 children=[
                                     html.Div(
-                                        className="controls-row",
+                                        className="controls-row status-top-controls-row",
                                         children=[
                                             html.Div(
-                                                className="control-section",
+                                                className="control-section status-top-control-section",
                                                 children=[
                                                     html.Span("Transport", className="toggle-label"),
                                                     html.Div(
@@ -65,7 +65,7 @@ def build_dashboard_layout(
                                                 ],
                                             ),
                                             html.Div(
-                                                className="control-section",
+                                                className="control-section status-top-control-section",
                                                 children=[
                                                     html.Span("Fleet Actions", className="toggle-label"),
                                                     html.Div(
@@ -79,6 +79,7 @@ def build_dashboard_layout(
                                             ),
                                         ],
                                     ),
+                                    html.Div(id="operator-plant-summary-table", className="public-summary-table-wrap"),
                                     html.Div(id="api-status-inline", className="status-text"),
                                     html.Div(id="control-engine-status-inline", className="status-text"),
                                     html.Div(id="control-queue-status-inline", className="status-text"),
@@ -147,11 +148,10 @@ def build_dashboard_layout(
                                             html.Div(
                                                 className="control-section",
                                                 children=[
-                                                    html.Span("Dispatch", className="toggle-label"),
                                                     html.Div(
                                                         className="compact-toggle",
                                                         children=[
-                                                            html.Button("Send", id="dispatch-enable-lib", className="toggle-option toggle-option--positive", n_clicks=0, disabled=False),
+                                                            html.Button("Dispatch", id="dispatch-enable-lib", className="toggle-option toggle-option--positive", n_clicks=0, disabled=False),
                                                             html.Button("Paused", id="dispatch-disable-lib", className="toggle-option toggle-option--negative active", n_clicks=0, disabled=True),
                                                         ],
                                                     ),
@@ -199,11 +199,10 @@ def build_dashboard_layout(
                                             html.Div(
                                                 className="control-section",
                                                 children=[
-                                                    html.Span("Dispatch", className="toggle-label"),
                                                     html.Div(
                                                         className="compact-toggle",
                                                         children=[
-                                                            html.Button("Send", id="dispatch-enable-vrfb", className="toggle-option toggle-option--positive", n_clicks=0, disabled=False),
+                                                            html.Button("Dispatch", id="dispatch-enable-vrfb", className="toggle-option toggle-option--positive", n_clicks=0, disabled=False),
                                                             html.Button("Paused", id="dispatch-disable-vrfb", className="toggle-option toggle-option--negative active", n_clicks=0, disabled=True),
                                                         ],
                                                     ),

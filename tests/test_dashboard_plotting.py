@@ -105,7 +105,7 @@ class DashboardPlottingTests(unittest.TestCase):
 
         fig = self._fig(schedule_df, measurements_df)
 
-        p_setpoint = _trace_by_suffix(fig, "P Setpoint")
+        p_setpoint = _trace_by_suffix(fig, "Pref")
         p_poi = _trace_by_suffix(fig, "P POI")
         voltage = _trace_by_suffix(fig, "Voltage")
         self.assertEqual(len(p_setpoint.x), 3)
@@ -124,7 +124,7 @@ class DashboardPlottingTests(unittest.TestCase):
 
         fig = self._fig(schedule_df, pd.DataFrame(), x_window_start=window_start, x_window_end=window_end)
 
-        p_setpoint = _trace_by_suffix(fig, "P Setpoint")
+        p_setpoint = _trace_by_suffix(fig, "Pref")
         xs = _x_as_timestamps(p_setpoint, self.tz)
         self.assertEqual(xs, [pd.Timestamp(window_start), pd.Timestamp(window_start + timedelta(days=1, minutes=15))])
 
@@ -154,7 +154,7 @@ class DashboardPlottingTests(unittest.TestCase):
 
         fig = self._fig(schedule_df, measurements_df, x_window_start=window_start, x_window_end=window_end)
 
-        p_setpoint = _trace_by_suffix(fig, "P Setpoint")
+        p_setpoint = _trace_by_suffix(fig, "Pref")
         p_poi = _trace_by_suffix(fig, "P POI")
         self.assertEqual(_x_as_timestamps(p_setpoint, self.tz), [pd.Timestamp(window_start)])
         self.assertEqual(_x_as_timestamps(p_poi, self.tz), [pd.Timestamp(window_start)])
@@ -165,8 +165,8 @@ class DashboardPlottingTests(unittest.TestCase):
 
         fig = self._fig(pd.DataFrame(), measurements_df)
 
-        p_setpoint = _trace_by_suffix(fig, "P Setpoint")
-        q_setpoint = _trace_by_suffix(fig, "Q Setpoint")
+        p_setpoint = _trace_by_suffix(fig, "Pref")
+        q_setpoint = _trace_by_suffix(fig, "Qref")
         self.assertEqual(len(p_setpoint.x), 2)
         self.assertEqual(len(q_setpoint.x), 2)
 
@@ -177,8 +177,38 @@ class DashboardPlottingTests(unittest.TestCase):
 
         fig = self._fig(schedule_df, measurements_df)
 
-        self.assertEqual(len(_traces_by_suffix(fig, "P Setpoint")), 1)
-        self.assertEqual(len(_traces_by_suffix(fig, "Q Setpoint")), 1)
+        self.assertEqual(len(_traces_by_suffix(fig, "Pref")), 1)
+        self.assertEqual(len(_traces_by_suffix(fig, "Qref")), 1)
+
+    def test_legend_order_uses_compact_trace_names(self):
+        base = datetime(2026, 2, 23, 0, 0, tzinfo=self.tz)
+        schedule_df = _schedule_df(base, base + timedelta(hours=1))
+        measurements_df = _measurements_df(base, base + timedelta(hours=1))
+
+        fig = self._fig(schedule_df, measurements_df)
+
+        trace_names = [
+            str(trace.name)
+            for trace in sorted(
+                list(fig.data),
+                key=lambda trace: int(getattr(trace, "legendrank", 1000) or 1000),
+            )
+        ]
+        self.assertEqual(
+            trace_names,
+            ["Pref", "P POI", "P Bat", "SoC", "Qref", "Q POI", "Q Bat", "Voltage"],
+        )
+
+    def test_poi_traces_render_on_top_of_battery_traces(self):
+        base = datetime(2026, 2, 23, 0, 0, tzinfo=self.tz)
+        schedule_df = _schedule_df(base, base + timedelta(hours=1))
+        measurements_df = _measurements_df(base, base + timedelta(hours=1))
+
+        fig = self._fig(schedule_df, measurements_df)
+        trace_order = [str(trace.name) for trace in fig.data]
+
+        self.assertLess(trace_order.index("P Bat"), trace_order.index("P POI"))
+        self.assertLess(trace_order.index("Q Bat"), trace_order.index("Q POI"))
 
     def test_time_indicator_adds_vertical_dashed_lines(self):
         base = datetime(2026, 2, 23, 0, 0, tzinfo=self.tz)

@@ -9,12 +9,6 @@ import plotly.graph_objects as go
 from dash import Dash, Input, Output, State, dcc, html
 from dash.exceptions import PreventUpdate
 
-from dashboard.control_health import (
-    summarize_control_engine_status,
-    summarize_control_queue_status,
-    summarize_dispatch_write_status,
-    summarize_plant_modbus_health,
-)
 from dashboard.history import (
     build_slider_marks,
     clamp_epoch_range,
@@ -27,17 +21,48 @@ from dashboard.plotting import (
     apply_figure_theme,
     create_plant_figure,
 )
-from dashboard.ui_state import is_observed_state_effectively_stale, resolve_runtime_transition_state
+from dashboard.ui_state import (
+    get_plant_power_toggle_state,
+    get_recording_toggle_state,
+    is_observed_state_effectively_stale,
+    resolve_runtime_transition_state,
+)
 import scheduling.manual_schedule_manager as msm
 from measurement.storage import MEASUREMENT_COLUMNS
 from runtime.contracts import sanitize_plant_name
 from runtime.paths import get_assets_dir, get_data_dir, get_project_root
 from runtime.shared_state import snapshot_locked
 from scheduling.runtime import build_effective_schedule_frame
-from time_utils import get_config_tz, normalize_schedule_index, normalize_timestamp_value, now_tz
+from time_utils import get_config_tz, normalize_datetime_series, normalize_schedule_index, normalize_timestamp_value, now_tz
 
 
 DEFAULT_PUBLIC_HISTORY_EMPTY_RANGE = [0, 1]
+
+
+def _binary_toggle_classes(active_side):
+    positive = ["toggle-option", "toggle-option--positive"]
+    negative = ["toggle-option", "toggle-option--negative"]
+    if active_side == "positive":
+        positive.append("active")
+    elif active_side == "negative":
+        negative.append("active")
+    return " ".join(positive), " ".join(negative)
+
+
+def _public_dispatch_toggle_state(dispatch_enabled):
+    enabled = bool(dispatch_enabled)
+    return {
+        "positive_label": "Dispatching" if enabled else "Dispatch",
+        "negative_label": "Pause" if enabled else "Paused",
+        "active_side": "positive" if enabled else "negative",
+    }
+
+
+def _truncate_text(value, *, max_chars=120):
+    text = str(value or "").strip()
+    if len(text) <= int(max_chars):
+        return text
+    return f"{text[: max_chars - 1]}..."
 
 
 def build_public_history_slice(
@@ -124,7 +149,7 @@ def _public_layout(*, plant_name_fn, brand_logo_src, measurement_period_s):
                             html.Div(
                                 className="app-header-copy",
                                 children=[
-                                    html.H1("Spanish Demo Dashboard - Public Read-Only", className="app-title"),
+                                    html.H1("Spanish Demo Dashboard", className="app-title"),
                                     html.P(
                                         "Live status and historical measurement visibility for LIB and VRFB plants.",
                                         className="app-subtitle",
@@ -150,16 +175,128 @@ def _public_layout(*, plant_name_fn, brand_logo_src, measurement_period_s):
                             html.Div(
                                 className="control-panel",
                                 children=[
-                                    html.Div(id="public-api-status-inline", className="status-text"),
-                                    html.Div(id="public-control-engine-status-inline", className="status-text"),
-                                    html.Div(id="public-control-queue-status-inline", className="status-text"),
+                                    html.Div(
+                                        className="public-indicators-grid",
+                                        children=[
+                                            html.Div(
+                                                id="public-api-connection-indicator",
+                                                className="public-indicator",
+                                                children=[
+                                                    html.Span(className="public-indicator-light"),
+                                                    html.Span("API connection", className="public-indicator-text"),
+                                                ],
+                                            ),
+                                            html.Div(
+                                                id="public-api-today-indicator",
+                                                className="public-indicator",
+                                                children=[
+                                                    html.Span(className="public-indicator-light"),
+                                                    html.Span("Today's Schedule", className="public-indicator-text"),
+                                                ],
+                                            ),
+                                            html.Div(
+                                                id="public-api-tomorrow-indicator",
+                                                className="public-indicator",
+                                                children=[
+                                                    html.Span(className="public-indicator-light"),
+                                                    html.Span("Tomorrow's Schedule", className="public-indicator-text"),
+                                                ],
+                                            ),
+                                        ],
+                                    ),
+                                    html.Div(
+                                        className="public-meta-row public-meta-inline",
+                                        children=[
+                                            html.Span(id="public-transport-text", children="Transport: Unknown"),
+                                            html.Span(id="public-error-text", children="Error: None"),
+                                        ],
+                                    ),
+                                    html.Div(id="public-plant-summary-table", className="public-summary-table-wrap"),
                                 ],
                             ),
                             html.Div(
                                 className="plant-card",
                                 children=[
                                     html.H3(f"{plant_name_fn('lib')}"),
-                                    html.Div(id="public-status-lib", className="status-text"),
+                                    html.Div(
+                                        className="plant-controls-row",
+                                        children=[
+                                            html.Div(
+                                                className="control-group plant-control-group",
+                                                children=[
+                                                    html.Div(
+                                                        className="compact-toggle",
+                                                        children=[
+                                                            html.Button(
+                                                                "Run",
+                                                                id="public-start-lib",
+                                                                className="toggle-option toggle-option--positive",
+                                                                n_clicks=0,
+                                                                disabled=True,
+                                                            ),
+                                                            html.Button(
+                                                                "Stopped",
+                                                                id="public-stop-lib",
+                                                                className="toggle-option toggle-option--negative active",
+                                                                n_clicks=0,
+                                                                disabled=True,
+                                                            ),
+                                                        ],
+                                                    ),
+                                                ],
+                                            ),
+                                            html.Div(className="control-separator"),
+                                            html.Div(
+                                                className="control-section",
+                                                children=[
+                                                    html.Div(
+                                                        className="compact-toggle",
+                                                        children=[
+                                                            html.Button(
+                                                                "Dispatch",
+                                                                id="public-dispatch-enable-lib",
+                                                                className="toggle-option toggle-option--positive",
+                                                                n_clicks=0,
+                                                                disabled=True,
+                                                            ),
+                                                            html.Button(
+                                                                "Paused",
+                                                                id="public-dispatch-disable-lib",
+                                                                className="toggle-option toggle-option--negative active",
+                                                                n_clicks=0,
+                                                                disabled=True,
+                                                            ),
+                                                        ],
+                                                    ),
+                                                ],
+                                            ),
+                                            html.Div(className="control-separator"),
+                                            html.Div(
+                                                className="control-group record-control-group",
+                                                children=[
+                                                    html.Div(
+                                                        className="compact-toggle",
+                                                        children=[
+                                                            html.Button(
+                                                                "Record",
+                                                                id="public-record-lib",
+                                                                className="toggle-option toggle-option--positive",
+                                                                n_clicks=0,
+                                                                disabled=True,
+                                                            ),
+                                                            html.Button(
+                                                                "Stopped",
+                                                                id="public-record-stop-lib",
+                                                                className="toggle-option toggle-option--negative active",
+                                                                n_clicks=0,
+                                                                disabled=True,
+                                                            ),
+                                                        ],
+                                                    ),
+                                                ],
+                                            ),
+                                        ],
+                                    ),
                                     dcc.Graph(id="public-graph-lib", className="plot-graph"),
                                 ],
                             ),
@@ -167,7 +304,85 @@ def _public_layout(*, plant_name_fn, brand_logo_src, measurement_period_s):
                                 className="plant-card",
                                 children=[
                                     html.H3(f"{plant_name_fn('vrfb')}"),
-                                    html.Div(id="public-status-vrfb", className="status-text"),
+                                    html.Div(
+                                        className="plant-controls-row",
+                                        children=[
+                                            html.Div(
+                                                className="control-group plant-control-group",
+                                                children=[
+                                                    html.Div(
+                                                        className="compact-toggle",
+                                                        children=[
+                                                            html.Button(
+                                                                "Run",
+                                                                id="public-start-vrfb",
+                                                                className="toggle-option toggle-option--positive",
+                                                                n_clicks=0,
+                                                                disabled=True,
+                                                            ),
+                                                            html.Button(
+                                                                "Stopped",
+                                                                id="public-stop-vrfb",
+                                                                className="toggle-option toggle-option--negative active",
+                                                                n_clicks=0,
+                                                                disabled=True,
+                                                            ),
+                                                        ],
+                                                    ),
+                                                ],
+                                            ),
+                                            html.Div(className="control-separator"),
+                                            html.Div(
+                                                className="control-section",
+                                                children=[
+                                                    html.Div(
+                                                        className="compact-toggle",
+                                                        children=[
+                                                            html.Button(
+                                                                "Dispatch",
+                                                                id="public-dispatch-enable-vrfb",
+                                                                className="toggle-option toggle-option--positive",
+                                                                n_clicks=0,
+                                                                disabled=True,
+                                                            ),
+                                                            html.Button(
+                                                                "Paused",
+                                                                id="public-dispatch-disable-vrfb",
+                                                                className="toggle-option toggle-option--negative active",
+                                                                n_clicks=0,
+                                                                disabled=True,
+                                                            ),
+                                                        ],
+                                                    ),
+                                                ],
+                                            ),
+                                            html.Div(className="control-separator"),
+                                            html.Div(
+                                                className="control-group record-control-group",
+                                                children=[
+                                                    html.Div(
+                                                        className="compact-toggle",
+                                                        children=[
+                                                            html.Button(
+                                                                "Record",
+                                                                id="public-record-vrfb",
+                                                                className="toggle-option toggle-option--positive",
+                                                                n_clicks=0,
+                                                                disabled=True,
+                                                            ),
+                                                            html.Button(
+                                                                "Stopped",
+                                                                id="public-record-stop-vrfb",
+                                                                className="toggle-option toggle-option--negative active",
+                                                                n_clicks=0,
+                                                                disabled=True,
+                                                            ),
+                                                        ],
+                                                    ),
+                                                ],
+                                            ),
+                                        ],
+                                    ),
                                     dcc.Graph(id="public-graph-vrfb", className="plot-graph"),
                                 ],
                             ),
@@ -377,11 +592,39 @@ def build_public_readonly_app(config, shared_data):
 
     @app.callback(
         [
-            Output("public-api-status-inline", "children"),
-            Output("public-control-engine-status-inline", "children"),
-            Output("public-control-queue-status-inline", "children"),
-            Output("public-status-lib", "children"),
-            Output("public-status-vrfb", "children"),
+            Output("public-api-connection-indicator", "children"),
+            Output("public-api-connection-indicator", "className"),
+            Output("public-api-today-indicator", "children"),
+            Output("public-api-today-indicator", "className"),
+            Output("public-api-tomorrow-indicator", "children"),
+            Output("public-api-tomorrow-indicator", "className"),
+            Output("public-transport-text", "children"),
+            Output("public-error-text", "children"),
+            Output("public-plant-summary-table", "children"),
+            Output("public-start-lib", "children"),
+            Output("public-start-lib", "className"),
+            Output("public-stop-lib", "children"),
+            Output("public-stop-lib", "className"),
+            Output("public-dispatch-enable-lib", "children"),
+            Output("public-dispatch-enable-lib", "className"),
+            Output("public-dispatch-disable-lib", "children"),
+            Output("public-dispatch-disable-lib", "className"),
+            Output("public-record-lib", "children"),
+            Output("public-record-lib", "className"),
+            Output("public-record-stop-lib", "children"),
+            Output("public-record-stop-lib", "className"),
+            Output("public-start-vrfb", "children"),
+            Output("public-start-vrfb", "className"),
+            Output("public-stop-vrfb", "children"),
+            Output("public-stop-vrfb", "className"),
+            Output("public-dispatch-enable-vrfb", "children"),
+            Output("public-dispatch-enable-vrfb", "className"),
+            Output("public-dispatch-disable-vrfb", "children"),
+            Output("public-dispatch-disable-vrfb", "className"),
+            Output("public-record-vrfb", "children"),
+            Output("public-record-vrfb", "className"),
+            Output("public-record-stop-vrfb", "children"),
+            Output("public-record-stop-vrfb", "className"),
             Output("public-graph-lib", "figure"),
             Output("public-graph-vrfb", "figure"),
         ],
@@ -394,10 +637,8 @@ def build_public_readonly_app(config, shared_data):
                 "transport_mode": data.get("transport_mode", "local"),
                 "scheduler_running": dict(data.get("scheduler_running_by_plant", {})),
                 "transition_by_plant": dict(data.get("plant_transition_by_plant", {})),
-                "plant_operating_state_by_plant": dict(data.get("plant_operating_state_by_plant", {})),
                 "recording_files": dict(data.get("measurements_filename_by_plant", {})),
                 "observed_state_by_plant": dict(data.get("plant_observed_state_by_plant", {})),
-                "dispatch_write_status_by_plant": dict(data.get("dispatch_write_status_by_plant", {})),
                 "control_engine_status": dict(data.get("control_engine_status", {})),
                 "fetcher_status": dict((data.get("data_fetcher_status", {}) or {})),
                 "api_schedule_map": {
@@ -414,12 +655,10 @@ def build_public_readonly_app(config, shared_data):
         )
 
         status_now = now_tz(config)
-        observed_effective_stale_by_plant = {}
         enable_state_by_plant = {}
         for plant_id in plant_ids:
             observed = dict(snapshot["observed_state_by_plant"].get(plant_id, {}) or {})
             effective_stale = is_observed_state_effectively_stale(observed, now_ts=status_now)
-            observed_effective_stale_by_plant[plant_id] = bool(effective_stale)
             enable_state_by_plant[plant_id] = None if effective_stale else observed.get("enable_state")
 
         runtime_state_by_plant = {}
@@ -431,18 +670,134 @@ def build_public_readonly_app(config, shared_data):
             )
 
         status = snapshot["fetcher_status"]
-        api_inline = (
-            f"API Connected: {bool(status.get('connected'))} | "
-            f"Today {status.get('today_date')}: LIB={status.get('today_points_by_plant', {}).get('lib', 0)} "
-            f"VRFB={status.get('today_points_by_plant', {}).get('vrfb', 0)} | "
-            f"Tomorrow {status.get('tomorrow_date')}: LIB={status.get('tomorrow_points_by_plant', {}).get('lib', 0)} "
-            f"VRFB={status.get('tomorrow_points_by_plant', {}).get('vrfb', 0)}"
-        )
-        if status.get("error"):
-            api_inline += f" | Error: {status.get('error')}"
+        api_connected = bool(status.get("connected"))
+        today_available = bool(status.get("today_fetched"))
+        tomorrow_available = bool(status.get("tomorrow_fetched"))
 
-        control_engine_inline = summarize_control_engine_status(snapshot["control_engine_status"], status_now)
-        control_queue_inline = summarize_control_queue_status(snapshot["control_engine_status"])
+        def indicator_payload(label, is_ok):
+            class_name = "public-indicator public-indicator--ok" if bool(is_ok) else "public-indicator public-indicator--bad"
+            children = [
+                html.Span(className="public-indicator-light"),
+                html.Span(label, className="public-indicator-text"),
+            ]
+            return children, class_name
+
+        api_connection_children, api_connection_class = indicator_payload(
+            "API connection",
+            api_connected,
+        )
+        api_today_children, api_today_class = indicator_payload(
+            "Today's Schedule",
+            today_available,
+        )
+        api_tomorrow_children, api_tomorrow_class = indicator_payload(
+            "Tomorrow's Schedule",
+            tomorrow_available,
+        )
+
+        transport_mode = str(snapshot.get("transport_mode", "local") or "local")
+        transport_text = f"Transport: {transport_mode.capitalize()}"
+
+        fetch_error = str(status.get("error") or "").strip()
+        control_error = str(snapshot["control_engine_status"].get("last_exception") or "").strip()
+        if fetch_error:
+            error_text = _truncate_text(fetch_error, max_chars=140)
+        elif control_error:
+            error_text = _truncate_text(control_error, max_chars=140)
+        else:
+            error_text = "None"
+        error_line = f"Error: {error_text}"
+
+        def _coerce_float(value):
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                return None
+            if not math.isfinite(number):
+                return None
+            return number
+
+        def _metric_cell(value, unit, *, decimals):
+            number = _coerce_float(value)
+            if number is None:
+                return html.Td("—", className="public-summary-empty public-summary-measurement-cell")
+            value_text = f"{number:.{int(decimals)}f}"
+            return html.Td(
+                html.Div(
+                    className="public-summary-metric",
+                    children=[
+                        html.Span(value_text, className="public-summary-value"),
+                        html.Span(unit, className="public-summary-unit"),
+                    ],
+                )
+                ,
+                className="public-summary-measurement-cell",
+            )
+
+        def _latest_measurements_row(plant_id):
+            measurements_df = snapshot["measurements_map"].get(plant_id, pd.DataFrame())
+            if not isinstance(measurements_df, pd.DataFrame) or measurements_df.empty:
+                return {}
+            df_latest = measurements_df.copy()
+            if "timestamp" in df_latest.columns:
+                df_latest["__ts"] = normalize_datetime_series(df_latest["timestamp"], tz)
+                df_latest = df_latest.dropna(subset=["__ts"]).sort_values("__ts")
+                if df_latest.empty:
+                    return {}
+            try:
+                return dict(df_latest.iloc[-1].to_dict())
+            except Exception:
+                return {}
+
+        def _status_chip(plant_id):
+            is_running = str(runtime_state_by_plant.get(plant_id, "unknown") or "unknown").lower() == "running"
+            return html.Span(
+                "Running" if is_running else "Stopped",
+                className=(
+                    "public-status-chip public-status-chip--running"
+                    if is_running
+                    else "public-status-chip public-status-chip--stopped"
+                ),
+            )
+
+        table_rows = []
+        for plant_id in plant_ids:
+            latest = _latest_measurements_row(plant_id)
+            voltage_value = _coerce_float(latest.get("v_poi_kV"))
+            voltage_decimals = 3 if voltage_value is not None and abs(voltage_value) < 10.0 else 2
+            table_rows.append(
+                html.Tr(
+                    children=[
+                        html.Th(plant_name(plant_id), scope="row", className="public-summary-plant"),
+                        html.Td(_status_chip(plant_id), className="public-summary-status-cell"),
+                        _metric_cell(latest.get("p_setpoint_kw"), "kW", decimals=1),
+                        _metric_cell(latest.get("p_poi_kw"), "kW", decimals=1),
+                        _metric_cell(latest.get("q_setpoint_kvar"), "kvar", decimals=1),
+                        _metric_cell(latest.get("q_poi_kvar"), "kvar", decimals=1),
+                        _metric_cell(latest.get("v_poi_kV"), "kV", decimals=voltage_decimals),
+                    ]
+                )
+            )
+
+        summary_table = html.Table(
+            className="public-summary-table",
+            children=[
+                html.Thead(
+                    html.Tr(
+                        children=[
+                            html.Th("Plant"),
+                            html.Th("Status"),
+                            html.Th("Pref"),
+                            html.Th("P POI"),
+                            html.Th("Qref"),
+                            html.Th("Q POI"),
+                            html.Th("Voltage"),
+                        ]
+                    )
+                ),
+                html.Tbody(table_rows),
+            ],
+        )
 
         status_window_start, status_window_end = _manual_status_window_bounds(now_value=status_now)
 
@@ -458,38 +813,38 @@ def build_public_readonly_app(config, shared_data):
                 tz=tz,
             )
 
-        def plant_status_text(plant_id):
-            recording = snapshot["recording_files"].get(plant_id)
+        def plant_control_labels(plant_id):
             runtime_state = runtime_state_by_plant.get(plant_id, "unknown")
-            effective_stale = bool(observed_effective_stale_by_plant.get(plant_id, True))
-            physical_state = (
-                "unknown"
-                if effective_stale
-                else str(snapshot["plant_operating_state_by_plant"].get(plant_id, runtime_state) or "unknown")
-            )
             dispatch_enabled = bool(snapshot["scheduler_running"].get(plant_id, False))
-            rec_text = f"Recording: On ({os.path.basename(recording)})" if recording else "Recording: Off"
-            observed = dict(snapshot["observed_state_by_plant"].get(plant_id, {}) or {})
-            observed["stale"] = effective_stale
-            dispatch_write_state = dict(snapshot["dispatch_write_status_by_plant"].get(plant_id, {}) or {})
-            health_lines = summarize_plant_modbus_health(observed, status_now)
-            dispatch_lines = summarize_dispatch_write_status(dispatch_write_state, dispatch_enabled=dispatch_enabled)
-            rows = [
-                html.Div(
-                    (
-                        f"{plant_name(plant_id)} | Plant: {physical_state.capitalize()} | "
-                        f"Control: {runtime_state.capitalize()} | {rec_text}"
-                    ),
-                    className="status-text",
-                )
-            ]
-            rows.extend(html.Div(text, className="status-text") for text in dispatch_lines)
-            rows.extend(html.Div(text, className="status-text") for text in health_lines)
-            return rows
+            recording_active = bool(snapshot["recording_files"].get(plant_id))
+
+            power_state = get_plant_power_toggle_state(runtime_state)
+            dispatch_state = _public_dispatch_toggle_state(dispatch_enabled)
+            record_state = get_recording_toggle_state(recording_active)
+
+            power_classes = _binary_toggle_classes(power_state.get("active_side"))
+            dispatch_classes = _binary_toggle_classes(dispatch_state.get("active_side"))
+            record_classes = _binary_toggle_classes(record_state.get("active_side"))
+            return (
+                power_state.get("positive_label", "Run"),
+                power_classes[0],
+                power_state.get("negative_label", "Stopped"),
+                power_classes[1],
+                dispatch_state.get("positive_label", "Dispatch"),
+                dispatch_classes[0],
+                dispatch_state.get("negative_label", "Paused"),
+                dispatch_classes[1],
+                record_state.get("positive_label", "Record"),
+                record_classes[0],
+                record_state.get("negative_label", "Stopped"),
+                record_classes[1],
+            )
+
+        lib_controls = plant_control_labels("lib")
+        vrfb_controls = plant_control_labels("vrfb")
 
         lib_schedule = normalize_schedule_index(effective_schedule_map.get("lib", pd.DataFrame()), tz)
         vrfb_schedule = normalize_schedule_index(effective_schedule_map.get("vrfb", pd.DataFrame()), tz)
-        transport_mode = str(snapshot.get("transport_mode", "local") or "local")
 
         lib_fig = create_plant_figure(
             "lib",
@@ -521,11 +876,39 @@ def build_public_readonly_app(config, shared_data):
         )
 
         return (
-            api_inline,
-            control_engine_inline,
-            control_queue_inline,
-            plant_status_text("lib"),
-            plant_status_text("vrfb"),
+            api_connection_children,
+            api_connection_class,
+            api_today_children,
+            api_today_class,
+            api_tomorrow_children,
+            api_tomorrow_class,
+            transport_text,
+            error_line,
+            summary_table,
+            lib_controls[0],
+            lib_controls[1],
+            lib_controls[2],
+            lib_controls[3],
+            lib_controls[4],
+            lib_controls[5],
+            lib_controls[6],
+            lib_controls[7],
+            lib_controls[8],
+            lib_controls[9],
+            lib_controls[10],
+            lib_controls[11],
+            vrfb_controls[0],
+            vrfb_controls[1],
+            vrfb_controls[2],
+            vrfb_controls[3],
+            vrfb_controls[4],
+            vrfb_controls[5],
+            vrfb_controls[6],
+            vrfb_controls[7],
+            vrfb_controls[8],
+            vrfb_controls[9],
+            vrfb_controls[10],
+            vrfb_controls[11],
             lib_fig,
             vrfb_fig,
         )

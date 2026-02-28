@@ -36,6 +36,7 @@
 
     --font-body: "DM Sans", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
     --font-display: "Mundial", "DM Sans", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    --public-top-radius: 4px;
 }
 
 * {
@@ -56,12 +57,12 @@ a {
 .app-container {
     max-width: 1440px;
     margin: 0 auto;
-    padding: 20px 20px 32px;
+    padding: 16px 20px 28px;
 }
 
 .app-header {
-    margin-bottom: 16px;
-    padding: 8px 18px;
+    margin-bottom: 12px;
+    padding: 6px 12px;
     border: 1px solid var(--border);
     border-radius: 16px;
     background: linear-gradient(110deg, #ffffff 0%, #eefaf3 62%, #e8f8ef 100%);
@@ -71,7 +72,7 @@ a {
 .app-header-brand {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 12px;
 }
 
 .brand-logo {
@@ -161,6 +162,210 @@ a {
     padding: 16px;
 }
 
+.public-indicators-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.public-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--public-top-radius);
+    background: var(--surface-muted);
+}
+
+.public-indicator--ok {
+    background: #dff3e8;
+    border-color: #a8d8bc;
+}
+
+.public-indicator--bad {
+    background: #f8dddd;
+    border-color: #e7abab;
+}
+
+.public-indicator-light {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    flex: 0 0 auto;
+    background: var(--danger);
+    box-shadow: 0 0 0 3px rgba(217, 56, 56, 0.12);
+}
+
+.public-indicator--ok .public-indicator-light {
+    background: var(--success);
+    box-shadow: 0 0 0 3px rgba(0, 168, 100, 0.14);
+}
+
+.public-indicator--bad .public-indicator-light {
+    background: var(--danger);
+    box-shadow: 0 0 0 3px rgba(217, 56, 56, 0.12);
+}
+
+.public-indicator-text {
+    color: var(--text);
+    font-size: 0.8rem;
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.public-meta-row {
+    color: var(--text-muted);
+    font-size: 0.79rem;
+    line-height: 1.45;
+}
+
+.public-meta-inline {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.public-summary-table-wrap {
+    margin-top: 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--public-top-radius);
+    overflow: hidden;
+    background: linear-gradient(180deg, #fbfefd 0%, #f4faf7 100%);
+}
+
+.public-summary-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+.public-summary-table thead th:first-child {
+    border-top-left-radius: var(--public-top-radius);
+}
+
+.public-summary-table thead th:last-child {
+    border-top-right-radius: var(--public-top-radius);
+}
+
+.public-summary-table tbody tr:last-child th:first-child {
+    border-bottom-left-radius: var(--public-top-radius);
+}
+
+.public-summary-table tbody tr:last-child td:last-child {
+    border-bottom-right-radius: var(--public-top-radius);
+}
+
+.public-summary-table thead th {
+    padding: 8px 10px;
+    text-align: left;
+    color: var(--text-soft);
+    font-size: 0.67rem;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.6);
+}
+
+.public-summary-table thead th:nth-child(1),
+.public-summary-table thead th:nth-child(2) {
+    text-align: center;
+}
+
+.public-summary-table thead th:nth-child(n + 3) {
+    text-align: right;
+}
+
+.public-summary-table tbody th,
+.public-summary-table tbody td {
+    padding: 8px 10px;
+    border-bottom: 1px solid rgba(205, 230, 216, 0.65);
+}
+
+.public-summary-table tbody tr:last-child th,
+.public-summary-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.public-summary-table tbody tr:nth-child(odd) {
+    background: rgba(255, 255, 255, 0.72);
+}
+
+.public-summary-table tbody tr:nth-child(even) {
+    background: rgba(245, 251, 247, 0.86);
+}
+
+.public-summary-plant {
+    color: #1f3a30;
+    font-size: 0.8rem;
+    font-weight: 700;
+    white-space: nowrap;
+    text-align: center;
+}
+
+.public-summary-status-cell {
+    text-align: center;
+}
+
+.public-summary-metric {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+}
+
+.public-summary-measurement-cell {
+    text-align: right;
+}
+
+.public-summary-measurement-cell .public-summary-metric {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.public-summary-value {
+    color: #1f372f;
+    font-size: 0.84rem;
+    font-weight: 700;
+}
+
+.public-summary-unit {
+    color: var(--text-soft);
+    font-size: 0.66rem;
+    font-weight: 600;
+}
+
+.public-summary-empty {
+    color: var(--text-soft);
+    font-size: 0.8rem;
+}
+
+.public-status-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 8px;
+    border-radius: var(--public-top-radius);
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1.1;
+    border: 1px solid transparent;
+    white-space: nowrap;
+}
+
+.public-status-chip--running {
+    color: #0a6a3f;
+    background: #e5f6ec;
+    border-color: #b9e1c7;
+}
+
+.public-status-chip--stopped {
+    color: #8e2f2f;
+    background: #fae8e8;
+    border-color: #efc7c7;
+}
+
 .controls-row {
     display: flex;
     flex-wrap: wrap;
@@ -177,6 +382,31 @@ a {
     align-items: center;
     justify-content: center;
     gap: 10px;
+}
+
+.status-top-controls-row {
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    padding-bottom: 0;
+    border-bottom: none;
+}
+
+.status-top-control-section {
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+}
+
+.status-top-control-section .fleet-actions-group {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+}
+
+#operator-plant-summary-table {
+    margin-bottom: 10px;
 }
 
 .fleet-actions-group {
@@ -281,6 +511,17 @@ a {
     align-items: center;
     gap: 10px;
     margin-bottom: 10px;
+}
+
+/* Keep all three plant control groups left-aligned and compact on wide layouts. */
+.plant-controls-row .control-section,
+.plant-controls-row .control-group {
+    justify-content: flex-start;
+}
+
+/* Remove visual separators between Start / Dispatch / Record in plant cards. */
+.plant-controls-row .control-separator {
+    display: none;
 }
 
 .control-group {
@@ -765,6 +1006,17 @@ input[type="number"],
         flex-wrap: wrap;
     }
 
+    .status-top-controls-row {
+        flex-direction: row;
+        align-items: center;
+    }
+
+    .status-top-control-section {
+        width: auto;
+        justify-content: flex-start;
+        flex-wrap: nowrap;
+    }
+
     .fleet-actions-group {
         justify-content: flex-start;
     }
@@ -807,6 +1059,22 @@ input[type="number"],
     .plant-card {
         margin: 0 0 12px;
         padding: 12px;
+    }
+
+    .status-top-controls-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+    }
+
+    .status-top-control-section {
+        width: 100%;
+        justify-content: space-between;
+        flex-wrap: nowrap;
+    }
+
+    .status-top-control-section .fleet-actions-group {
+        justify-content: flex-end;
     }
 
     .form-row {

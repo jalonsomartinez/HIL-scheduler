@@ -1,48 +1,31 @@
 # Roadmap: HIL Scheduler
 
 ## Goal
-Increase reliability and operator confidence without changing the core dual-plant runtime model, while keeping dashboard usability stable.
+Increase operational confidence through reliability hardening and high-signal dashboard UX, without changing the core dual-plant runtime model.
 
 ## Priority Order
+1. Reliability guardrails
+- Keep compile/unit checks green for dashboard/control/settings/scheduler paths.
+- Add missing regressions around UI indicator/table state rendering and queue rejection paths.
+- Preserve strict config/schema validation as source of runtime truth.
 
-### P0 - Reliability and Regression Safety
-1. Add remote transport smoke coverage equivalent to local smoke checks.
-2. Keep compile + unittest checks green in CI on every PR/push.
-3. Expand integration wiring coverage beyond the current control/settings happy-path engine-cycle tests (for example callback-level regressions, bulk actions, and rejection/error paths).
-4. Expand transport hardening regression coverage beyond helper tests (engine-level transport-switch latency bounds, cache invalidation handoff, and queued-command behavior under unreachable remote endpoints).
-5. Keep measurement compression and config-loader schema regression coverage green to prevent config/runtime drift.
-6. Keep API schedule fetcher poll-gate/config regression coverage green (`tomorrow_poll_start_time` parsing, gate timing, partial-window status semantics).
-7. Add dashboard/manual-editor callback regressions for key manual override UX flows (series selector load, CSV upload, forced terminal `end` row behavior, breakpoint add/delete, row time auto-clamping).
-8. Add one regression covering control-engine command queue overflow visibility/behavior (`queue_full` rejection path surfaced to UI/log state).
-9. Add one UI-level regression (or helper-level regression if callback tests remain brittle) for Status-tab control-engine/queue/Modbus health text rendering.
-10. Add one UI/helper regression for Status-tab dispatch-write status rendering (success/failure/skipped) if callback-level tests remain brittle.
-11. Expand settings-command integration regressions beyond current happy paths (manual activate/update/inactivate and API/posting rejection/error-state paths).
+2. Operational hardening
+- Define log retention/cleanup policy.
+- Validate remote-transport behavior under intermittent connectivity.
+- Add clearer operator alerts for sustained queue backlog, stale data, and repeated control-path errors.
 
-### P1 - Operational Hardening
-1. Define log retention policy and implement cleanup automation.
-2. Validate and tune control-engine observed-state cache cadence/staleness thresholds and transition UX hold timing (including confirmable-toggle server-handoff min/max holds derived from `MEASUREMENT_PERIOD_S`) using real-server latency.
-3. Validate per-plant dispatch pause/resume behavior, scheduler readback reconciliation correction behavior, and operator expectations on real remote plants (including paused-setpoint freeze semantics).
-4. Add structured health checks for API connectivity and posting backlog age.
-5. Add explicit operator alerts for sustained posting failures, stale schedule windows, command-queue saturation, settings-queue saturation, or persistent Modbus read/connect failures.
-6. Add an operator UI validation checklist for critical control/readability states after styling updates, including logs-tab `Today` live refresh, historical-file selection behavior, bulk-action confirmation states, small-screen control-row behavior, and dispatch toggle/readback states.
-7. Validate and refine the new Manual Schedule split-layout/editor ergonomics across desktop/tablet breakpoints (including forced terminal `end` row readability and dense row actions).
+3. UX and observability
+- Add lightweight visual regression checks for operator/public status views.
+- Continue readability tuning only where it improves scan speed (not cosmetic churn).
+- Refine public dashboard summary density based on real operator feedback.
 
-### P2 - Developer Experience
-1. Expand README with architecture diagram, control semantics, and troubleshooting.
-2. Document recommended local/remote smoke workflow for dual-plant scenarios.
-3. Define a low-overhead visual regression guardrail (for example, deterministic screenshots of key dashboard tabs).
-4. Evaluate removal of remaining legacy compatibility paths (for example the alias fallback flag) after external dependency check.
-5. Decide whether to ship an optional offline utility for historical CSV recompression.
-6. Evaluate queue topology evolution (global FIFO vs per-plant queues with global command barriers) after collecting operator observations from control-queue/health UI and new settings-queue behavior.
-7. Decide whether to move manual editor drafts from shared runtime state to per-session `dcc.Store` if multi-operator dashboard usage becomes a requirement.
-8. Continue low-risk dedup cleanup (shared constants/helper clones) where it reduces drift without changing runtime contracts.
-
-### P3 - Product Enhancements
-1. Expand manual override editor validation/sanitization feedback/diagnostics (without reintroducing UI clutter), especially for auto-clamped breakpoint times.
-2. Expand the new historical `Plots` tab beyond baseline browsing/exports (for example: file filters, derived stats, multi-range compare).
-3. Evaluate persistence options for measurement posting queue durability.
+4. Scalability and maintainability
+- Evaluate history indexing/caching strategy for large `data/` folders.
+- Continue low-risk dedup of shared defaults/helpers where it reduces drift.
+- Revisit per-session manual draft isolation if multi-operator use becomes required.
 
 ## Exit Criteria for Current Phase
-1. Core control and recording contracts are covered by automated tests, including safe-stop/switch flows.
-2. Local and remote smoke workflows are repeatable and documented.
-3. Critical failures surface quickly via logs/status without deep code inspection.
+1. Core control and dashboard callbacks remain stable under automated regression.
+2. Transport and safe-stop behavior are validated in local and remote scenarios.
+3. Operators can assess plant/API state quickly from top-card indicators and summary tables.
+4. Documentation (memory bank + runbook) matches runtime behavior with minimal drift.

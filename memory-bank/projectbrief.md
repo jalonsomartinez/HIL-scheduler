@@ -1,52 +1,40 @@
 # Project Brief: HIL Scheduler
 
 ## Overview
-HIL Scheduler is a multi-agent Python application that executes active and reactive power setpoints for two logical battery plants (`lib` and `vrfb`) using Modbus TCP. It supports local emulation and remote hardware transport, with a real-time dashboard for control and observability.
+HIL Scheduler is a dual-plant control application for LIB and VRFB battery assets. It ingests API schedules, applies optional manual overrides, dispatches Modbus setpoints, records telemetry, and provides operator and public dashboards.
 
 ## Core Goals
-1. Execute schedule setpoints at the configured scheduler cadence.
-2. Maintain safe SoC-constrained battery behavior in local emulation.
-3. Dispatch from an API base schedule with optional per-signal manual overrides (`P`/`Q` for `lib` and `vrfb`).
-4. Record measurement sessions per plant/day with boundary-preserving compression for traceability.
-5. Surface operational and API posting health in the dashboard.
+1. Dispatch active/reactive setpoints safely and on cadence.
+2. Keep plant transitions safe (`start`, `stop`, `transport switch`) via queued control flows.
+3. Separate plant power state from dispatch sending and recording state.
+4. Persist per-plant measurements with compression and export-friendly history.
+5. Provide clear status observability for API, control engine, queue health, and last writes.
 
 ## Runtime Model
 - Logical plants: `lib`, `vrfb`.
-- Global selectors:
-  - `transport_mode`: `local` or `remote`.
-  - `posting_runtime.policy_enabled`: runtime API-posting policy gate (`True`/`False`, session-scoped, default from config).
-  - `api_connection_runtime.state`: authoritative API connection state (`disconnected|connecting|connected|disconnecting|error`).
-- Manual override model:
-  - authoritative manual series storage per key: `lib_p`, `lib_q`, `vrfb_p`, `vrfb_q`,
-  - per-series active/inactive merge toggle controls whether that manual series overwrites the API base for dispatch.
-- Per-plant controls:
-  - dispatch gate via `scheduler_running_by_plant[plant_id]`.
-  - recording gate via `measurements_filename_by_plant[plant_id]`.
-  - operator control intents are enqueued by the dashboard and executed by a runtime control engine.
+- Transport modes: `local`, `remote`.
+- Schedule model: API base schedule plus per-series manual overrides (`lib_p`, `lib_q`, `vrfb_p`, `vrfb_q`) with active/inactive merge flags.
+- Control model: dashboard enqueues commands; control/settings engines execute them and publish runtime state.
+- Dashboards:
+  - Private operator dashboard: full controls.
+  - Public dashboard: read-only status/plots.
 
 ## In Scope
-- Threaded agents: director, data fetcher, scheduler, plant emulator, measurement, control engine, dashboard.
-- Day-ahead API schedule ingestion and stale-setpoint guardrails.
-- Per-plant Modbus endpoint management for local and remote modes.
-- CSV measurement persistence and in-memory plot caches.
-- Dashboard historical measurement browsing from `data/*.csv` with range filtering and exports.
-- API measurement posting with retry queue and observability state.
-- Dashboard fleet controls (`Start All`/`Stop All`) and confirmation-gated high-impact actions (including transport and plant `Run/Stop` toggles).
+- Multi-thread agents: data fetcher, scheduler, plant emulator, measurement, control engine, settings engine, operator dashboard, public dashboard.
+- Modbus endpoint handling for each plant in local and remote transport.
+- API fetch/post flows, posting retry queue, and API connection runtime state.
+- Historical plotting from CSV files with range selection and export.
 
 ## Hard Constraints
-- Modbus I/O uses holding registers only.
-- Endpoint `byte_order` and `word_order` are required in config (no loader defaults).
-- Current configured power points use signed 16-bit values encoded via two's complement at hW scale (`0.1` kW/kvar per count).
-- Local emulation runs one Modbus server per logical plant simultaneously.
-- Plant model limits come from `config.yaml`:
-  - `lib`: 500 kWh, P +/-1000 kW, Q +/-600 kvar.
-  - `vrfb`: 400 kWh, P +/-160 kW, Q +/-64 kvar.
-- Timestamps are timezone-aware in configured timezone (`time.timezone`).
+- Holding-register Modbus only.
+- Endpoint `byte_order` and `word_order` are required.
+- Structured `plants.*.modbus.{local,remote}.points` config schema is required.
+- Time handling is timezone-aware using configured timezone.
+- Dispatch and settings commands are serialized through bounded queues.
 
 ## Success Criteria
-1. Correct per-plant dispatch from merged effective schedule (API base + enabled manual overrides).
-2. Safe start/stop flows with explicit transition states.
-3. Reliable per-plant recording files (`data/YYYYMMDD_<plant>.csv`).
-4. Accurate API status (today/tomorrow windows, stale cutoff behavior).
-5. Actionable dashboard visibility for API posting success/failure/queue state.
-6. Operators can browse historical measurements across the `data/` time span and export cropped CSV/PNG per plant.
+1. Correct merged dispatch behavior for API + enabled manual overrides.
+2. Reliable safe-stop and transport-switch behavior under normal and failure paths.
+3. Stable recording files (`data/YYYYMMDD_<plant>.csv`) with consistent units.
+4. Operator UI clearly shows control states and last measurement snapshots.
+5. Public dashboard provides accurate read-only status and historical visibility.

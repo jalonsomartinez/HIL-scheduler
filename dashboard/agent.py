@@ -1774,6 +1774,7 @@ def dashboard_agent(config, shared_data):
             Output("api-status-inline", "children"),
             Output("control-engine-status-inline", "children"),
             Output("control-queue-status-inline", "children"),
+            Output("operator-plant-summary-table", "children"),
             Output("status-lib", "children"),
             Output("status-vrfb", "children"),
             Output("graph-lib", "figure"),
@@ -1953,6 +1954,96 @@ def dashboard_agent(config, shared_data):
         control_engine_inline = summarize_control_engine_status(control_engine_status, status_now)
         control_queue_inline = summarize_control_queue_status(control_engine_status)
 
+        def _coerce_float(value):
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                return None
+            if not math.isfinite(number):
+                return None
+            return number
+
+        def _metric_cell(value, unit, *, decimals):
+            number = _coerce_float(value)
+            if number is None:
+                return html.Td("—", className="public-summary-empty public-summary-measurement-cell")
+            value_text = f"{number:.{int(decimals)}f}"
+            return html.Td(
+                html.Div(
+                    className="public-summary-metric",
+                    children=[
+                        html.Span(value_text, className="public-summary-value"),
+                        html.Span(unit, className="public-summary-unit"),
+                    ],
+                ),
+                className="public-summary-measurement-cell",
+            )
+
+        def _latest_measurements_row(plant_id):
+            measurements_df = measurements_map.get(plant_id, pd.DataFrame())
+            if not isinstance(measurements_df, pd.DataFrame) or measurements_df.empty:
+                return {}
+            df_latest = measurements_df.copy()
+            if "timestamp" in df_latest.columns:
+                df_latest["__ts"] = normalize_datetime_series(df_latest["timestamp"], tz)
+                df_latest = df_latest.dropna(subset=["__ts"]).sort_values("__ts")
+                if df_latest.empty:
+                    return {}
+            try:
+                return dict(df_latest.iloc[-1].to_dict())
+            except Exception:
+                return {}
+
+        def _status_chip(plant_id):
+            is_running = str(runtime_state_by_plant.get(plant_id, "unknown") or "unknown").lower() == "running"
+            return html.Span(
+                "Running" if is_running else "Stopped",
+                className=(
+                    "public-status-chip public-status-chip--running"
+                    if is_running
+                    else "public-status-chip public-status-chip--stopped"
+                ),
+            )
+
+        table_rows = []
+        for plant_id in plant_ids:
+            latest = _latest_measurements_row(plant_id)
+            voltage_value = _coerce_float(latest.get("v_poi_kV"))
+            voltage_decimals = 3 if voltage_value is not None and abs(voltage_value) < 10.0 else 2
+            table_rows.append(
+                html.Tr(
+                    children=[
+                        html.Th(plant_name(plant_id), scope="row", className="public-summary-plant"),
+                        html.Td(_status_chip(plant_id), className="public-summary-status-cell"),
+                        _metric_cell(latest.get("p_setpoint_kw"), "kW", decimals=1),
+                        _metric_cell(latest.get("p_poi_kw"), "kW", decimals=1),
+                        _metric_cell(latest.get("q_setpoint_kvar"), "kvar", decimals=1),
+                        _metric_cell(latest.get("q_poi_kvar"), "kvar", decimals=1),
+                        _metric_cell(latest.get("v_poi_kV"), "kV", decimals=voltage_decimals),
+                    ]
+                )
+            )
+
+        summary_table = html.Table(
+            className="public-summary-table",
+            children=[
+                html.Thead(
+                    html.Tr(
+                        children=[
+                            html.Th("Plant"),
+                            html.Th("Status"),
+                            html.Th("Pref"),
+                            html.Th("P POI"),
+                            html.Th("Qref"),
+                            html.Th("Q POI"),
+                            html.Th("Voltage"),
+                        ]
+                    )
+                ),
+                html.Tbody(table_rows),
+            ],
+        )
+
         status_window_start = status_now.replace(hour=0, minute=0, second=0, microsecond=0)
         status_window_end = status_window_start + timedelta(days=2)
 
@@ -2032,7 +2123,7 @@ def dashboard_agent(config, shared_data):
             feedback = str(click_feedback_state or "").lower()
             if feedback == "starting":
                 return {
-                    "positive_label": "Starting...",
+                    "positive_label": "Starting",
                     "negative_label": "Pause",
                     "positive_disabled": True,
                     "negative_disabled": True,
@@ -2040,7 +2131,7 @@ def dashboard_agent(config, shared_data):
                 }
             if feedback == "pausing":
                 return {
-                    "positive_label": "Send",
+                    "positive_label": "Dispatch",
                     "negative_label": "Pausing...",
                     "positive_disabled": True,
                     "negative_disabled": True,
@@ -2048,7 +2139,7 @@ def dashboard_agent(config, shared_data):
                 }
             enabled = bool(dispatch_enabled)
             return {
-                "positive_label": "Sending" if enabled else "Send",
+                "positive_label": "Dispatching" if enabled else "Dispatch",
                 "negative_label": "Pause" if enabled else "Paused",
                 "positive_disabled": enabled,
                 "negative_disabled": not enabled,
@@ -2085,6 +2176,7 @@ def dashboard_agent(config, shared_data):
             api_inline,
             control_engine_inline,
             control_queue_inline,
+            summary_table,
             plant_status_text("lib"),
             plant_status_text("vrfb"),
             lib_fig,
