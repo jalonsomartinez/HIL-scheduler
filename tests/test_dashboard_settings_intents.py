@@ -6,6 +6,7 @@ import pandas as pd
 
 import scheduling.manual_schedule_manager as msm
 from dashboard.settings_intents import (
+    api_password_intent_from_trigger,
     api_connection_intent_from_trigger,
     manual_settings_intent_from_trigger,
     posting_intent_from_trigger,
@@ -54,15 +55,25 @@ class DashboardSettingsIntentsTests(unittest.TestCase):
         self.assertEqual(intent["payload"]["series_rows"][0]["setpoint"], 5.0)
         self.assertEqual(intent["payload"]["series_rows"][-1]["setpoint"], 5.0)
 
-    def test_api_connect_uses_input_password_when_provided(self):
-        intent = api_connection_intent_from_trigger("set-password-btn", password_value=" pw ")
-        self.assertEqual(intent["kind"], "api.connect")
+    def test_api_password_set_uses_trimmed_password(self):
+        intent = api_password_intent_from_trigger("save-api-password-btn", password_value=" pw ")
+        self.assertEqual(intent["kind"], "api.password.set")
         self.assertEqual(intent["payload"]["password"], "pw")
 
-    def test_api_connect_allows_null_password_to_use_stored(self):
-        intent = api_connection_intent_from_trigger("set-password-btn", password_value="")
-        self.assertEqual(intent["kind"], "api.connect")
+    def test_api_password_set_allows_blank_for_engine_rejection(self):
+        intent = api_password_intent_from_trigger("save-api-password-btn", password_value="")
+        self.assertEqual(intent["kind"], "api.password.set")
         self.assertIsNone(intent["payload"]["password"])
+
+    def test_api_connect_uses_new_trigger(self):
+        intent = api_connection_intent_from_trigger("connect-api-btn")
+        self.assertEqual(intent["kind"], "api.connect")
+        self.assertEqual(intent["payload"], {})
+
+    def test_api_connect_keeps_legacy_trigger_compatibility(self):
+        intent = api_connection_intent_from_trigger("set-password-btn")
+        self.assertEqual(intent["kind"], "api.connect")
+        self.assertEqual(intent["payload"], {})
 
     def test_posting_intents(self):
         self.assertEqual(posting_intent_from_trigger("api-posting-enable-btn")["kind"], "posting.enable")

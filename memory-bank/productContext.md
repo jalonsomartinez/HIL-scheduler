@@ -20,6 +20,9 @@ Operators need a safe, observable way to execute power schedules against real or
 - Operator dashboard supports:
   - transport toggle,
   - fleet actions (`Start All`, `Stop All`),
+  - API tab credential workflow with separate actions:
+    - `Save Password` stores API password in runtime state,
+    - `Connect/Disconnect` controls connection state using stored password,
   - per-plant `Run/Stop`, `Dispatch/Pause`, `Record/Stopped`,
   - live and historical plots,
   - top-card summary table with per-plant latest metrics.
@@ -46,4 +49,5 @@ Operators need a safe, observable way to execute power schedules against real or
 2. Dispatch toggle: user toggles send/pause -> command queue -> scheduler gate updates.
 3. Fleet action: modal-confirmed start/stop for both plants.
 4. Transport switch: modal-confirmed switch with safe-stop and cache invalidation.
-5. Public monitoring: observer checks API indicators, top summary table, then drill-down in plots/history.
+5. API credentialing: optional env preload at startup (`HIL_API_PASSWORD`) and/or API-tab `Save Password`; `Connect` attempts probe login with stored password.
+6. Public monitoring: observer checks API indicators, top summary table, then drill-down in plots/history.

@@ -169,6 +169,35 @@ class SettingsEngineAgentTests(unittest.TestCase):
         self.assertEqual(_FakeAPI.password_seen, "pw")
         self.assertEqual(_FakeAPI.login_calls, 1)
 
+    def test_api_password_set_stores_password_without_changing_connection_state(self):
+        shared = _shared()
+        cfg = _config()
+        result = _execute_settings_command(
+            cfg,
+            shared,
+            {"id": "cmd-4a", "kind": "api.password.set", "payload": {"password": " pw "}},
+            tz=timezone.utc,
+        )
+        self.assertEqual(result["state"], "succeeded")
+        with shared["lock"]:
+            self.assertEqual(shared["api_password"], "pw")
+            self.assertEqual(shared["api_connection_runtime"]["state"], "disconnected")
+            self.assertEqual(shared["api_connection_runtime"]["desired_state"], "disconnected")
+
+    def test_api_password_set_rejects_empty_password(self):
+        shared = _shared()
+        cfg = _config()
+        result = _execute_settings_command(
+            cfg,
+            shared,
+            {"id": "cmd-4b", "kind": "api.password.set", "payload": {"password": "   "}},
+            tz=timezone.utc,
+        )
+        self.assertEqual(result["state"], "rejected")
+        self.assertEqual(result["message"], "missing_password")
+        with shared["lock"]:
+            self.assertIsNone(shared["api_password"])
+
     def test_api_connect_without_any_password_rejected(self):
         shared = _shared()
         cfg = _config()

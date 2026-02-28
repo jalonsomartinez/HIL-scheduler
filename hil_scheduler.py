@@ -137,7 +137,7 @@ def build_initial_shared_data(config):
         "local_emulator_soc_seed_request_by_plant": _default_local_emulator_soc_seed_request_by_plant(plant_ids),
         "local_emulator_soc_seed_result_by_plant": _default_local_emulator_soc_seed_result_by_plant(plant_ids),
         "posting_runtime": _default_posting_runtime(config.get("ISTENTORE_POST_MEASUREMENTS_IN_API_MODE", True)),
-        "api_password": None,
+        "api_password": config.get("ISTENTORE_API_PASSWORD"),
         "api_connection_runtime": _default_api_connection_runtime(),
         "data_fetcher_status": {
             "connected": False,

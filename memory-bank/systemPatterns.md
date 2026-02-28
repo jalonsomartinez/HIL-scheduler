@@ -6,6 +6,9 @@
   - `transport_mode` (`local|remote`)
   - `posting_runtime.policy_enabled`
   - `api_connection_runtime.state`
+- API credential selectors:
+  - `api_password` (runtime stored credential used by connect/fetch/posting paths)
+  - `ISTENTORE_API_PASSWORD` (startup config key loaded from env `HIL_API_PASSWORD`)
 - Manual schedules:
   - series keys: `lib_p`, `lib_q`, `vrfb_p`, `vrfb_q`
   - enabled flags in `manual_schedule_merge_enabled_by_key`
@@ -15,7 +18,7 @@
   - `measurements_filename_by_plant` (recording on/off)
 - Command queues:
   - `control_command_queue` for plant/transport/fleet/record/dispatch actions
-  - `settings_command_queue` for API/manual settings operations.
+  - `settings_command_queue` for API/manual settings operations, including `api.password.set`.
 
 ## Authoritative Shared State
 Primary contract is initialized in `build_initial_shared_data(config)`.
@@ -54,7 +57,13 @@ Key maps:
 - Fleet actions:
   - `Start All` enables recording + dispatch gates then starts plants.
   - `Stop All` safe-stops plants and stops recording.
+- API credential and connection contract:
+  1. startup may preload `api_password` from env-derived config,
+  2. dashboard `Save Password` enqueues `api.password.set` (no connect side effect),
+  3. dashboard `Connect` enqueues `api.connect` and uses stored password,
+  4. `Disconnect` updates runtime state but preserves stored password.
 - Public dashboard is strictly read-only: no enqueue helpers and no write-side actions.
+- Public basic-auth contract ensures Flask session secret key is set before auth middleware to avoid session warnings.
 
 ## Time and Timestamp Conventions
 - Runtime timestamps are timezone-aware in configured timezone.

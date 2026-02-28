@@ -17,6 +17,7 @@ from dash.exceptions import PreventUpdate
 from control.command_runtime import enqueue_control_command
 from dashboard.command_intents import command_intent_from_control_trigger, confirmed_toggle_intent_from_request
 from dashboard.settings_intents import (
+    api_password_intent_from_trigger,
     api_connection_intent_from_trigger,
     manual_settings_intent_from_trigger,
     posting_intent_from_trigger,
@@ -752,9 +753,9 @@ def dashboard_agent(config, shared_data):
 
     @app.callback(
         [
-            Output("set-password-btn", "children"),
-            Output("set-password-btn", "className"),
-            Output("set-password-btn", "disabled"),
+            Output("connect-api-btn", "children"),
+            Output("connect-api-btn", "className"),
+            Output("connect-api-btn", "disabled"),
             Output("disconnect-api-btn", "children"),
             Output("disconnect-api-btn", "className"),
             Output("disconnect-api-btn", "disabled"),
@@ -762,7 +763,7 @@ def dashboard_agent(config, shared_data):
         [
             Input("interval-component", "n_intervals"),
             Input("api-connection-action", "data"),
-            Input("set-password-btn", "n_clicks_timestamp"),
+            Input("connect-api-btn", "n_clicks_timestamp"),
             Input("disconnect-api-btn", "n_clicks_timestamp"),
         ],
         prevent_initial_call=False,
@@ -797,17 +798,33 @@ def dashboard_agent(config, shared_data):
         )
 
     @app.callback(
-        Output("api-connection-action", "data"),
-        [Input("set-password-btn", "n_clicks"), Input("disconnect-api-btn", "n_clicks")],
+        Output("api-password-action", "data"),
+        [Input("save-api-password-btn", "n_clicks")],
         [State("api-password", "value")],
         prevent_initial_call=True,
     )
-    def enqueue_api_connection_command(connect_clicks, disconnect_clicks, password_value):
+    def enqueue_api_password_command(_save_clicks, password_value):
         ctx = callback_context
         if not ctx.triggered:
             raise PreventUpdate
         trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
-        intent = api_connection_intent_from_trigger(trigger_id, password_value=password_value)
+        intent = api_password_intent_from_trigger(trigger_id, password_value=password_value)
+        if intent is None:
+            raise PreventUpdate
+        status = _enqueue_dashboard_settings_intent(intent, trigger_id=trigger_id)
+        return _command_status_action_token(status)
+
+    @app.callback(
+        Output("api-connection-action", "data"),
+        [Input("connect-api-btn", "n_clicks"), Input("disconnect-api-btn", "n_clicks")],
+        prevent_initial_call=True,
+    )
+    def enqueue_api_connection_command(connect_clicks, disconnect_clicks):
+        ctx = callback_context
+        if not ctx.triggered:
+            raise PreventUpdate
+        trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
+        intent = api_connection_intent_from_trigger(trigger_id)
         if intent is None:
             raise PreventUpdate
         status = _enqueue_dashboard_settings_intent(intent, trigger_id=trigger_id)
@@ -1606,11 +1623,12 @@ def dashboard_agent(config, shared_data):
         ],
         [
             Input("interval-component", "n_intervals"),
+            Input("api-password-action", "data"),
             Input("api-connection-action", "data"),
             Input("posting-settings-action", "data"),
         ],
     )
-    def update_api_tab(n_intervals, api_connection_action, posting_settings_action):
+    def update_api_tab(n_intervals, api_password_action, api_connection_action, posting_settings_action):
         with shared_data["lock"]:
             status = shared_data.get("data_fetcher_status", {}).copy()
             api_password = shared_data.get("api_password")

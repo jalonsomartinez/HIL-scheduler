@@ -9,3 +9,5 @@ __pycache__/
 .mypy_cache/
 data/
 logs/
+.env.public-dashboard
+.env.public-dashboard.ps1

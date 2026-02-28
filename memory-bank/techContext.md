@@ -18,6 +18,7 @@
 - `scheduling/`: effective schedule merge + dispatch cycle logic.
 - `modbus/`: endpoint config helpers, point codecs, unit handling, control-path I/O.
 - `runtime/`: shared helpers for state defaults, command lifecycle, engine status, path resolution.
+- `scripts/`: startup launchers for Linux/Windows that source local env files, activate `venv`, and run app.
 
 ## Configuration Schema
 Top-level keys in `config.yaml`:
@@ -26,6 +27,8 @@ Top-level keys in `config.yaml`:
 - `startup.transport_mode`: `local|remote`.
 - `dashboard.public_readonly.auth.mode`: `basic|none`.
 - `istentore_api.tomorrow_poll_start_time`: `HH:MM` required format.
+- Optional env-derived API credential: `HIL_API_PASSWORD` -> `ISTENTORE_API_PASSWORD`.
+- Optional Flask secret env for dashboard session support: `HIL_FLASK_SECRET_KEY` (fallback alias `HIL_PUBLIC_DASH_SECRET_KEY`).
 
 ## Runtime Contracts Exposed by Config Loader
 Important normalized keys include:
@@ -35,6 +38,7 @@ Important normalized keys include:
 - Plant topology: `PLANTS`, `PLANT_IDS`.
 - Startup behavior: `STARTUP_TRANSPORT_MODE`, `STARTUP_SCHEDULE_SOURCE`, `STARTUP_INITIAL_SOC_PU`.
 - Recording compression: `MEASUREMENT_COMPRESSION_ENABLED`, tolerances, keep-gap threshold.
+- Credentials: `ISTENTORE_API_PASSWORD` (optional preload for runtime `api_password`).
 
 ## Modbus and Unit Conventions
 - Holding registers only.
@@ -52,4 +56,5 @@ Important normalized keys include:
 - Queue sizes are bounded (default 128 for control/settings commands).
 - Serial command execution means long safe-stop/transport actions can delay later commands.
 - Public dashboard can be auth-disabled (`none`) for trusted network use; basic auth requires env credentials.
+- API tab separates password save from connect/disconnect; password persistence is runtime-memory only.
 - Network-restricted environments should validate API/posting behavior with posting policy disabled when needed.

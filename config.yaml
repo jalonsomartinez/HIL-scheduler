@@ -43,7 +43,7 @@ dashboard:
     host: "127.0.0.1"
     port: 8060
     auth:
-      mode: "none"  # basic | none
+      mode: "basic"  # basic | none
 
 recording:
   compression:

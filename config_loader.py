@@ -36,6 +36,7 @@ DEFAULT_MODEL = {
     "poi_voltage_kv": 20.0,
 }
 LEGACY_ALIAS_ENV_VAR = "HIL_ENABLE_LEGACY_CONFIG_ALIASES"
+ISTENTORE_API_PASSWORD_ENV_VAR = "HIL_API_PASSWORD"
 MODBUS_BYTE_ORDERS = {"big", "little"}
 MODBUS_WORD_ORDERS = {"msw_first", "lsw_first"}
 MODBUS_POINT_FORMATS = {"int16", "uint16", "int32", "uint32", "float32"}
@@ -583,6 +584,8 @@ def load_config(config_path="config.yaml"):
     api_cfg = yaml_config.get("istentore_api", {})
     config["ISTENTORE_BASE_URL"] = api_cfg.get("base_url", "https://3mku48kfxf.execute-api.eu-south-2.amazonaws.com/default")
     config["ISTENTORE_EMAIL"] = api_cfg.get("email", "i-STENTORE")
+    env_api_password = str(os.getenv(ISTENTORE_API_PASSWORD_ENV_VAR, "")).strip()
+    config["ISTENTORE_API_PASSWORD"] = env_api_password or None
     if "poll_start_time" in api_cfg:
         raise ValueError(
             "Config key 'istentore_api.poll_start_time' was renamed to "

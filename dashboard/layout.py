@@ -546,11 +546,28 @@ def build_dashboard_layout(
                                         className="form-row api-credentials-row",
                                         children=[
                                             dcc.Input(id="api-password", type="password", placeholder="API password", className="form-control api-password-input"),
+                                            html.Button(
+                                                "Save Password",
+                                                id="save-api-password-btn",
+                                                className="btn btn-primary",
+                                                n_clicks=0,
+                                            ),
+                                        ],
+                                    ),
+                                    html.Div(
+                                        className="form-row",
+                                        children=[
                                             html.Div(
-                                                className="compact-toggle",
+                                                className="control-section api-posting-toggle-section",
                                                 children=[
-                                                    html.Button("Connect", id="set-password-btn", className="toggle-option toggle-option--positive", n_clicks=0),
-                                                    html.Button("Disconnected", id="disconnect-api-btn", className="toggle-option toggle-option--negative active", n_clicks=0),
+                                                    html.Span("API Connection", className="toggle-label"),
+                                                    html.Div(
+                                                        className="compact-toggle",
+                                                        children=[
+                                                            html.Button("Connect", id="connect-api-btn", className="toggle-option toggle-option--positive", n_clicks=0),
+                                                            html.Button("Disconnected", id="disconnect-api-btn", className="toggle-option toggle-option--negative active", n_clicks=0),
+                                                        ],
+                                                    ),
                                                 ],
                                             ),
                                         ],
@@ -635,6 +652,7 @@ def build_dashboard_layout(
             ),
             dcc.Store(id="control-action", data="idle"),
             dcc.Store(id="manual-settings-action", data="idle"),
+            dcc.Store(id="api-password-action", data="idle"),
             dcc.Store(id="api-connection-action", data="idle"),
             dcc.Store(id="posting-settings-action", data="idle"),
             dcc.Store(id="bulk-control-request", data=None),

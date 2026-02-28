@@ -25,6 +25,16 @@ class ConfigLoaderLegacyAliasTests(unittest.TestCase):
         self.assertEqual(config["PLANT_INITIAL_SOC_PU"], config["STARTUP_INITIAL_SOC_PU"])
         self.assertIn("ISTENTORE_MEASUREMENT_SERIES_LOCAL_SOC_ID", config)
 
+    def test_istentore_api_password_env_var_is_loaded_and_trimmed(self):
+        with patch.dict("os.environ", {"HIL_API_PASSWORD": "  secret  "}, clear=False):
+            config = load_config("config.yaml")
+        self.assertEqual(config["ISTENTORE_API_PASSWORD"], "secret")
+
+    def test_istentore_api_password_env_var_empty_resolves_to_none(self):
+        with patch.dict("os.environ", {"HIL_API_PASSWORD": "   "}, clear=False):
+            config = load_config("config.yaml")
+        self.assertIsNone(config["ISTENTORE_API_PASSWORD"])
+
 
 if __name__ == "__main__":
     unittest.main()

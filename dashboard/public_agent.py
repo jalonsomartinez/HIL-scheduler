@@ -1,6 +1,7 @@
 import logging
 import math
 import os
+import secrets
 import threading
 import time
 
@@ -132,6 +133,23 @@ def _apply_basic_auth(app, config):
         ) from exc
 
     dash_auth.BasicAuth(app, {username: password})
+
+
+def _ensure_flask_secret_key(app):
+    server = app.server
+    existing = str(getattr(server, "secret_key", "") or "").strip()
+    if existing:
+        return
+
+    env_secret = str(os.getenv("HIL_FLASK_SECRET_KEY", "")).strip() or str(
+        os.getenv("HIL_PUBLIC_DASH_SECRET_KEY", "")
+    ).strip()
+    if env_secret:
+        server.secret_key = env_secret
+        return
+
+    # Keep sessions available even when no explicit env secret is set.
+    server.secret_key = secrets.token_urlsafe(48)
 
 
 def _public_layout(*, plant_name_fn, brand_logo_src, measurement_period_s):
@@ -451,6 +469,7 @@ def build_public_readonly_app(config, shared_data):
         suppress_callback_exceptions=True,
         assets_folder=assets_dir,
     )
+    _ensure_flask_secret_key(app)
     _apply_basic_auth(app, config)
 
     plant_ids = tuple(config.get("PLANT_IDS", ("lib", "vrfb")))

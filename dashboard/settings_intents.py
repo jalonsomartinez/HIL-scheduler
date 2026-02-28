@@ -66,10 +66,16 @@ def manual_settings_intent_from_trigger(trigger_id, *, draft_series_by_key, tz):
     }
 
 
-def api_connection_intent_from_trigger(trigger_id, *, password_value):
-    if trigger_id == "set-password-btn":
-        password = str(password_value).strip() if password_value is not None else ""
-        return {"kind": "api.connect", "payload": {"password": password or None}}
+def api_password_intent_from_trigger(trigger_id, *, password_value):
+    if trigger_id != "save-api-password-btn":
+        return None
+    password = str(password_value).strip() if password_value is not None else ""
+    return {"kind": "api.password.set", "payload": {"password": password or None}}
+
+
+def api_connection_intent_from_trigger(trigger_id):
+    if trigger_id in {"connect-api-btn", "set-password-btn"}:
+        return {"kind": "api.connect", "payload": {}}
     if trigger_id == "disconnect-api-btn":
         return {"kind": "api.disconnect", "payload": {}}
     return None

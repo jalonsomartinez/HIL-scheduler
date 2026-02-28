@@ -266,8 +266,10 @@ def _apply_api_connect(config, shared_data, command):
         if api_runtime.get("state") == "connecting":
             return {"state": "rejected", "message": "already_connecting", "result": None}
         input_password = payload.get("password")
-        if isinstance(input_password, str) and input_password.strip():
-            shared_data["api_password"] = input_password
+        if isinstance(input_password, str):
+            normalized_password = input_password.strip()
+            if normalized_password:
+                shared_data["api_password"] = normalized_password
         effective_password = shared_data.get("api_password")
     set_api_connection_transition(
         shared_data,
@@ -316,6 +318,17 @@ def _apply_api_connect(config, shared_data, command):
         command_id=command_id,
     )
     return {"state": "succeeded", "message": None, "result": {"connected": True}}
+
+
+def _apply_api_password_set(config, shared_data, command):
+    payload = dict((command or {}).get("payload", {}) or {})
+    raw_password = payload.get("password")
+    password = str(raw_password).strip() if raw_password is not None else ""
+    if not password:
+        return {"state": "rejected", "message": "missing_password", "result": None}
+    with shared_data["lock"]:
+        shared_data["api_password"] = password
+    return {"state": "succeeded", "message": None, "result": {"password_stored": True}}
 
 
 def _apply_api_disconnect(config, shared_data, command):
@@ -381,6 +394,8 @@ def _execute_settings_command(config, shared_data, command, *, tz):
     kind = str((command or {}).get("kind", ""))
     if kind in {"manual.activate", "manual.update", "manual.inactivate"}:
         return _apply_manual_series_command(config, shared_data, command, tz=tz)
+    if kind == "api.password.set":
+        return _apply_api_password_set(config, shared_data, command)
     if kind == "api.connect":
         return _apply_api_connect(config, shared_data, command)
     if kind == "api.disconnect":

@@ -1,14 +1,14 @@
 # Active Context: HIL Scheduler
 
 ## Current Focus (Now)
-- Final UI polish and consistency for operator and public dashboards.
-- Keep runtime control contracts stable while improving readability and observability.
-- Maintain regression safety for dashboard callbacks and plotting behavior.
+- Stabilize API credential flows across startup scripts, env bootstrap, and dashboard controls.
+- Keep settings-engine/runtime contracts explicit while preserving existing API fetch/posting gates.
+- Reduce operator friction and noisy runtime warnings in public dashboard auth flows.
 
 ## Open Decisions and Risks
+- Whether API tab should add an explicit `Clear Password` control (currently `Save Password` + `Connect/Disconnect` only).
+- Whether API credentials should support secure-at-rest storage beyond process memory and env files.
 - Whether to add visual regression testing (screenshots/DOM checks) to reduce CSS drift risk.
-- Whether manual draft schedules should remain shared across sessions or move to per-session client state.
-- Whether control/settings queue depth needs alerting/escalation behavior beyond inline status text.
 - Performance risk for large `data/` directories in historical plot scans (possible index/cache work later).
 
 ## Rolling Change Log (Compressed, 30-Day Window)
@@ -42,3 +42,18 @@
   - Radius consistency pass:
     - standardized top-card indicator/table/chip radii via `--public-top-radius: 4px`.
   - Fixed runtime NameError in public callback by ensuring `normalize_datetime_series` availability where latest-row table values are built.
+- 2026-02-28 (credentials/runtime hardening batch):
+  - Added startup launch scripts for Linux and Windows:
+    - scripts activate `venv`, load local env file, and start app.
+    - added `.env.public-dashboard(.ps1).example` templates and ignored local secret files.
+  - Added API password env bootstrap:
+    - new env var `HIL_API_PASSWORD` loaded by config as `ISTENTORE_API_PASSWORD`.
+    - `shared_data["api_password"]` is seeded at startup from config (preload-only; no auto-connect).
+  - Split API tab credential workflow:
+    - password save is separate from connect/disconnect.
+    - new settings command `api.password.set`.
+    - connect now uses stored password (from env preload or saved UI value).
+    - legacy trigger compatibility for old `set-password-btn` path retained.
+  - Public dashboard auth warning hardening:
+    - ensured Flask secret key is always set before `dash-auth` basic auth.
+    - supports `HIL_FLASK_SECRET_KEY` / `HIL_PUBLIC_DASH_SECRET_KEY`; otherwise generates per-process fallback key.
