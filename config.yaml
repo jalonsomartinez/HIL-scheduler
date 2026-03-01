@@ -31,7 +31,7 @@ timing:
   data_fetcher_period_s: 120
   scheduler_period_s: 2
   plant_period_s: 2
-  measurement_period_s: 2
+  measurement_period_s: 10
   measurements_write_period_s: 60
 
 dashboard:
