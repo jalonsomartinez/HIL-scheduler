@@ -2026,6 +2026,8 @@ def dashboard_agent(config, shared_data):
         table_rows = []
         for plant_id in plant_ids:
             latest = _latest_measurements_row(plant_id)
+            soc_value = _coerce_float(latest.get("soc_pu"))
+            soc_percent = soc_value * 100.0 if soc_value is not None else None
             voltage_value = _coerce_float(latest.get("v_poi_kV"))
             voltage_decimals = 3 if voltage_value is not None and abs(voltage_value) < 10.0 else 2
             table_rows.append(
@@ -2033,6 +2035,7 @@ def dashboard_agent(config, shared_data):
                     children=[
                         html.Th(plant_name(plant_id), scope="row", className="public-summary-plant"),
                         html.Td(_status_chip(plant_id), className="public-summary-status-cell"),
+                        _metric_cell(soc_percent, "%", decimals=1),
                         _metric_cell(latest.get("p_setpoint_kw"), "kW", decimals=1),
                         _metric_cell(latest.get("p_poi_kw"), "kW", decimals=1),
                         _metric_cell(latest.get("q_setpoint_kvar"), "kvar", decimals=1),
@@ -2050,9 +2053,10 @@ def dashboard_agent(config, shared_data):
                         children=[
                             html.Th("Plant"),
                             html.Th("Status"),
-                            html.Th("Pref"),
+                            html.Th("SoC"),
+                            html.Th("P ref"),
                             html.Th("P POI"),
-                            html.Th("Qref"),
+                            html.Th("Q ref"),
                             html.Th("Q POI"),
                             html.Th("Voltage"),
                         ]

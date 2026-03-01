@@ -25,11 +25,11 @@ Operators need a safe, observable way to execute power schedules against real or
     - `Connect/Disconnect` controls connection state using stored password,
   - per-plant `Run/Stop`, `Dispatch/Pause`, `Record/Stopped`,
   - live and historical plots,
-  - top-card summary table with per-plant latest metrics.
+  - top-card summary table with per-plant latest metrics (`Plant`, `Status`, `SoC`, `P ref`, `P POI`, `Q ref`, `Q POI`, `Voltage`), with `SoC` shown as `%` (1 decimal).
 - Public dashboard is read-only and now includes:
   - API indicators (`API connection`, `Today's Schedule`, `Tomorrow's Schedule`) with light + background status coloring,
   - transport/error text,
-  - same per-plant summary table style used in operator top card,
+  - same per-plant summary table style/schema used in operator top card,
   - read-only mirrored control-state buttons,
   - live and historical plots.
 - Plot UX emphasizes readability:

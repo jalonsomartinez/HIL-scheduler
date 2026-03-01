@@ -1,8 +1,8 @@
 # Progress: HIL Scheduler
 
 ## Working Now
-- Memory-bank reconciliation after API credential and startup script changes.
-- Verifying API tab credential UX (`Save Password` vs `Connect/Disconnect`) against operator expectations.
+- Memory-bank reconciliation to reflect latest dashboard summary-table behavior.
+- Keeping operator/public summary-table column schema and units synchronized.
 
 ## In Progress
 1. End-to-end validation of API credential flows:
@@ -11,6 +11,7 @@
    - connect/disconnect transitions and fetch/posting gates.
 2. Confirming startup scripts usage on Linux/Windows with local untracked env files.
 3. Reviewing whether API tab needs explicit clear-password action in current phase.
+4. Expanding UI checks to catch summary-table label/unit drift (`SoC %`, `P ref`, `Q ref`).
 
 ## Next
 1. Add one lightweight visual regression check for key dashboard states.

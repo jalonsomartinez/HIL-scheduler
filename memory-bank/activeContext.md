@@ -4,6 +4,7 @@
 - Stabilize API credential flows across startup scripts, env bootstrap, and dashboard controls.
 - Keep settings-engine/runtime contracts explicit while preserving existing API fetch/posting gates.
 - Reduce operator friction and noisy runtime warnings in public dashboard auth flows.
+- Keep operator/public top-card summary tables aligned on labels, column order, and units.
 
 ## Open Decisions and Risks
 - Whether API tab should add an explicit `Clear Password` control (currently `Save Password` + `Connect/Disconnect` only).
@@ -12,6 +13,11 @@
 - Performance risk for large `data/` directories in historical plot scans (possible index/cache work later).
 
 ## Rolling Change Log (Compressed, 30-Day Window)
+- 2026-03-01:
+  - Aligned operator and public top-card summary table schema:
+    - inserted `SoC` column between `Status` and `P ref`,
+    - renamed headers from `Pref`/`Qref` to `P ref`/`Q ref`,
+    - switched displayed `SoC` units from `pu` to `%` with one decimal precision.
 - 2026-02-26 to 2026-02-27:
   - Stabilized command-runtime architecture with control/settings queues and engine status publication.
   - Added/expanded helper-level tests for control health, command flows, plotting, and schedule/runtime behavior.
@@ -24,7 +30,7 @@
     - indicator labels simplified (`API connection`, `Today's Schedule`, `Tomorrow's Schedule`),
     - indicator backgrounds now status-colored (green/red) with stronger contrast,
     - transport + error text moved to one line,
-    - added per-plant summary table (`Plant`, `Status`, `Pref`, `P POI`, `Qref`, `Q POI`, `Voltage`).
+    - added per-plant summary table for per-plant latest metrics (schema refined in subsequent iterations).
   - Public title cleaned to `Spanish Demo Dashboard` (removed read-only suffix).
   - Status/plot readability updates:
     - removed per-subplot y-axis titles,

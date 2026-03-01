@@ -19,6 +19,7 @@ Increase operational confidence through reliability hardening and high-signal da
 - Add lightweight visual regression checks for operator/public status views.
 - Continue readability tuning only where it improves scan speed (not cosmetic churn).
 - Refine public dashboard summary density and API tab credential messaging based on operator feedback.
+- Add regression checks for summary-table schema/units (`SoC` as `%`, `P ref`, `Q ref`, column order parity across dashboards).
 
 4. Scalability and maintainability
 - Evaluate history indexing/caching strategy for large `data/` folders.
