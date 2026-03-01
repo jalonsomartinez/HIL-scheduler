@@ -5,8 +5,9 @@ import unittest
 import pandas as pd
 
 from config_loader import load_config
+from modbus.codec import read_point_internal
 from plant_agent import plant_agent
-from tests.test_local_runtime_smoke import _FakeModbusRegistry, _FakeModbusServer
+from tests.test_local_runtime_smoke import _FakeModbusClient, _FakeModbusRegistry, _FakeModbusServer
 
 
 def _empty_df_by_plant(plant_ids):
@@ -121,6 +122,69 @@ class PlantAgentSocSeedRequestTests(unittest.TestCase):
                 self.assertIsNotNone(result)
                 self.assertEqual(result["status"], "skipped")
                 self.assertIn("enabled", str(result.get("message", "")))
+        finally:
+            shared_data["shutdown_event"].set()
+            if thread is not None:
+                thread.join(timeout=2)
+
+    def test_startup_initial_soc_uses_latest_persisted_soc_when_available(self):
+        config = load_config("config.yaml")
+        config["PLANT_PERIOD_S"] = 0.05
+        config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["lib"]["modbus"]["local"]["port"] = 5140
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["port"] = 5141
+        shared_data = _build_shared_data(config)
+
+        thread = None
+        try:
+            from unittest.mock import patch
+
+            with patch("plant_agent.ModbusServer", _FakeModbusServer), patch(
+                "plant_agent.find_latest_persisted_soc_for_plant",
+                return_value={"soc_pu": 0.77, "file_path": "data/20990101_lib.csv"},
+            ):
+                thread = threading.Thread(target=plant_agent, args=(config, shared_data), daemon=True)
+                thread.start()
+                time.sleep(0.2)
+
+                client = _FakeModbusClient("127.0.0.1", 5140)
+                self.assertTrue(client.open())
+                soc_pu = read_point_internal(client, config["PLANTS"]["lib"]["modbus"]["local"], "soc")
+                self.assertIsNotNone(soc_pu)
+                self.assertAlmostEqual(float(soc_pu), 0.77, places=4)
+        finally:
+            shared_data["shutdown_event"].set()
+            if thread is not None:
+                thread.join(timeout=2)
+
+    def test_startup_initial_soc_falls_back_when_no_persisted_soc(self):
+        config = load_config("config.yaml")
+        config["PLANT_PERIOD_S"] = 0.05
+        config["STARTUP_INITIAL_SOC_PU"] = 0.63
+        config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["lib"]["modbus"]["local"]["port"] = 5150
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["port"] = 5151
+        shared_data = _build_shared_data(config)
+
+        thread = None
+        try:
+            from unittest.mock import patch
+
+            with patch("plant_agent.ModbusServer", _FakeModbusServer), patch(
+                "plant_agent.find_latest_persisted_soc_for_plant",
+                return_value=None,
+            ):
+                thread = threading.Thread(target=plant_agent, args=(config, shared_data), daemon=True)
+                thread.start()
+                time.sleep(0.2)
+
+                client = _FakeModbusClient("127.0.0.1", 5150)
+                self.assertTrue(client.open())
+                soc_pu = read_point_internal(client, config["PLANTS"]["lib"]["modbus"]["local"], "soc")
+                self.assertIsNotNone(soc_pu)
+                self.assertAlmostEqual(float(soc_pu), 0.63, places=4)
         finally:
             shared_data["shutdown_event"].set()
             if thread is not None:

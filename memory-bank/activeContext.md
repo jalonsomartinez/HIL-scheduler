@@ -1,19 +1,26 @@
 # Active Context: HIL Scheduler
 
 ## Current Focus (Now)
-- Stabilize API credential flows across startup scripts, env bootstrap, and dashboard controls.
-- Keep settings-engine/runtime contracts explicit while preserving existing API fetch/posting gates.
-- Reduce operator friction and noisy runtime warnings in public dashboard auth flows.
-- Keep operator/public top-card summary tables aligned on labels, column order, and units.
+- Stabilize local-mode SoC continuity across emulator startup and fleet control flows.
+- Validate that local `Start All` no longer records transient pre-seed `SoC=0.5` rows.
+- Preserve remote transport behavior while tightening local startup/runtime determinism.
+- Continue API credential-flow hardening and dashboard UX consistency work.
 
 ## Open Decisions and Risks
 - Whether API tab should add an explicit `Clear Password` control (currently `Save Password` + `Connect/Disconnect` only).
 - Whether API credentials should support secure-at-rest storage beyond process memory and env files.
 - Whether to add visual regression testing (screenshots/DOM checks) to reduce CSS drift risk.
-- Performance risk for large `data/` directories in historical plot scans (possible index/cache work later).
+- Performance risk for large `data/` directories in historical plot scans and local startup SoC lookups (possible index/cache work later).
 
 ## Rolling Change Log (Compressed, 30-Day Window)
 - 2026-03-01:
+  - Local emulator startup now restores initial SoC from latest persisted per-plant measurement when available, with fallback to `STARTUP_INITIAL_SOC_PU`.
+  - `fleet.start_all` behavior split by transport:
+    - `local`: start/seed first, then enable recording (prevents transient default SoC sample in first recorded row),
+    - `remote`: existing recording-first ordering preserved.
+  - Added regression coverage:
+    - control-engine tests for local vs remote `fleet.start_all` ordering and local partial-failure recording behavior,
+    - plant-agent startup SoC seed tests for persisted and fallback paths.
   - Aligned operator and public top-card summary table schema:
     - inserted `SoC` column between `Status` and `P ref`,
     - renamed headers from `Pref`/`Qref` to `P ref`/`Q ref`,

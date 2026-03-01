@@ -3,8 +3,11 @@ import time
 
 from pyModbusTCP.server import ModbusServer
 
+from measurement.storage import find_latest_persisted_soc_for_plant
 from modbus.codec import decode_engineering_value, encode_engineering_value
 from modbus.units import external_to_internal, internal_to_external
+from runtime.paths import get_data_dir
+from time_utils import get_config_tz
 
 
 def plant_agent(config, shared_data):
@@ -16,6 +19,7 @@ def plant_agent(config, shared_data):
     dt_s = float(config.get("PLANT_PERIOD_S", 1.0))
     dt_h = dt_s / 3600.0
     startup_initial_soc_pu = float(config.get("STARTUP_INITIAL_SOC_PU", 0.5))
+    tz = get_config_tz(config)
 
     servers = {}
     states = {}
@@ -77,6 +81,33 @@ def plant_agent(config, shared_data):
         words = encode_engineering_value(endpoint_cfg, point, external_value)
         db.set_holding_registers(int(point["address"]), [int(word) for word in words])
 
+    def _clamp_soc_pu(value, fallback):
+        try:
+            soc_value = float(value)
+        except (TypeError, ValueError):
+            soc_value = float(fallback)
+        return min(1.0, max(0.0, soc_value))
+
+    def _resolve_startup_soc_seed(plant_id, plant_cfg):
+        fallback_soc_pu = _clamp_soc_pu(startup_initial_soc_pu, startup_initial_soc_pu)
+        latest = find_latest_persisted_soc_for_plant(
+            get_data_dir(__file__),
+            plant_cfg.get("name", plant_id),
+            plant_id,
+            tz,
+        )
+        if latest is not None:
+            return {
+                "soc_pu": _clamp_soc_pu(latest.get("soc_pu"), fallback_soc_pu),
+                "source": "disk",
+                "file_path": latest.get("file_path"),
+            }
+        return {
+            "soc_pu": fallback_soc_pu,
+            "source": "startup_fallback",
+            "file_path": None,
+        }
+
     try:
         _ensure_seed_control_maps()
         for plant_id in plant_ids:
@@ -84,6 +115,8 @@ def plant_agent(config, shared_data):
             local_cfg = (plant_cfg.get("modbus", {}) or {}).get("local", {})
             model = plant_cfg.get("model", {})
             power_limits = model.get("power_limits", {})
+            startup_soc_seed = _resolve_startup_soc_seed(plant_id, plant_cfg)
+            initial_soc_pu = float(startup_soc_seed["soc_pu"])
 
             host = local_cfg.get("host", "localhost")
             port = int(local_cfg.get("port", 5020 if plant_id == "lib" else 5021))
@@ -99,7 +132,7 @@ def plant_agent(config, shared_data):
             capacity_kwh = float(model.get("capacity_kwh", 50.0))
             states[plant_id] = {
                 "capacity_kwh": capacity_kwh,
-                "soc_kwh": startup_initial_soc_pu * capacity_kwh,
+                "soc_kwh": initial_soc_pu * capacity_kwh,
                 "poi_voltage_kv": float(model.get("poi_voltage_kv", 20.0)),
                 "p_max_kw": float(power_limits.get("p_max_kw", 1000.0)),
                 "p_min_kw": float(power_limits.get("p_min_kw", -1000.0)),
@@ -109,7 +142,7 @@ def plant_agent(config, shared_data):
 
             db = server.data_bank
             db_write_point_eng(db, local_cfg, "enable", 0)
-            db_write_point_eng(db, local_cfg, "soc", startup_initial_soc_pu)
+            db_write_point_eng(db, local_cfg, "soc", initial_soc_pu)
             db_write_point_eng(db, local_cfg, "p_setpoint", 0.0)
             db_write_point_eng(db, local_cfg, "q_setpoint", 0.0)
             db_write_point_eng(db, local_cfg, "p_battery", 0.0)
@@ -117,6 +150,16 @@ def plant_agent(config, shared_data):
             db_write_point_eng(db, local_cfg, "p_poi", 0.0)
             db_write_point_eng(db, local_cfg, "q_poi", 0.0)
             db_write_point_eng(db, local_cfg, "v_poi", states[plant_id]["poi_voltage_kv"])
+
+            startup_seed_source = str(startup_soc_seed.get("source", "unknown"))
+            startup_seed_path = startup_soc_seed.get("file_path")
+            logging.info(
+                "Plant agent: startup SoC seed for %s = %.4f pu (source=%s%s).",
+                plant_id.upper(),
+                initial_soc_pu,
+                startup_seed_source,
+                f" path={startup_seed_path}" if startup_seed_path else "",
+            )
 
             logging.info("Plant emulator %s started on %s:%s", plant_id.upper(), host, port)
 

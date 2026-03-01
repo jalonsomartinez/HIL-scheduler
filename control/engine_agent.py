@@ -627,9 +627,12 @@ def _execute_command(config, shared_data, command, *, plant_ids, tz, now_fn=now_
 
     if kind == "fleet.start_all":
         os.makedirs(get_data_dir(__file__), exist_ok=True)
-        with shared_data["lock"]:
-            for pid in plant_ids:
-                shared_data["measurements_filename_by_plant"][pid] = get_daily_recording_file_path_fn(pid)
+        transport_mode = snapshot_locked(shared_data, lambda data: data.get("transport_mode", "local"))
+        recording_path_by_plant = {pid: get_daily_recording_file_path_fn(pid) for pid in plant_ids}
+        if transport_mode != "local":
+            with shared_data["lock"]:
+                for pid in plant_ids:
+                    shared_data["measurements_filename_by_plant"][pid] = recording_path_by_plant[pid]
         per_plant = {}
         any_failed = False
         for pid in plant_ids:
@@ -644,6 +647,10 @@ def _execute_command(config, shared_data, command, *, plant_ids, tz, now_fn=now_
                 any_failed = True
             elif sub_state == "rejected" and sub_message != "already_running":
                 any_failed = True
+        if transport_mode == "local":
+            with shared_data["lock"]:
+                for pid in plant_ids:
+                    shared_data["measurements_filename_by_plant"][pid] = recording_path_by_plant[pid]
         return {
             "state": "failed" if any_failed else "succeeded",
             "message": None if not any_failed else "fleet_start_partial_failure",

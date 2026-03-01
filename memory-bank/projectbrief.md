@@ -15,6 +15,7 @@ HIL Scheduler is a dual-plant control application for LIB and VRFB battery asset
 - Transport modes: `local`, `remote`.
 - Schedule model: API base schedule plus per-series manual overrides (`lib_p`, `lib_q`, `vrfb_p`, `vrfb_q`) with active/inactive merge flags.
 - Control model: dashboard enqueues commands; control/settings engines execute them and publish runtime state.
+- Local SoC model: local emulator startup and local plant starts prefer latest persisted per-plant `soc_pu`, falling back to `startup.initial_soc_pu`.
 - API credential model: optional startup env preload (`HIL_API_PASSWORD`) seeds runtime password; API tab `Save Password` is independent from `Connect/Disconnect`.
 - Dashboards:
   - Private operator dashboard: full controls.

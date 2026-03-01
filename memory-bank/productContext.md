@@ -17,6 +17,9 @@ Operators need a safe, observable way to execute power schedules against real or
 
 ## Product Behavior
 - Status controls are segmented toggles with stateful labels.
+- Local emulation SoC continuity:
+  - local plant emulators initialize SoC from latest persisted per-plant measurement when available, else startup fallback,
+  - local `Start All` starts/seeds plants before turning recording on, to avoid transient pre-seed SoC rows.
 - Operator dashboard supports:
   - transport toggle,
   - fleet actions (`Start All`, `Stop All`),
@@ -47,7 +50,7 @@ Operators need a safe, observable way to execute power schedules against real or
 ## Critical Workflows
 1. Plant start/stop: confirmation modal -> queued command -> control engine executes safe sequence -> UI reflects runtime state.
 2. Dispatch toggle: user toggles send/pause -> command queue -> scheduler gate updates.
-3. Fleet action: modal-confirmed start/stop for both plants.
+3. Fleet action: modal-confirmed start/stop for both plants; in local mode `Start All` completes plant start/seed before enabling recording.
 4. Transport switch: modal-confirmed switch with safe-stop and cache invalidation.
 5. API credentialing: optional env preload at startup (`HIL_API_PASSWORD`) and/or API-tab `Save Password`; `Connect` attempts probe login with stored password.
 6. Public monitoring: observer checks API indicators, top summary table, then drill-down in plots/history.

@@ -222,7 +222,7 @@ class ControlEngineAgentTests(unittest.TestCase):
         self.assertFalse(out3["result"]["noop"])
         self.assertTrue(out4["result"]["noop"])
 
-    def test_fleet_start_all_orders_recording_before_starts(self):
+    def test_fleet_start_all_orders_recording_before_starts_in_remote_mode(self):
         shared_data = _shared_data()
         call_order = []
 
@@ -264,6 +264,86 @@ class ControlEngineAgentTests(unittest.TestCase):
         self.assertTrue(call_order[-1][3]["vrfb"])
         self.assertTrue(call_order[-1][4]["lib"]["sending_enabled"])
         self.assertTrue(call_order[-1][4]["vrfb"]["sending_enabled"])
+
+    def test_fleet_start_all_orders_starts_before_recording_in_local_mode(self):
+        shared_data = _shared_data()
+        shared_data["transport_mode"] = "local"
+        shared_data["measurements_filename_by_plant"]["lib"] = None
+        shared_data["measurements_filename_by_plant"]["vrfb"] = None
+        call_order = []
+
+        def _start_one(plant_id):
+            call_order.append(
+                (
+                    "start",
+                    plant_id,
+                    dict(shared_data["measurements_filename_by_plant"]),
+                    dict(shared_data["scheduler_running_by_plant"]),
+                    {
+                        "lib": dict(shared_data["dispatch_write_status_by_plant"]["lib"]),
+                        "vrfb": dict(shared_data["dispatch_write_status_by_plant"]["vrfb"]),
+                    },
+                )
+            )
+            return {"state": "succeeded", "message": None, "result": {"plant_id": plant_id}}
+
+        result = _execute_command(
+            {"PLANT_IDS": ("lib", "vrfb")},
+            shared_data,
+            {"kind": "fleet.start_all", "payload": {}},
+            plant_ids=("lib", "vrfb"),
+            tz=timezone.utc,
+            deps={
+                "start_one_plant_fn": _start_one,
+                "get_daily_recording_file_path_fn": lambda plant_id: f"data/{plant_id}.csv",
+            },
+        )
+
+        self.assertEqual(result["state"], "succeeded")
+        self.assertEqual([item[0:2] for item in call_order], [("start", "lib"), ("start", "vrfb")])
+        for _, plant_id, recording_map, dispatch_map, dispatch_status_map in call_order:
+            self.assertIsNone(recording_map["lib"])
+            self.assertIsNone(recording_map["vrfb"])
+            self.assertTrue(dispatch_map[plant_id])
+            self.assertTrue(dispatch_status_map[plant_id]["sending_enabled"])
+        self.assertEqual(shared_data["measurements_filename_by_plant"]["lib"], "data/lib.csv")
+        self.assertEqual(shared_data["measurements_filename_by_plant"]["vrfb"], "data/vrfb.csv")
+        self.assertTrue(call_order[-1][3]["lib"])
+        self.assertTrue(call_order[-1][3]["vrfb"])
+        self.assertTrue(call_order[-1][4]["lib"]["sending_enabled"])
+        self.assertTrue(call_order[-1][4]["vrfb"]["sending_enabled"])
+
+    def test_fleet_start_all_local_partial_failure_still_enables_recording(self):
+        shared_data = _shared_data()
+        shared_data["transport_mode"] = "local"
+        shared_data["measurements_filename_by_plant"]["lib"] = None
+        shared_data["measurements_filename_by_plant"]["vrfb"] = None
+
+        def _start_one(plant_id):
+            if plant_id == "vrfb":
+                return {"state": "failed", "message": "enable_failed", "result": {"plant_id": plant_id}}
+            return {"state": "succeeded", "message": None, "result": {"plant_id": plant_id}}
+
+        result = _execute_command(
+            {"PLANT_IDS": ("lib", "vrfb")},
+            shared_data,
+            {"kind": "fleet.start_all", "payload": {}},
+            plant_ids=("lib", "vrfb"),
+            tz=timezone.utc,
+            deps={
+                "start_one_plant_fn": _start_one,
+                "get_daily_recording_file_path_fn": lambda plant_id: f"data/{plant_id}.csv",
+            },
+        )
+
+        self.assertEqual(result["state"], "failed")
+        self.assertEqual(result["message"], "fleet_start_partial_failure")
+        self.assertEqual(result["result"]["per_plant"]["lib"]["state"], "succeeded")
+        self.assertEqual(result["result"]["per_plant"]["vrfb"]["state"], "failed")
+        self.assertEqual(shared_data["measurements_filename_by_plant"]["lib"], "data/lib.csv")
+        self.assertEqual(shared_data["measurements_filename_by_plant"]["vrfb"], "data/vrfb.csv")
+        self.assertTrue(shared_data["scheduler_running_by_plant"]["lib"])
+        self.assertTrue(shared_data["scheduler_running_by_plant"]["vrfb"])
 
     def test_fleet_stop_all_orders_safe_stop_before_recording_clear(self):
         shared_data = _shared_data()

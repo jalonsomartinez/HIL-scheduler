@@ -16,6 +16,9 @@
 - Control gates per plant:
   - `scheduler_running_by_plant` (dispatch send gate)
   - `measurements_filename_by_plant` (recording on/off)
+- Local emulator seed maps:
+  - `local_emulator_soc_seed_request_by_plant`
+  - `local_emulator_soc_seed_result_by_plant`
 - Command queues:
   - `control_command_queue` for plant/transport/fleet/record/dispatch actions
   - `settings_command_queue` for API/manual settings operations, including `api.password.set`.
@@ -55,8 +58,14 @@ Key maps:
   3. switch mode,
   4. invalidate stale physical/observed runtime state.
 - Fleet actions:
-  - `Start All` enables recording + dispatch gates then starts plants.
+  - `Start All` is transport-aware:
+    - `local`: enables dispatch gates, starts/seeds plants, then enables recording for both plants.
+    - `remote`: keeps recording-first ordering, then starts plants.
   - `Stop All` safe-stops plants and stops recording.
+- Local SoC restore patterns:
+  - Startup local emulator initialization restores per-plant SoC from latest persisted non-null on-disk `soc_pu` when available, else falls back to `STARTUP_INITIAL_SOC_PU`.
+  - Local per-plant start still performs control-engine-to-plant-agent SoC seed handshake before enable.
+  - SoC seed values are clamped to `[0.0, 1.0]` before applying to emulator state/registers.
 - API credential and connection contract:
   1. startup may preload `api_password` from env-derived config,
   2. dashboard `Save Password` enqueues `api.password.set` (no connect side effect),

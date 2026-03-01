@@ -15,6 +15,7 @@
 - `control/`: command intents and execution flows (safe-stop, transport switch, fleet actions).
 - `settings/`: API/manual settings intents and engine execution.
 - `measurement/`: telemetry sampling, compression, persistence, posting queue.
+- `measurement/storage.py`: CSV normalization/load helpers and latest persisted per-plant SoC lookup.
 - `scheduling/`: effective schedule merge + dispatch cycle logic.
 - `modbus/`: endpoint config helpers, point codecs, unit handling, control-path I/O.
 - `runtime/`: shared helpers for state defaults, command lifecycle, engine status, path resolution.
@@ -55,6 +56,7 @@ Important normalized keys include:
 ## Operational Constraints
 - Queue sizes are bounded (default 128 for control/settings commands).
 - Serial command execution means long safe-stop/transport actions can delay later commands.
+- Local emulator startup SoC restore scans plant CSV history; very large `data/` folders may increase startup latency without indexing/caching.
 - Public dashboard can be auth-disabled (`none`) for trusted network use; basic auth requires env credentials.
 - API tab separates password save from connect/disconnect; password persistence is runtime-memory only.
 - Network-restricted environments should validate API/posting behavior with posting policy disabled when needed.
