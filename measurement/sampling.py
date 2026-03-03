@@ -4,9 +4,20 @@ import logging
 
 from modbus.client import ModbusClient
 
-from modbus.codec import read_point_internal
+from modbus.grouped_reads import build_read_groups, read_points_internal_grouped
 from runtime.contracts import resolve_modbus_endpoint
 from time_utils import normalize_timestamp_value
+
+MEASUREMENT_POINT_NAMES = (
+    "p_setpoint",
+    "p_battery",
+    "q_setpoint",
+    "q_battery",
+    "soc",
+    "p_poi",
+    "q_poi",
+    "v_poi",
+)
 
 
 def get_transport_endpoint(config, plant_id, transport_mode):
@@ -31,6 +42,8 @@ def ensure_client(state, endpoint, plant_id, transport_mode):
             endpoint["port"],
             transport_mode,
         )
+    if "_measurement_read_groups" not in endpoint:
+        endpoint["_measurement_read_groups"] = build_read_groups(endpoint, MEASUREMENT_POINT_NAMES)
     return state.get("client")
 
 
@@ -43,14 +56,20 @@ def take_measurement(client, endpoint, measurement_timestamp, tz, plant_id):
             return None
 
     try:
-        p_setpoint_kw = read_point_internal(client, endpoint, "p_setpoint")
-        p_actual_kw = read_point_internal(client, endpoint, "p_battery")
-        q_setpoint_kvar = read_point_internal(client, endpoint, "q_setpoint")
-        q_actual_kvar = read_point_internal(client, endpoint, "q_battery")
-        soc_pu = read_point_internal(client, endpoint, "soc")
-        p_poi_kw = read_point_internal(client, endpoint, "p_poi")
-        q_poi_kvar = read_point_internal(client, endpoint, "q_poi")
-        v_poi_kV = read_point_internal(client, endpoint, "v_poi")
+        values = read_points_internal_grouped(
+            client,
+            endpoint,
+            MEASUREMENT_POINT_NAMES,
+            read_groups=endpoint.get("_measurement_read_groups"),
+        )
+        p_setpoint_kw = values.get("p_setpoint")
+        p_actual_kw = values.get("p_battery")
+        q_setpoint_kvar = values.get("q_setpoint")
+        q_actual_kvar = values.get("q_battery")
+        soc_pu = values.get("soc")
+        p_poi_kw = values.get("p_poi")
+        q_poi_kvar = values.get("q_poi")
+        v_poi_kV = values.get("v_poi")
 
         if any(
             value is None

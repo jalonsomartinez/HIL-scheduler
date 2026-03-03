@@ -18,8 +18,10 @@
 - `measurement/storage.py`: CSV normalization/load helpers and latest persisted per-plant SoC lookup.
 - `scheduling/`: effective schedule merge + dispatch cycle logic.
 - `modbus/`: endpoint config helpers, point codecs, unit handling, control-path I/O.
+- `modbus/grouped_reads.py`: static grouped holding-register read planning/execution for stable point sets.
 - `runtime/`: shared helpers for state defaults, command lifecycle, engine status, path resolution.
 - `scripts/`: startup launchers for Linux/Windows that source local env files, activate `venv`, and run app.
+- `scripts/vrfb_remote_diag.py`: remote diagnostics runner comparing dashboard-like and app-like access patterns.
 
 ## Configuration Schema
 Top-level keys in `config.yaml`:
@@ -47,6 +49,9 @@ Important normalized keys include:
 - Supported point formats include `int16`, `uint16`, `int32`, `uint32`, `float32`.
 - Runtime measurements are normalized to engineering units (`kW`, `kvar`, `pu`, `kV`).
 - Voltage is handled as `v_poi_kV` internally and in dashboard plots.
+- Runtime Modbus client backend is `pymodbus` when available (pinned `pymodbus==3.9.2`), with `pyModbusTCP` fallback.
+- Runtime clients now share per-endpoint transports to reduce multi-session contention.
+- Grouped reads are used for stable read sets (measurement and observed-state) to reduce request count.
 
 ## Logging Behavior
 - Global log level is config-driven (`general.log_level`).
@@ -60,3 +65,5 @@ Important normalized keys include:
 - Public dashboard can be auth-disabled (`none`) for trusted network use; basic auth requires env credentials.
 - API tab separates password save from connect/disconnect; password persistence is runtime-memory only.
 - Network-restricted environments should validate API/posting behavior with posting policy disabled when needed.
+- Pooled Modbus access introduces endpoint-level serialization; this reduces contention but can increase wait time under heavy mixed workloads.
+- Grouped reads are static/planned, not dynamically re-optimized per cycle.

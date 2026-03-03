@@ -26,7 +26,7 @@ from control.modbus_io import (
 from runtime.engine_command_cycle_runtime import run_command_with_lifecycle
 from runtime.engine_status_runtime import default_engine_status, update_engine_status
 from measurement.storage import find_latest_persisted_soc_for_plant
-from modbus.codec import read_point_internal
+from modbus.grouped_reads import build_read_groups, read_points_internal_grouped
 from runtime.contracts import resolve_modbus_endpoint, sanitize_plant_name
 from runtime.paths import get_data_dir
 from scheduling.runtime import build_effective_schedule_frame, resolve_schedule_setpoint
@@ -37,6 +37,7 @@ from time_utils import get_config_tz, now_tz
 CONTROL_ENGINE_LOOP_PERIOD_S = 1.0
 OBSERVED_STATE_STALE_AFTER_S = 3.0
 CONTROL_ENGINE_FAILED_RECENT_WINDOW = 20
+_OBSERVED_GROUPS_BY_SIGNATURE = {}
 
 
 def _plant_name(config, plant_id):
@@ -143,18 +144,41 @@ def _read_observed_points(config, shared_data, plant_id, transport_mode=None):
                 "code": "connect_failed",
                 "message": f"Could not connect to {plant_id.upper()} endpoint.",
             }
-        enable_state = read_point_internal(client, cfg, "enable")
-        p_battery = read_point_internal(client, cfg, "p_battery")
-        q_battery = read_point_internal(client, cfg, "q_battery")
-        values["enable_state"] = None if enable_state is None else int(enable_state)
+        point_names = ["enable", "p_battery", "q_battery"]
         if "start_command" in points:
-            start_command = read_point_internal(client, cfg, "start_command")
-            values["start_command_state"] = None if start_command is None else int(start_command)
+            point_names.append("start_command")
         if "stop_command" in points:
-            stop_command = read_point_internal(client, cfg, "stop_command")
-            values["stop_command_state"] = None if stop_command is None else int(stop_command)
-        values["p_battery_kw"] = None if p_battery is None else float(p_battery)
-        values["q_battery_kvar"] = None if q_battery is None else float(q_battery)
+            point_names.append("stop_command")
+        signature = tuple(
+            sorted(
+                (
+                    name,
+                    int((points.get(name) or {}).get("address", -1)),
+                    int((points.get(name) or {}).get("word_count", 1)),
+                )
+                for name in point_names
+            )
+        )
+        read_groups = _OBSERVED_GROUPS_BY_SIGNATURE.get(signature)
+        if read_groups is None:
+            read_groups = build_read_groups(cfg, point_names)
+            _OBSERVED_GROUPS_BY_SIGNATURE[signature] = list(read_groups)
+
+        grouped = read_points_internal_grouped(
+            client,
+            cfg,
+            point_names,
+            read_groups=read_groups,
+        )
+        values["enable_state"] = None if grouped.get("enable") is None else int(grouped.get("enable"))
+        values["p_battery_kw"] = None if grouped.get("p_battery") is None else float(grouped.get("p_battery"))
+        values["q_battery_kvar"] = None if grouped.get("q_battery") is None else float(grouped.get("q_battery"))
+        if "start_command" in points:
+            start_value = grouped.get("start_command")
+            values["start_command_state"] = None if start_value is None else int(start_value)
+        if "stop_command" in points:
+            stop_value = grouped.get("stop_command")
+            values["stop_command_state"] = None if stop_value is None else int(stop_value)
     except Exception as exc:
         error = {"code": "read_error", "message": str(exc)}
     finally:

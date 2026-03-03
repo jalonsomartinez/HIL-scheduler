@@ -1,26 +1,27 @@
 # Progress: HIL Scheduler
 
 ## Working Now
-- Memory-bank reconciliation to reflect local SoC continuity changes.
-- Monitoring local fleet start behavior to confirm first recorded SoC reflects seeded value.
+- Verifying shared Modbus transport behavior on real remote endpoints (LIB + VRFB, local + remote modes).
+- Validating grouped-read measurement/observed paths against runtime stability and expected telemetry quality.
 
 ## In Progress
-1. End-to-end local-mode SoC continuity validation:
-   - startup seed from persisted SoC,
-   - local `Start All` ordering (`start/seed -> recording`),
-   - fallback behavior to `STARTUP_INITIAL_SOC_PU` when no persisted SoC exists.
-2. End-to-end validation of API credential flows:
-   - env preload (`HIL_API_PASSWORD`) -> stored runtime password,
-   - manual save via API tab,
-   - connect/disconnect transitions and fetch/posting gates.
-3. Confirming startup scripts usage on Linux/Windows with local untracked env files.
-4. Reviewing whether API tab needs explicit clear-password action in current phase.
+1. Remote Modbus stabilization rollout:
+   - shared per-endpoint client/session behavior in runtime,
+   - contention checks on VRFB and LIB remote plants.
+2. Static grouped-read rollout:
+   - measurement fixed point-set grouped blocks,
+   - observed-state grouped blocks including command readbacks.
+3. Diagnostics-driven validation:
+   - replaying `dashboard_like` vs `app_like_parallel` vs `app_like_serial` expectations from runbook outputs.
+4. Regression alignment:
+   - keeping unit coverage green for new transport/grouping helpers,
+   - deciding whether to adapt/replace fake-client local smoke test that fails with pooled client semantics.
 
 ## Next
-1. Add one lightweight visual regression check for key dashboard states.
-2. Expand callback-level tests around API tab controls and auth/credential status messaging.
-3. Evaluate indexing/caching strategy for large `data/` directories to reduce startup SoC-lookup overhead.
-4. Expand runbook docs for control queue behavior, startup scripts, credential env conventions, and local SoC seed semantics.
+1. Validate pooled Modbus behavior in full end-to-end field runs (including long-duration remote operation).
+2. Decide whether to group scheduler readback requests or keep scheduler logic as single-point reads for simplicity.
+3. Update/replace failing local smoke test double setup to match pooled connection behavior.
+4. Continue pending hardening work: API credentials UX/security and lightweight dashboard visual regression checks.
 
 ## Known Issues / Gaps
 1. No persistent durability for measurement-post retry queue across process restarts.
@@ -28,6 +29,7 @@
 3. Manual schedule drafts are shared in server state (single-operator assumption).
 4. UI visual regressions are currently caught mainly by manual review.
 5. API password is process-memory only (env/bootstrap or dashboard save); no encrypted persistence layer.
+6. `tests.test_local_runtime_smoke` currently fails with new pooled Modbus client semantics under fake client patching.
 
 ## Current Project Phase
-Stabilization and operational hardening on top of a mostly stable runtime architecture.
+Remote Modbus reliability hardening and request-shaping optimization.

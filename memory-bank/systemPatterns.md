@@ -2,6 +2,9 @@
 
 ## Canonical Runtime Contracts
 - Fixed plant IDs: `lib`, `vrfb`.
+- Modbus transport contract:
+  - runtime client access is shared per endpoint (`backend`, `host`, `port`, `unit_id`) within process,
+  - per-endpoint requests are lock-serialized to reduce session churn/contention on plant servers.
 - Authoritative selectors:
   - `transport_mode` (`local|remote`)
   - `posting_runtime.policy_enabled`
@@ -71,6 +74,10 @@ Key maps:
   2. dashboard `Save Password` enqueues `api.password.set` (no connect side effect),
   3. dashboard `Connect` enqueues `api.connect` and uses stored password,
   4. `Disconnect` updates runtime state but preserves stored password.
+- Modbus request-shaping pattern:
+  - stable point sets (measurement and control observed-state) use startup/setup-built grouped reads,
+  - grouped reads merge nearby holding-register addresses with bounded gap/block size,
+  - scheduler write/readback loop remains functionally unchanged unless explicitly extended.
 - Public dashboard is strictly read-only: no enqueue helpers and no write-side actions.
 - Public basic-auth contract ensures Flask session secret key is set before auth middleware to avoid session warnings.
 

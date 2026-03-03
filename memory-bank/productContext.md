@@ -17,6 +17,7 @@ Operators need a safe, observable way to execute power schedules against real or
 
 ## Product Behavior
 - Status controls are segmented toggles with stateful labels.
+- Private dashboard status now surfaces live command-related observed values (`enable`, `start_command`, `stop_command`) for operator validation.
 - Local emulation SoC continuity:
   - local plant emulators initialize SoC from latest persisted per-plant measurement when available, else startup fallback,
   - local `Start All` starts/seeds plants before turning recording on, to avoid transient pre-seed SoC rows.
@@ -40,6 +41,7 @@ Operators need a safe, observable way to execute power schedules against real or
   - compact legend names/order (`Pref`, `P POI`, `P Bat`, `SoC`, `Qref`, `Q POI`, `Q Bat`, `Voltage`),
   - setpoint lines dotted, POI strong colors, battery pale colors,
   - POI traces rendered above battery traces.
+- Remote diagnostics workflow is available via script/runbook for side-by-side dashboard-like vs app-like Modbus access validation.
 
 ## UX Intent
 - Separate concerns visually: transport/fleet control, summary status, detailed plant cards, historical tools.

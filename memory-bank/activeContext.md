@@ -1,18 +1,35 @@
 # Active Context: HIL Scheduler
 
 ## Current Focus (Now)
-- Stabilize local-mode SoC continuity across emulator startup and fleet control flows.
-- Validate that local `Start All` no longer records transient pre-seed `SoC=0.5` rows.
-- Preserve remote transport behavior while tightening local startup/runtime determinism.
-- Continue API credential-flow hardening and dashboard UX consistency work.
+- Stabilize remote Modbus reliability after confirming VRFB endpoint session-contention behavior.
+- Reduce endpoint load across all plants/transports through shared Modbus sessions and grouped stable reads.
+- Validate that start/stop command flows plus observed-state command readbacks behave consistently on field hardware.
+- Keep local SoC continuity guarantees intact while introducing Modbus transport/request-shaping changes.
 
 ## Open Decisions and Risks
-- Whether API tab should add an explicit `Clear Password` control (currently `Save Password` + `Connect/Disconnect` only).
+- Whether scheduler setpoint readbacks should also move to grouped reads (currently measurement and observed-state use grouping).
+- Whether to keep endpoint-sharing key at `(backend, host, port, unit_id)` or broaden/narrow it for future multi-slave endpoints.
+- Fake-client based local smoke tests may need adaptation to pooled-client semantics; one targeted smoke test currently fails under the new sharing model.
 - Whether API credentials should support secure-at-rest storage beyond process memory and env files.
-- Whether to add visual regression testing (screenshots/DOM checks) to reduce CSS drift risk.
-- Performance risk for large `data/` directories in historical plot scans and local startup SoC lookups (possible index/cache work later).
 
 ## Rolling Change Log (Compressed, 30-Day Window)
+- 2026-03-03:
+  - Added VRFB remote diagnostics tooling:
+    - `scripts/vrfb_remote_diag.py` with `dashboard_like`, `app_like_parallel`, and `app_like_serial` modes,
+    - CSV operation logs + per-run markdown reports,
+    - README runbook matrix and root-cause classification guide.
+  - Field diagnostics outcome (from captured logs):
+    - `dashboard_like` passed (read-only and read+write),
+    - `app_like_parallel` failed with connection-closure/reset patterns,
+    - `app_like_serial` passed.
+    - Classified root cause as endpoint session/concurrency contention (not register-map mismatch).
+  - Implemented runtime mitigation across all plants/transports:
+    - `modbus/client.py` now uses process-local shared transports per endpoint with serialized access,
+    - added static grouped-read helper (`modbus/grouped_reads.py`),
+    - measurement sampling and control observed-state reads now use grouped block reads for stable point sets.
+  - Added regression tests:
+    - `tests/test_modbus_client_shared_pool.py`,
+    - `tests/test_modbus_grouped_reads.py`.
 - 2026-03-01:
   - Local emulator startup now restores initial SoC from latest persisted per-plant measurement when available, with fallback to `STARTUP_INITIAL_SOC_PU`.
   - `fleet.start_all` behavior split by transport:
