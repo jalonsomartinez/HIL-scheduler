@@ -6,7 +6,7 @@ import queue
 import time
 
 import pandas as pd
-from pyModbusTCP.client import ModbusClient
+from modbus.client import ModbusClient
 
 import scheduling.manual_schedule_manager as msm
 from control.command_runtime import mark_command_finished, mark_command_running

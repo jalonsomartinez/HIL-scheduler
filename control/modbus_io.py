@@ -3,7 +3,7 @@
 import logging
 import time
 
-from pyModbusTCP.client import ModbusClient
+from modbus.client import ModbusClient
 
 from modbus.codec import read_point_internal, write_point_internal
 

@@ -2,7 +2,7 @@ import logging
 import time
 
 import pandas as pd
-from pyModbusTCP.client import ModbusClient
+from modbus.client import ModbusClient
 
 from runtime.dispatch_write_runtime import publish_dispatch_write_status, set_dispatch_sending_enabled
 import scheduling.manual_schedule_manager as msm

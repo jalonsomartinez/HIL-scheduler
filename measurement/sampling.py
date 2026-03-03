@@ -2,7 +2,7 @@
 
 import logging
 
-from pyModbusTCP.client import ModbusClient
+from modbus.client import ModbusClient
 
 from modbus.codec import read_point_internal
 from runtime.contracts import resolve_modbus_endpoint

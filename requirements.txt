@@ -4,4 +4,5 @@ numpy
 pandas
 plotly
 pyModbusTCP
+pymodbus==3.9.2
 PyYAML>=6.0
