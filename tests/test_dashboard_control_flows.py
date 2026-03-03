@@ -20,6 +20,8 @@ def _shared_data():
         "plant_observed_state_by_plant": {
             "lib": {
                 "enable_state": 1,
+                "start_command_state": 2,
+                "stop_command_state": 0,
                 "p_battery_kw": 10.0,
                 "q_battery_kvar": -2.0,
                 "last_attempt": "2026-02-26T10:00:00+00:00",
@@ -32,6 +34,8 @@ def _shared_data():
             },
             "vrfb": {
                 "enable_state": 1,
+                "start_command_state": 2,
+                "stop_command_state": 0,
                 "p_battery_kw": 5.0,
                 "q_battery_kvar": 0.5,
                 "last_attempt": "2026-02-26T10:00:00+00:00",
@@ -109,6 +113,8 @@ class DashboardControlFlowTests(unittest.TestCase):
             self.assertTrue(shared_data["current_file_df_by_plant"][plant_id].empty)
             self.assertTrue(shared_data["plant_observed_state_by_plant"][plant_id]["stale"])
             self.assertIsNone(shared_data["plant_observed_state_by_plant"][plant_id]["enable_state"])
+            self.assertIsNone(shared_data["plant_observed_state_by_plant"][plant_id]["start_command_state"])
+            self.assertIsNone(shared_data["plant_observed_state_by_plant"][plant_id]["stop_command_state"])
             self.assertIsNone(shared_data["plant_observed_state_by_plant"][plant_id]["last_success"])
             self.assertEqual(shared_data["plant_observed_state_by_plant"][plant_id]["read_status"], "unknown")
             self.assertEqual(shared_data["plant_operating_state_by_plant"][plant_id], "unknown")

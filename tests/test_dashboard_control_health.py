@@ -73,6 +73,9 @@ class DashboardControlHealthTests(unittest.TestCase):
                 "stale": False,
                 "last_success": now_ts - timedelta(milliseconds=800),
                 "consecutive_failures": 0,
+                "enable_state": 1,
+                "start_command_state": 2,
+                "stop_command_state": 0,
                 "error": None,
                 "last_error": None,
             },
@@ -80,6 +83,7 @@ class DashboardControlHealthTests(unittest.TestCase):
         )
         self.assertIn("Modbus link: OK", ok_lines[0])
         self.assertIn("Obs age: 0.8s", ok_lines[0])
+        self.assertIn("Commands: enable=1 | start_command=2 | stop_command=0", ok_lines[1])
 
         err_lines = summarize_plant_modbus_health(
             {
@@ -87,6 +91,9 @@ class DashboardControlHealthTests(unittest.TestCase):
                 "stale": True,
                 "last_success": now_ts - timedelta(seconds=4),
                 "consecutive_failures": 6,
+                "enable_state": None,
+                "start_command_state": None,
+                "stop_command_state": None,
                 "error": "socket timeout",
                 "last_error": {"code": "connect_failed", "message": "socket timeout", "timestamp": now_ts},
             },
@@ -95,8 +102,9 @@ class DashboardControlHealthTests(unittest.TestCase):
         self.assertIn("CONNECT_FAILED", err_lines[0])
         self.assertIn("stale (4.0s)", err_lines[0])
         self.assertIn("Failures: 6", err_lines[0])
-        self.assertEqual(len(err_lines), 2)
-        self.assertIn("Error (CONNECT_FAILED): socket timeout", err_lines[1])
+        self.assertEqual(len(err_lines), 3)
+        self.assertIn("Commands: enable=n/a | start_command=n/a | stop_command=n/a", err_lines[1])
+        self.assertIn("Error (CONNECT_FAILED @ 2026-02-25 12:00:05+00:00): socket timeout", err_lines[2])
 
     def test_summarize_dispatch_write_status_formats_success_and_error(self):
         lines = summarize_dispatch_write_status(

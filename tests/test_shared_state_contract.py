@@ -88,6 +88,8 @@ class SharedStateContractTests(unittest.TestCase):
         self.assertTrue(all(state in {"unknown"} for state in shared_data["plant_operating_state_by_plant"].values()))
         self.assertTrue(all("read_status" in state for state in shared_data["plant_observed_state_by_plant"].values()))
         self.assertTrue(all("consecutive_failures" in state for state in shared_data["plant_observed_state_by_plant"].values()))
+        self.assertTrue(all("start_command_state" in state for state in shared_data["plant_observed_state_by_plant"].values()))
+        self.assertTrue(all("stop_command_state" in state for state in shared_data["plant_observed_state_by_plant"].values()))
         self.assertTrue(
             all(
                 {

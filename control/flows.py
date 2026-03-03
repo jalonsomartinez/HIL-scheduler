@@ -102,6 +102,8 @@ def perform_transport_switch(shared_data, plant_ids, requested_mode, safe_stop_a
                 prev_observed.update(
                     {
                         "enable_state": None,
+                        "start_command_state": None,
+                        "stop_command_state": None,
                         "p_battery_kw": None,
                         "q_battery_kvar": None,
                         "last_attempt": None,

@@ -20,6 +20,7 @@ from control.modbus_io import (
     read_enable_state as read_enable_state_io,
     send_setpoints as send_setpoints_io,
     set_enable as set_enable_io,
+    write_optional_command_point as write_optional_command_point_io,
     wait_until_battery_power_below_threshold as wait_until_battery_power_below_threshold_io,
 )
 from runtime.engine_command_cycle_runtime import run_command_with_lifecycle
@@ -61,6 +62,41 @@ def _set_enable(config, shared_data, plant_id, value):
     return set_enable_io(cfg, plant_id.upper(), value)
 
 
+def _write_optional_command_point(config, shared_data, plant_id, point_name, value):
+    cfg = _get_plant_modbus_config(config, shared_data, plant_id)
+    result = write_optional_command_point_io(cfg, plant_id.upper(), point_name, value)
+    logging.info(
+        "ControlEngine: %s %s command write point=%s value=%s state=%s host=%s port=%s message=%s",
+        plant_id.upper(),
+        str(cfg.get("mode", "unknown")).lower(),
+        result.get("point"),
+        result.get("value"),
+        result.get("state"),
+        cfg.get("host"),
+        cfg.get("port"),
+        result.get("message"),
+    )
+    return result
+
+
+def _run_start_command_sequence(config, shared_data, plant_id):
+    details = [
+        _write_optional_command_point(config, shared_data, plant_id, "stop_command", 0),
+        _write_optional_command_point(config, shared_data, plant_id, "start_command", 2),
+    ]
+    ok = all(str(item.get("state")) in {"ok", "skipped"} for item in details)
+    return {"ok": bool(ok), "details": details}
+
+
+def _run_stop_command_sequence(config, shared_data, plant_id):
+    details = [
+        _write_optional_command_point(config, shared_data, plant_id, "stop_command", 1),
+        _write_optional_command_point(config, shared_data, plant_id, "start_command", 0),
+    ]
+    ok = all(str(item.get("state")) in {"ok", "skipped"} for item in details)
+    return {"ok": bool(ok), "details": details}
+
+
 def _send_setpoints(config, shared_data, plant_id, p_kw, q_kvar):
     cfg = _get_plant_modbus_config(config, shared_data, plant_id)
     return send_setpoints_io(cfg, plant_id.upper(), p_kw, q_kvar)
@@ -92,7 +128,14 @@ def _wait_until_battery_power_below_threshold(
 def _read_observed_points(config, shared_data, plant_id, transport_mode=None):
     cfg = _get_plant_modbus_config(config, shared_data, plant_id, transport_mode=transport_mode)
     client = ModbusClient(host=cfg["host"], port=cfg["port"])
-    values = {"enable_state": None, "p_battery_kw": None, "q_battery_kvar": None}
+    points = dict(cfg.get("points", {}) or {})
+    values = {
+        "enable_state": None,
+        "start_command_state": None,
+        "stop_command_state": None,
+        "p_battery_kw": None,
+        "q_battery_kvar": None,
+    }
     error = None
     try:
         if not client.open():
@@ -104,6 +147,12 @@ def _read_observed_points(config, shared_data, plant_id, transport_mode=None):
         p_battery = read_point_internal(client, cfg, "p_battery")
         q_battery = read_point_internal(client, cfg, "q_battery")
         values["enable_state"] = None if enable_state is None else int(enable_state)
+        if "start_command" in points:
+            start_command = read_point_internal(client, cfg, "start_command")
+            values["start_command_state"] = None if start_command is None else int(start_command)
+        if "stop_command" in points:
+            stop_command = read_point_internal(client, cfg, "stop_command")
+            values["stop_command_state"] = None if stop_command is None else int(stop_command)
         values["p_battery_kw"] = None if p_battery is None else float(p_battery)
         values["q_battery_kvar"] = None if q_battery is None else float(q_battery)
     except Exception as exc:
@@ -125,6 +174,8 @@ def _publish_observed_state(shared_data, plant_id, values, *, error=None, now_va
         prev = dict(state_map.get(plant_id, {}) or {})
         current = {
             "enable_state": prev.get("enable_state"),
+            "start_command_state": prev.get("start_command_state"),
+            "stop_command_state": prev.get("stop_command_state"),
             "p_battery_kw": prev.get("p_battery_kw"),
             "q_battery_kvar": prev.get("q_battery_kvar"),
             "last_attempt": now_value,
@@ -136,9 +187,18 @@ def _publish_observed_state(shared_data, plant_id, values, *, error=None, now_va
             "stale": True,
         }
 
-        success_any = any(values.get(key) is not None for key in ("enable_state", "p_battery_kw", "q_battery_kvar"))
+        success_any = any(
+            values.get(key) is not None
+            for key in (
+                "enable_state",
+                "start_command_state",
+                "stop_command_state",
+                "p_battery_kw",
+                "q_battery_kvar",
+            )
+        )
         if success_any:
-            for key in ("enable_state", "p_battery_kw", "q_battery_kvar"):
+            for key in ("enable_state", "start_command_state", "stop_command_state", "p_battery_kw", "q_battery_kvar"):
                 if values.get(key) is not None:
                     current[key] = values.get(key)
             current["last_success"] = now_value
@@ -371,6 +431,8 @@ def _get_latest_schedule_setpoint(config, shared_data, plant_id, tz):
 
 
 def _safe_stop_plant(config, shared_data, plant_id, *, threshold_kw=1.0, timeout_s=30):
+    stop_command_result = {"ok": True, "details": []}
+
     def _send_and_publish(pid, p_kw, q_kvar):
         ok = bool(_send_setpoints(config, shared_data, pid, p_kw, q_kvar))
         gate = snapshot_locked(shared_data, lambda data: bool((data.get("scheduler_running_by_plant", {}) or {}).get(pid, False)))
@@ -387,7 +449,16 @@ def _safe_stop_plant(config, shared_data, plant_id, *, threshold_kw=1.0, timeout
         )
         return ok
 
-    return safe_stop_plant_flow(
+    def _set_enable_with_stop_commands(pid, value):
+        if int(value) == 0:
+            nonlocal stop_command_result
+            stop_command_result = _run_stop_command_sequence(config, shared_data, pid)
+            if not stop_command_result["ok"]:
+                logging.error("ControlEngine: %s stop command sequence failed; skipping disable.", pid.upper())
+                return False
+        return _set_enable(config, shared_data, pid, value)
+
+    result = safe_stop_plant_flow(
         shared_data,
         plant_id,
         send_setpoints=_send_and_publish,
@@ -399,10 +470,13 @@ def _safe_stop_plant(config, shared_data, plant_id, *, threshold_kw=1.0, timeout
             timeout_s=timeout_s,
             fail_fast_on_connect_failure=True,
         ),
-        set_enable=lambda pid, value: _set_enable(config, shared_data, pid, value),
+        set_enable=_set_enable_with_stop_commands,
         threshold_kw=threshold_kw,
         timeout_s=timeout_s,
     )
+    result["command_stop_ok"] = bool(stop_command_result.get("ok", True))
+    result["command_stop_detail"] = list(stop_command_result.get("details", []))
+    return result
 
 
 def _safe_stop_all_plants(config, shared_data, plant_ids):
@@ -424,6 +498,7 @@ def _start_one_plant(
     get_latest_schedule_setpoint_fn=None,
     resolve_local_start_soc_seed_fn=None,
     request_local_emulator_soc_seed_fn=None,
+    prepare_start_commands_fn=None,
 ):
     set_enable_fn = set_enable_fn or (lambda pid, value: _set_enable(config, shared_data, pid, value))
     send_setpoints_fn = send_setpoints_fn or (lambda pid, p, q: _send_setpoints(config, shared_data, pid, p, q))
@@ -435,6 +510,9 @@ def _start_one_plant(
     )
     request_local_emulator_soc_seed_fn = request_local_emulator_soc_seed_fn or (
         lambda pid, soc_pu, source: _request_local_emulator_soc_seed(shared_data, pid, soc_pu, source)
+    )
+    prepare_start_commands_fn = prepare_start_commands_fn or (
+        lambda pid: _run_start_command_sequence(config, shared_data, pid)
     )
 
     with shared_data["lock"]:
@@ -455,6 +533,28 @@ def _start_one_plant(
             (seed or {}).get("source", "unknown"),
         )
 
+    command_prepare = prepare_start_commands_fn(plant_id) or {"ok": False, "details": []}
+    command_prepare_ok = bool(command_prepare.get("ok", False))
+    command_prepare_detail = list(command_prepare.get("details", []))
+    if not command_prepare_ok:
+        logging.error("ControlEngine: %s start failed during command prepare sequence.", plant_id.upper())
+        with shared_data["lock"]:
+            shared_data["plant_transition_by_plant"][plant_id] = "stopped"
+        return {
+            "state": "failed",
+            "message": "command_prepare_failed",
+            "result": {
+                "command_prepare_ok": False,
+                "command_prepare_detail": command_prepare_detail,
+                "enable_ok": False,
+                "initial_setpoint_write_ok": False,
+                "initial_p_kw": 0.0,
+                "initial_q_kvar": 0.0,
+                "seed_result": seed_result,
+                "dispatch_enabled": bool(dispatch_enabled),
+            },
+        }
+
     enabled = bool(set_enable_fn(plant_id, 1))
     if not enabled:
         logging.error("ControlEngine: %s start failed while enabling plant.", plant_id.upper())
@@ -464,6 +564,8 @@ def _start_one_plant(
             "state": "failed",
             "message": "enable_failed",
             "result": {
+                "command_prepare_ok": True,
+                "command_prepare_detail": command_prepare_detail,
                 "enable_ok": False,
                 "initial_setpoint_write_ok": False,
                 "initial_p_kw": 0.0,
@@ -528,6 +630,8 @@ def _start_one_plant(
         "state": "succeeded",
         "message": None,
         "result": {
+            "command_prepare_ok": True,
+            "command_prepare_detail": command_prepare_detail,
             "enable_ok": True,
             "initial_setpoint_write_ok": bool(send_ok),
             "initial_p_kw": float(p_kw),
@@ -549,12 +653,21 @@ def _stop_one_plant(config, shared_data, plant_id, *, safe_stop_plant_fn=None):
         shared_data["plant_transition_by_plant"][plant_id] = "stopping"
 
     result = dict(safe_stop_plant_fn(plant_id) or {})
-    if not result.get("disable_ok", False):
+    disable_ok = bool(result.get("disable_ok", False))
+    command_stop_ok = bool(result.get("command_stop_ok", True))
+    overall_ok = bool(disable_ok and command_stop_ok)
+    if not overall_ok:
         with shared_data["lock"]:
             shared_data["plant_transition_by_plant"][plant_id] = "unknown"
+    if not command_stop_ok:
+        message = "command_stop_failed"
+    elif not disable_ok:
+        message = "disable_failed"
+    else:
+        message = None
     return {
-        "state": "succeeded" if bool(result.get("disable_ok", False)) else "failed",
-        "message": None if bool(result.get("disable_ok", False)) else "disable_failed",
+        "state": "succeeded" if overall_ok else "failed",
+        "message": message,
         "result": result,
     }
 
@@ -665,9 +778,11 @@ def _execute_command(config, shared_data, command, *, plant_ids, tz, now_fn=now_
             for pid in plant_ids:
                 shared_data["measurements_filename_by_plant"][pid] = None
         all_disable_ok = all(bool((results.get(pid) or {}).get("disable_ok", False)) for pid in plant_ids)
+        all_command_ok = all(bool((results.get(pid) or {}).get("command_stop_ok", True)) for pid in plant_ids)
+        all_ok = bool(all_disable_ok and all_command_ok)
         return {
-            "state": "succeeded" if all_disable_ok else "failed",
-            "message": None if all_disable_ok else "fleet_stop_partial_failure",
+            "state": "succeeded" if all_ok else "failed",
+            "message": None if all_ok else "fleet_stop_partial_failure",
             "result": {"per_plant": results},
         }
 

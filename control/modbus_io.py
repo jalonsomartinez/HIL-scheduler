@@ -8,6 +8,56 @@ from pyModbusTCP.client import ModbusClient
 from modbus.codec import read_point_internal, write_point_internal
 
 
+def write_optional_command_point(endpoint_cfg, plant_label, point_name, value):
+    """Write an optional command point; skip when point is not configured."""
+    points = dict(endpoint_cfg.get("points", {}) or {})
+    point_key = str(point_name or "").strip()
+    if not point_key or point_key not in points:
+        return {
+            "point": point_key,
+            "state": "skipped",
+            "value": int(value),
+            "message": "point_not_configured",
+        }
+
+    client = ModbusClient(host=endpoint_cfg["host"], port=endpoint_cfg["port"])
+    try:
+        if not client.open():
+            logging.warning(
+                "Control I/O: could not connect to %s (%s mode) for %s write.",
+                plant_label,
+                endpoint_cfg["mode"],
+                point_key,
+            )
+            return {
+                "point": point_key,
+                "state": "failed",
+                "value": int(value),
+                "message": "connect_failed",
+            }
+
+        ok = bool(write_point_internal(client, endpoint_cfg, point_key, int(value)))
+        return {
+            "point": point_key,
+            "state": "ok" if ok else "failed",
+            "value": int(value),
+            "message": None if ok else "write_failed",
+        }
+    except Exception as exc:
+        logging.error("Control I/O: %s write error (%s): %s", point_key, plant_label, exc)
+        return {
+            "point": point_key,
+            "state": "failed",
+            "value": int(value),
+            "message": str(exc),
+        }
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
 def set_enable(endpoint_cfg, plant_label, value):
     client = ModbusClient(host=endpoint_cfg["host"], port=endpoint_cfg["port"])
     try:

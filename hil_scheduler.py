@@ -53,6 +53,8 @@ def _default_plant_observed_state_by_plant(plant_ids):
     return {
         plant_id: {
             "enable_state": None,
+            "start_command_state": None,
+            "stop_command_state": None,
             "p_battery_kw": None,
             "q_battery_kvar": None,
             "last_attempt": None,

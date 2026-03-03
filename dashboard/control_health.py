@@ -45,6 +45,25 @@ def _format_time(ts):
         return str(ts_value)
 
 
+def _format_datetime(ts):
+    ts_value = _safe_timestamp(ts)
+    if ts_value is None:
+        return "n/a"
+    try:
+        return ts_value.isoformat(sep=" ", timespec="seconds")
+    except Exception:
+        return str(ts_value)
+
+
+def _format_optional_int(value):
+    if value is None:
+        return "n/a"
+    try:
+        return str(int(value))
+    except Exception:
+        return "n/a"
+
+
 def summarize_control_engine_status(engine_status, now_ts) -> str:
     status = dict(engine_status or {})
     alive = "Alive" if bool(status.get("alive")) else "Stopped"
@@ -104,11 +123,18 @@ def summarize_plant_modbus_health(plant_observed_state, now_ts):
         line += f" | Failures: {failures}"
 
     lines = [line]
+    lines.append(
+        "Commands: "
+        f"enable={_format_optional_int(observed.get('enable_state'))} | "
+        f"start_command={_format_optional_int(observed.get('start_command_state'))} | "
+        f"stop_command={_format_optional_int(observed.get('stop_command_state'))}"
+    )
     last_error = dict(observed.get("last_error") or {})
     error_message = last_error.get("message") or observed.get("error")
     if error_message:
         error_code = str(last_error.get("code") or read_status.lower() or "error").upper()
-        lines.append(f"Error ({error_code}): {_truncate(error_message, max_chars=120)}")
+        error_ts = _format_datetime(last_error.get("timestamp"))
+        lines.append(f"Error ({error_code} @ {error_ts}): {_truncate(error_message, max_chars=120)}")
     return lines
 
 

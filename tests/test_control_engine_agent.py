@@ -36,6 +36,8 @@ def _shared_data():
         "plant_observed_state_by_plant": {
             "lib": {
                 "enable_state": None,
+                "start_command_state": None,
+                "stop_command_state": None,
                 "p_battery_kw": None,
                 "q_battery_kvar": None,
                 "last_attempt": None,
@@ -48,6 +50,8 @@ def _shared_data():
             },
             "vrfb": {
                 "enable_state": None,
+                "start_command_state": None,
+                "stop_command_state": None,
                 "p_battery_kw": None,
                 "q_battery_kvar": None,
                 "last_attempt": None,
@@ -149,6 +153,29 @@ class ControlEngineAgentTests(unittest.TestCase):
         self.assertFalse(shared_data["scheduler_running_by_plant"]["lib"])
         self.assertEqual(shared_data["plant_transition_by_plant"]["lib"], "stopped")
 
+    def test_start_one_plant_command_prepare_failure_fails_fast(self):
+        shared_data = _shared_data()
+        calls = []
+
+        result = _start_one_plant(
+            {"STARTUP_INITIAL_SOC_PU": 0.5},
+            shared_data,
+            "lib",
+            tz=timezone.utc,
+            set_enable_fn=lambda plant_id, value: calls.append(("enable", plant_id, value)) or True,
+            send_setpoints_fn=lambda plant_id, p_kw, q_kvar: calls.append(("setpoints", plant_id, p_kw, q_kvar)) or True,
+            prepare_start_commands_fn=lambda plant_id: {
+                "ok": False,
+                "details": [{"point": "start_command", "state": "failed", "value": 2, "message": "write_failed"}],
+            },
+        )
+
+        self.assertEqual(result["state"], "failed")
+        self.assertEqual(result["message"], "command_prepare_failed")
+        self.assertFalse(result["result"]["command_prepare_ok"])
+        self.assertEqual(shared_data["plant_transition_by_plant"]["lib"], "stopped")
+        self.assertEqual(calls, [])
+
     def test_dispatch_enable_disable_commands_mutate_only_scheduler_gate(self):
         shared_data = _shared_data()
         shared_data["plant_transition_by_plant"]["lib"] = "running"
@@ -189,6 +216,27 @@ class ControlEngineAgentTests(unittest.TestCase):
 
         self.assertEqual(result["state"], "succeeded")
         self.assertEqual(result["result"], {"threshold_reached": True, "disable_ok": True})
+
+    def test_stop_one_plant_fails_when_command_stop_failed(self):
+        shared_data = _shared_data()
+        shared_data["plant_transition_by_plant"]["lib"] = "running"
+        shared_data["scheduler_running_by_plant"]["lib"] = True
+
+        result = _stop_one_plant(
+            {"PLANT_IDS": ("lib", "vrfb")},
+            shared_data,
+            "lib",
+            safe_stop_plant_fn=lambda plant_id: {
+                "threshold_reached": True,
+                "disable_ok": True,
+                "command_stop_ok": False,
+                "command_stop_detail": [{"point": "stop_command", "state": "failed", "value": 1, "message": "write_failed"}],
+            },
+        )
+
+        self.assertEqual(result["state"], "failed")
+        self.assertEqual(result["message"], "command_stop_failed")
+        self.assertEqual(shared_data["plant_transition_by_plant"]["lib"], "unknown")
 
     def test_record_start_and_stop_are_idempotent(self):
         shared_data = _shared_data()
@@ -444,7 +492,7 @@ class ControlEngineAgentTests(unittest.TestCase):
         _publish_observed_state(
             shared_data,
             "lib",
-            {"enable_state": 1, "p_battery_kw": 4.0, "q_battery_kvar": -1.0},
+            {"enable_state": 1, "start_command_state": 2, "stop_command_state": 0, "p_battery_kw": 4.0, "q_battery_kvar": -1.0},
             now_value=t0,
         )
         failed = _publish_observed_state(
@@ -463,6 +511,8 @@ class ControlEngineAgentTests(unittest.TestCase):
         )
 
         self.assertEqual(failed["enable_state"], 1)
+        self.assertEqual(failed["start_command_state"], 2)
+        self.assertEqual(failed["stop_command_state"], 0)
         self.assertEqual(failed["p_battery_kw"], 4.0)
         self.assertEqual(failed["error"], "connect_failed")
         self.assertEqual(failed["read_status"], "connect_failed")
@@ -487,7 +537,7 @@ class ControlEngineAgentTests(unittest.TestCase):
         recovered = _publish_observed_state(
             shared_data,
             "lib",
-            {"enable_state": 0, "p_battery_kw": 0.0, "q_battery_kvar": 0.0},
+            {"enable_state": 0, "start_command_state": 1, "stop_command_state": 0, "p_battery_kw": 0.0, "q_battery_kvar": 0.0},
             now_value=t1,
         )
 
@@ -498,6 +548,8 @@ class ControlEngineAgentTests(unittest.TestCase):
         self.assertIsNone(recovered["error"])
         self.assertEqual(recovered["consecutive_failures"], 0)
         self.assertEqual(recovered["enable_state"], 0)
+        self.assertEqual(recovered["start_command_state"], 1)
+        self.assertEqual(recovered["stop_command_state"], 0)
 
     def test_engine_cycle_publishes_last_exception_on_command_crash(self):
         shared_data = _shared_data()
