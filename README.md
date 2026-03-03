@@ -103,6 +103,76 @@ python3 -m py_compile *.py dashboard/*.py control/*.py settings/*.py measurement
 ./venv/bin/python -m unittest discover -s tests -v
 ```
 
+## VRFB Remote Diagnostics Runbook
+Use this diagnostics matrix on the same remote-test machine/network where VRFB failures are observed.
+
+Prerequisite:
+```bash
+source venv/bin/activate
+pip install -r requirements.txt
+python3 -c "import pymodbus; print(pymodbus.__version__)"
+```
+Expected version: `3.9.2`
+
+### Command Matrix (Repeat Each Mode 2x, Duration >= 180s)
+1. `dashboard_like` read-only baseline (expected pass):
+```bash
+./venv/bin/python scripts/vrfb_remote_diag.py \
+  --mode dashboard_like \
+  --host 10.117.133.26 --port 502 --slave 1 \
+  --timeout-s 2.0 --poll-s 1.0 --duration-s 180 \
+  --out logs/vrfb_remote_diag_dashboard_like_readonly_run1.csv
+```
+2. `dashboard_like` read+write sequence (`start_command=2`, `enable=1`, `p/q` writes every 10 cycles):
+```bash
+./venv/bin/python scripts/vrfb_remote_diag.py \
+  --mode dashboard_like \
+  --host 10.117.133.26 --port 502 --slave 1 \
+  --timeout-s 2.0 --poll-s 1.0 --duration-s 180 \
+  --dashboard-write-every 10 --dashboard-p-kw 0 --dashboard-q-kvar 0 \
+  --out logs/vrfb_remote_diag_dashboard_like_write_run1.csv
+```
+3. `app_like_parallel` contention probe (expected to reproduce if multi-session contention exists):
+```bash
+./venv/bin/python scripts/vrfb_remote_diag.py \
+  --mode app_like_parallel \
+  --host 10.117.133.26 --port 502 --slave 1 \
+  --timeout-s 2.0 --duration-s 180 \
+  --out logs/vrfb_remote_diag_app_like_parallel_run1.csv
+```
+4. `app_like_serial` serialized probe (expected recovery if contention is root cause):
+```bash
+./venv/bin/python scripts/vrfb_remote_diag.py \
+  --mode app_like_serial \
+  --host 10.117.133.26 --port 502 --slave 1 \
+  --timeout-s 2.0 --duration-s 180 \
+  --out logs/vrfb_remote_diag_app_like_serial_run1.csv
+```
+5. Timeout sensitivity rerun (`2.0s` vs `5.0s`) for any failing mode:
+```bash
+./venv/bin/python scripts/vrfb_remote_diag.py \
+  --mode app_like_parallel \
+  --host 10.117.133.26 --port 502 --slave 1 \
+  --timeout-s 5.0 --duration-s 180 \
+  --out logs/vrfb_remote_diag_app_like_parallel_timeout5_run1.csv
+```
+
+Each run produces:
+- CSV operation log with columns:
+  - `ts_iso,mode,client_id,op,address,count_or_value,ok,latency_ms,error_type,error_text`
+- Markdown summary report next to the CSV (`.md`) with pass/fail, error distribution, latency percentiles, and next-step guidance.
+
+### Root-Cause Classification Guide
+Use results across modes:
+- `dashboard_like` passes, `app_like_parallel` fails, `app_like_serial` passes:
+  - Root cause likely session/concurrency contention.
+- All modes fail with similar connection errors:
+  - Root cause likely network path/firewall/routing or endpoint availability.
+- Reads pass but writes fail across modes:
+  - Root cause likely write policy/command-state/register access restrictions.
+- Only specific point addresses fail while others are stable:
+  - Root cause likely map/access mismatch at point level.
+
 ## Legacy Compatibility Notes
 - `schedule_manager.py` was removed after runtime migration to `manual_schedule_manager.py` and `schedule_runtime.py`.
 - `config_loader.py` no longer emits legacy flat alias keys by default.
