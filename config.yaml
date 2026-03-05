@@ -93,16 +93,16 @@ plants:
         byte_order: big
         word_order: msw_first
         points:
-          p_setpoint: {address: 86, format: int16, access: rw, unit: kW, eng_per_count: 0.1}
-          p_poi: {address: 290, format: int16, access: r, unit: kW, eng_per_count: 0.1}
-          p_battery: {address: 270, format: int16, access: r, unit: kW, eng_per_count: 0.1}
-          q_setpoint: {address: 88, format: int16, access: rw, unit: kvar, eng_per_count: 0.1}
-          q_poi: {address: 292, format: int16, access: r, unit: kvar, eng_per_count: 0.1}
-          q_battery: {address: 272, format: int16, access: r, unit: kvar, eng_per_count: 0.1}
-          v_poi: {address: 296, format: uint16, access: r, unit: V, eng_per_count: 1.0}
+          p_setpoint: {address: 86, format: int32, access: rw, unit: kW, eng_per_count: 0.1}
+          p_poi: {address: 290, format: int32, access: r, unit: kW, eng_per_count: 0.1}
+          p_battery: {address: 270, format: int32, access: r, unit: kW, eng_per_count: 0.1}
+          q_setpoint: {address: 88, format: int32, access: rw, unit: kvar, eng_per_count: 0.1}
+          q_poi: {address: 292, format: int32, access: r, unit: kvar, eng_per_count: 0.1}
+          q_battery: {address: 272, format: int32, access: r, unit: kvar, eng_per_count: 0.1}
+          v_poi: {address: 296, format: uint32, access: r, unit: V, eng_per_count: 1.0}
           enable: {address: 1, format: uint16, access: rw, unit: raw, eng_per_count: 1.0} # El enable permite la escritura en la batería. Debe estar a 1 para permitir escritura
           soc: {address: 281, format: uint16, access: r, unit: pu, eng_per_count: 0.0001} # pc is percentage
-          stop_command: {address: 85, format: int16, access: w, unit: raw, eng_per_count: 1.0} # 1: stop, 0: start. Este registro debe estar a 0 para permitir la operación normal de la batería. Si se pone a 1, la batería se detiene y no responde a comandos de potencia.
+          stop_command: {address: 85, format: uint16, access: w, unit: raw, eng_per_count: 1.0} # 1: stop, 0: start. Este registro debe estar a 0 para permitir la operación normal de la batería. Si se pone a 1, la batería se detiene y no responde a comandos de potencia.
     measurement_series:
       soc: 4
       p: 6
