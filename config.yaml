@@ -91,7 +91,7 @@ plants:
         host: "10.117.133.21"
         port: 502
         byte_order: big
-        word_order: lsw_first
+        word_order: msw_first
         points:
           p_setpoint: {address: 86, format: int32, access: rw, unit: kW, eng_per_count: 0.1}
           p_poi: {address: 290, format: int32, access: r, unit: kW, eng_per_count: 0.1}
