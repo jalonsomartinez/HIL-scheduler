@@ -9,6 +9,7 @@ Increase operational confidence through reliability hardening and high-signal da
 - Validate new shared Modbus transport behavior under sustained dual-plant operation.
 - Preserve local SoC continuity guarantees (startup restore + local fleet-start ordering) with targeted regressions.
 - Preserve strict config/schema validation as source of runtime truth.
+- Enforce pinned direct dependency parity across all serving hosts to prevent frontend bundle/version drift.
 
 2. Operational hardening
 - Confirm remote endpoint stability after pooled-session rollout (VRFB and LIB).
@@ -35,3 +36,4 @@ Increase operational confidence through reliability hardening and high-signal da
 4. Operators can assess plant/API state quickly from top-card indicators, summary tables, and command-state feedback.
 5. API credential flows are deterministic across env bootstrap and dashboard interactions.
 6. Documentation (memory bank + runbook) matches runtime behavior with minimal drift and diagnostics evidence.
+7. Local and remote/Tailscale-served dashboards load matching Dash component-suite versions and render controls consistently.

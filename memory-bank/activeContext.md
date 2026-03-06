@@ -5,14 +5,19 @@
 - Reduce endpoint load across all plants/transports through shared Modbus sessions and grouped stable reads.
 - Validate that start/stop command flows plus observed-state command readbacks behave consistently on field hardware.
 - Keep local SoC continuity guarantees intact while introducing Modbus transport/request-shaping changes.
+- Keep dashboard/runtime dependency parity across local and remote servers to avoid frontend component drift.
 
 ## Open Decisions and Risks
 - Whether scheduler setpoint readbacks should also move to grouped reads (currently measurement and observed-state use grouping).
 - Whether to keep endpoint-sharing key at `(backend, host, port, unit_id)` or broaden/narrow it for future multi-slave endpoints.
 - Fake-client based local smoke tests may need adaptation to pooled-client semantics; one targeted smoke test currently fails under the new sharing model.
 - Whether API credentials should support secure-at-rest storage beyond process memory and env files.
+- Whether to keep only direct dependency pins or introduce a full lock/export workflow for transitive reproducibility.
 
 ## Rolling Change Log (Compressed, 30-Day Window)
+- 2026-03-06:
+  - Investigated remote dashboard rendering differences over Tailscale and identified cross-server Dash bundle-version drift (`dash_core_components` mismatch between origins).
+  - Pinned direct Python dependencies in `requirements.txt` to current known-good versions (`dash`, `dash-auth`, `plotly`, `pandas`, `numpy`, `pyModbusTCP`, `pymodbus`, `PyYAML`) to enforce environment parity across servers.
 - 2026-03-03:
   - Added VRFB remote diagnostics tooling:
     - `scripts/vrfb_remote_diag.py` with `dashboard_like`, `app_like_parallel`, and `app_like_serial` modes,

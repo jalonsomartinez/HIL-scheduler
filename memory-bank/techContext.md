@@ -7,6 +7,7 @@
 - Flask server under Dash.
 - Threaded agent architecture, shared in-memory state.
 - Modbus TCP via project Modbus helpers/codecs.
+- Direct runtime dependencies are pinned in `requirements.txt` for reproducible cross-server deployments (`dash==3.4.0`, `dash-auth==2.3.0`, `plotly==6.5.2`, `pandas==3.0.0`, `numpy==2.4.1`, `pyModbusTCP==0.3.0`, `pymodbus==3.9.2`, `PyYAML==6.0.3`).
 
 ## Repository Runtime Modules
 - `hil_scheduler.py`: process entrypoint, shared-state init, thread startup/shutdown.
@@ -67,3 +68,4 @@ Important normalized keys include:
 - Network-restricted environments should validate API/posting behavior with posting policy disabled when needed.
 - Pooled Modbus access introduces endpoint-level serialization; this reduces contention but can increase wait time under heavy mixed workloads.
 - Grouped reads are static/planned, not dynamically re-optimized per cycle.
+- Cross-origin dashboard comparisons are sensitive to environment drift: even with identical browser/version, mismatched server dependency versions can produce different Dash component rendering.
