@@ -23,7 +23,18 @@ def _write_temp_yaml(data):
 
 class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
     def test_load_config_normalizes_endpoint_ordering_and_point_specs(self):
-        config = load_config("config.yaml")
+        payload = _load_yaml("config.yaml")
+        lib_remote_payload = payload["plants"]["lib"]["modbus"]["remote"]
+        lib_remote_payload["byte_order"] = "BIG"
+        lib_remote_payload["word_order"] = "MSW_FIRST"
+        p_setpoint_payload = lib_remote_payload["points"]["p_setpoint"]
+        p_setpoint_payload["format"] = "INT16"
+        p_setpoint_payload["access"] = "RW"
+        path = _write_temp_yaml(payload)
+        try:
+            config = load_config(path)
+        finally:
+            os.unlink(path)
 
         lib_remote = config["PLANTS"]["lib"]["modbus"]["remote"]
         self.assertEqual(lib_remote["byte_order"], "big")

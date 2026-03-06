@@ -23,7 +23,14 @@ def _write_temp_yaml(data):
 
 class ConfigLoaderDashboardNetworkTests(unittest.TestCase):
     def test_defaults_expose_private_and_public_dashboard_settings(self):
-        config = load_config("config.yaml")
+        payload = _load_yaml("config.yaml")
+        payload.pop("dashboard", None)
+        path = _write_temp_yaml(payload)
+        try:
+            config = load_config(path)
+        finally:
+            os.unlink(path)
+
         self.assertEqual(config["DASHBOARD_PRIVATE_HOST"], "127.0.0.1")
         self.assertEqual(config["DASHBOARD_PRIVATE_PORT"], 8050)
         self.assertEqual(config["DASHBOARD_PUBLIC_READONLY_ENABLED"], False)
