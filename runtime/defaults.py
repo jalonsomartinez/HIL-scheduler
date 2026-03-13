@@ -8,6 +8,9 @@ DEFAULT_TIMEZONE_NAME = "Europe/Madrid"
 
 DEFAULT_MEASUREMENT_COMPRESSION_TOLERANCES = {
     "p_setpoint_kw": 0.0,
+    "p_schedule_total_kw": 0.0,
+    "p_schedule_day_ahead_kw": 0.0,
+    "p_schedule_mfrr_kw": 0.0,
     "battery_active_power_kw": 0.1,
     "q_setpoint_kvar": 0.0,
     "battery_reactive_power_kvar": 0.1,

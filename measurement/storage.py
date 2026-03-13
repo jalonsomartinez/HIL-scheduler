@@ -12,6 +12,9 @@ from time_utils import normalize_datetime_series, normalize_timestamp_value, ser
 
 MEASUREMENT_VALUE_COLUMNS = [
     "p_setpoint_kw",
+    "p_schedule_total_kw",
+    "p_schedule_day_ahead_kw",
+    "p_schedule_mfrr_kw",
     "battery_active_power_kw",
     "q_setpoint_kvar",
     "battery_reactive_power_kvar",

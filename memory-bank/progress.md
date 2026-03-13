@@ -1,32 +1,29 @@
 # Progress: HIL Scheduler
 
 ## Working Now
-- Verifying shared Modbus transport behavior on real remote endpoints (LIB + VRFB, local + remote modes).
-- Validating grouped-read measurement/observed paths against runtime stability and expected telemetry quality.
-- Standardizing dependency versions across local and Tailscale-served servers to eliminate dashboard bundle drift.
+- Verifying mFRR + day-ahead composition behavior in live runtime and dashboards.
+- Confirming API tab mFRR polling telemetry reflects real poll state transitions.
+- Validating that VRFB mFRR index now follows LIB response window and no longer expands to synthetic 2-day grids.
 
 ## In Progress
-1. Remote Modbus stabilization rollout:
-   - shared per-endpoint client/session behavior in runtime,
-   - contention checks on VRFB and LIB remote plants.
-2. Static grouped-read rollout:
-   - measurement fixed point-set grouped blocks,
-   - observed-state grouped blocks including command readbacks.
-3. Diagnostics-driven validation:
-   - replaying `dashboard_like` vs `app_like_parallel` vs `app_like_serial` expectations from runbook outputs.
+1. Schedule model rollout:
+   - dual fetch cadence (day-ahead + mFRR),
+   - total schedule recomposition and retention pruning.
+2. Observability rollout:
+   - mFRR poll telemetry in private API tab,
+   - reduced-noise mFRR polling logs.
+3. Measurement/history alignment:
+   - recording of schedule intent columns,
+   - historical plotting fallback compatibility.
 4. Regression alignment:
-   - keeping unit coverage green for new transport/grouping helpers,
-   - deciding whether to adapt/replace fake-client local smoke test that fails with pooled client semantics.
-5. Deployment parity hardening:
-   - pinned direct dependencies in `requirements.txt` to exact known-good versions,
-   - rolling out pinned installs on each host that serves dashboards.
+   - extending fetcher/plot/storage tests for new contracts,
+   - keeping backward compatibility for legacy CSV data.
 
 ## Next
-1. Validate pooled Modbus behavior in full end-to-end field runs (including long-duration remote operation).
-2. Decide whether to group scheduler readback requests or keep scheduler logic as single-point reads for simplicity.
-3. Update/replace failing local smoke test double setup to match pooled connection behavior.
-4. Continue pending hardening work: API credentials UX/security and lightweight dashboard visual regression checks.
-5. Verify both local and remote origins serve matching Dash component-suite versions after redeploy.
+1. Run full dependency-enabled test suite in target environments (`pytest`, `pandas`, `dash` installed).
+2. Perform field validation for mFRR polling windows and transition-based logging behavior.
+3. Continue remote Modbus reliability hardening and pooled-client smoke-test adaptation.
+4. Evaluate API credential hardening options beyond process-memory storage.
 
 ## Known Issues / Gaps
 1. No persistent durability for measurement-post retry queue across process restarts.
@@ -34,8 +31,8 @@
 3. Manual schedule drafts are shared in server state (single-operator assumption).
 4. UI visual regressions are currently caught mainly by manual review.
 5. API password is process-memory only (env/bootstrap or dashboard save); no encrypted persistence layer.
-6. `tests.test_local_runtime_smoke` currently fails with new pooled Modbus client semantics under fake client patching.
-7. Cross-server UI consistency depends on each host reinstalling from pinned `requirements.txt`; mixed environments can still render controls differently.
+6. `tests.test_local_runtime_smoke` currently fails with pooled Modbus client semantics under fake-client patching.
+7. Current local shell may lack Python deps for full test execution (`pytest`, `pandas`, `dash`).
 
 ## Current Project Phase
-Remote Modbus reliability hardening, request-shaping optimization, and cross-server deployment parity.
+Schedule-model expansion and observability hardening, alongside continued remote reliability stabilization.

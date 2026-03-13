@@ -36,6 +36,7 @@ from runtime.defaults import (
 )
 from runtime.parsing import parse_bool
 from runtime.shared_state import snapshot_locked
+from scheduling.runtime import resolve_schedule_setpoint
 from time_utils import get_config_tz, normalize_datetime_series, normalize_timestamp_value, now_tz, serialize_iso_with_tz
 
 
@@ -668,6 +669,21 @@ def measurement_agent(config, shared_data):
                 )
                 break
 
+    def resolve_schedule_power_kw(schedule_df, timestamp_value):
+        ts_value = normalize_timestamp_value(timestamp_value, tz)
+        if pd.isna(ts_value):
+            return 0.0
+        power_kw, _q_kvar, _stale = resolve_schedule_setpoint(
+            schedule_df,
+            ts_value,
+            tz,
+            source="manual",
+        )
+        try:
+            return float(power_kw)
+        except (TypeError, ValueError):
+            return 0.0
+
     while not shared_data["shutdown_event"].is_set():
         current_time = time.time()
         now_dt = now_tz(config)
@@ -681,6 +697,18 @@ def measurement_agent(config, shared_data):
                 "posting_runtime": dict(data.get("posting_runtime", {}) or {}),
                 "api_connection_runtime": dict(data.get("api_connection_runtime", {}) or {}),
                 "current_paths": dict(data.get("current_file_path_by_plant", {})),
+                "total_schedule_map": {
+                    plant_id: data.get("api_schedule_df_by_plant", {}).get(plant_id, pd.DataFrame()).copy()
+                    for plant_id in plant_ids
+                },
+                "day_ahead_schedule_map": {
+                    plant_id: data.get("api_day_ahead_schedule_df_by_plant", {}).get(plant_id, pd.DataFrame()).copy()
+                    for plant_id in plant_ids
+                },
+                "mfrr_schedule_map": {
+                    plant_id: data.get("api_mfrr_schedule_df_by_plant", {}).get(plant_id, pd.DataFrame()).copy()
+                    for plant_id in plant_ids
+                },
             },
         )
         transport_mode = snapshot["transport_mode"]
@@ -691,6 +719,9 @@ def measurement_agent(config, shared_data):
         posting_toggle_enabled = bool(posting_runtime.get("policy_enabled", config_post_measurements_enabled))
         api_connection_state = str(api_connection_runtime.get("state") or ("connected" if api_password else "disconnected"))
         current_paths = snapshot["current_paths"]
+        total_schedule_map = snapshot.get("total_schedule_map", {})
+        day_ahead_schedule_map = snapshot.get("day_ahead_schedule_map", {})
+        mfrr_schedule_map = snapshot.get("mfrr_schedule_map", {})
 
         for plant_id in plant_ids:
             state = plant_states[plant_id]
@@ -729,6 +760,11 @@ def measurement_agent(config, shared_data):
                 row = sampling_take_measurement(state["client"], endpoint, scheduled_step_ts, tz, plant_id)
                 if row is None:
                     continue
+
+                row_ts = normalize_timestamp_value(row.get("timestamp"), tz)
+                row["p_schedule_total_kw"] = resolve_schedule_power_kw(total_schedule_map.get(plant_id), row_ts)
+                row["p_schedule_day_ahead_kw"] = resolve_schedule_power_kw(day_ahead_schedule_map.get(plant_id), row_ts)
+                row["p_schedule_mfrr_kw"] = resolve_schedule_power_kw(mfrr_schedule_map.get(plant_id), row_ts)
 
                 state["latest_measurement"] = row.copy()
 

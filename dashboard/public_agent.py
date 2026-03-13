@@ -664,6 +664,14 @@ def build_public_readonly_app(config, shared_data):
                     plant_id: data.get("api_schedule_df_by_plant", {}).get(plant_id, pd.DataFrame()).copy()
                     for plant_id in plant_ids
                 },
+                "api_day_ahead_schedule_map": {
+                    plant_id: data.get("api_day_ahead_schedule_df_by_plant", {}).get(plant_id, pd.DataFrame()).copy()
+                    for plant_id in plant_ids
+                },
+                "api_mfrr_schedule_map": {
+                    plant_id: data.get("api_mfrr_schedule_df_by_plant", {}).get(plant_id, pd.DataFrame()).copy()
+                    for plant_id in plant_ids
+                },
                 "manual_series_map": dict(data.get("manual_schedule_series_df_by_key", {})),
                 "manual_merge_enabled": dict(data.get("manual_schedule_merge_enabled_by_key", {})),
                 "measurements_map": {
@@ -868,6 +876,13 @@ def build_public_readonly_app(config, shared_data):
 
         lib_schedule = normalize_schedule_index(effective_schedule_map.get("lib", pd.DataFrame()), tz)
         vrfb_schedule = normalize_schedule_index(effective_schedule_map.get("vrfb", pd.DataFrame()), tz)
+        lib_day_ahead_schedule = normalize_schedule_index(snapshot["api_day_ahead_schedule_map"].get("lib", pd.DataFrame()), tz)
+        vrfb_day_ahead_schedule = normalize_schedule_index(
+            snapshot["api_day_ahead_schedule_map"].get("vrfb", pd.DataFrame()),
+            tz,
+        )
+        lib_mfrr_schedule = normalize_schedule_index(snapshot["api_mfrr_schedule_map"].get("lib", pd.DataFrame()), tz)
+        vrfb_mfrr_schedule = normalize_schedule_index(snapshot["api_mfrr_schedule_map"].get("vrfb", pd.DataFrame()), tz)
 
         lib_fig = create_plant_figure(
             "lib",
@@ -880,6 +895,8 @@ def build_public_readonly_app(config, shared_data):
             trace_colors=trace_colors,
             x_window_start=status_window_start,
             x_window_end=status_window_end,
+            day_ahead_schedule_df=lib_day_ahead_schedule,
+            mfrr_schedule_df=lib_mfrr_schedule,
             time_indicator_ts=status_now,
             voltage_autorange_padding_kv=_voltage_padding_kv_for_plant("lib"),
         )
@@ -894,6 +911,8 @@ def build_public_readonly_app(config, shared_data):
             trace_colors=trace_colors,
             x_window_start=status_window_start,
             x_window_end=status_window_end,
+            day_ahead_schedule_df=vrfb_day_ahead_schedule,
+            mfrr_schedule_df=vrfb_mfrr_schedule,
             time_indicator_ts=status_now,
             voltage_autorange_padding_kv=_voltage_padding_kv_for_plant("vrfb"),
         )

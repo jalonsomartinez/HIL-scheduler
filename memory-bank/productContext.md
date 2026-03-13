@@ -1,58 +1,47 @@
 # Product Context: HIL Scheduler
 
 ## Why This Exists
-Operators need a safe, observable way to execute power schedules against real or emulated plants. The project bridges schedule ingestion, command execution, telemetry recording, and dashboard operations in one runtime.
+Operators need one runtime that can safely execute multi-market battery schedules and show what the controller intends versus what the plant does.
 
 ## Primary Users
-1. Operators using the private dashboard for control actions.
-2. Engineers validating dispatch behavior and telemetry quality.
-3. External observers using the public read-only dashboard.
+1. Operators on the private dashboard controlling plants and API behavior.
+2. Engineers validating schedule composition, dispatch, and telemetry quality.
+3. External viewers of the public read-only dashboard.
 
 ## Core User Outcomes
-1. Start/stop plants safely with explicit confirmation for high-impact actions.
-2. Enable/pause dispatch sending independently from plant `Run/Stop`.
-3. Start/stop recording per plant and review data history.
-4. Switch local/remote transport safely.
-5. Understand API connection, schedule readiness, control queue state, and latest measurements quickly.
+1. Run/stop plants and dispatch safely with explicit control feedback.
+2. Trust that the active schedule reflects day-ahead + mFRR market intent.
+3. Distinguish schedule intent (`Pref`, `day-ahead`, `mfrr`) from measured response.
+4. Monitor API/mFRR polling health without noisy logs.
+5. Record/export historical data with schedule-intent columns for analysis.
 
 ## Product Behavior
-- Status controls are segmented toggles with stateful labels.
-- Private dashboard status now surfaces live command-related observed values (`enable`, `start_command`, `stop_command`) for operator validation.
-- Local emulation SoC continuity:
-  - local plant emulators initialize SoC from latest persisted per-plant measurement when available, else startup fallback,
-  - local `Start All` starts/seeds plants before turning recording on, to avoid transient pre-seed SoC rows.
-- Operator dashboard supports:
-  - transport toggle,
-  - fleet actions (`Start All`, `Stop All`),
-  - API tab credential workflow with separate actions:
-    - `Save Password` stores API password in runtime state,
-    - `Connect/Disconnect` controls connection state using stored password,
-  - per-plant `Run/Stop`, `Dispatch/Pause`, `Record/Stopped`,
-  - live and historical plots,
-  - top-card summary table with per-plant latest metrics (`Plant`, `Status`, `SoC`, `P ref`, `P POI`, `Q ref`, `Q POI`, `Voltage`), with `SoC` shown as `%` (1 decimal).
-- Public dashboard is read-only and now includes:
-  - API indicators (`API connection`, `Today's Schedule`, `Tomorrow's Schedule`) with light + background status coloring,
-  - transport/error text,
-  - same per-plant summary table style/schema used in operator top card,
-  - read-only mirrored control-state buttons,
-  - live and historical plots.
-- Plot UX emphasizes readability:
-  - no redundant y-axis titles in plant plots,
-  - compact legend names/order (`Pref`, `P POI`, `P Bat`, `SoC`, `Qref`, `Q POI`, `Q Bat`, `Voltage`),
-  - setpoint lines dotted, POI strong colors, battery pale colors,
-  - POI traces rendered above battery traces.
-- Remote diagnostics workflow is available via script/runbook for side-by-side dashboard-like vs app-like Modbus access validation.
+- API schedule intent is now three-layer:
+  - `Pref` remains total setpoint used by dispatch,
+  - `day-ahead` and `mfrr` are visible as separate traces.
+- mFRR behavior:
+  - LIB mFRR is fetched from API over near-term window,
+  - VRFB uses explicit zero mFRR aligned to LIB mFRR timestamps.
+- Private API tab shows operational polling telemetry:
+  - last poll attempt time,
+  - last result (`never|ok|error|disabled`),
+  - next scheduled poll time,
+  - last LIB point count and optional error text.
+- Operator/public plots support historical fallback from recorded schedule columns:
+  - `p_schedule_total_kw` (fallback legacy `p_setpoint_kw`),
+  - `p_schedule_day_ahead_kw`,
+  - `p_schedule_mfrr_kw`.
+- API credential workflow remains split:
+  - `Save Password` stores runtime password,
+  - `Connect/Disconnect` controls runtime API state.
 
 ## UX Intent
-- Separate concerns visually: transport/fleet control, summary status, detailed plant cards, historical tools.
-- Keep action labels short and stateful (`Dispatch`, `Dispatching`, `Starting`).
-- Use consistent geometry (radius/padding/alignment) across top-card elements.
-- Improve scan speed with indicator lights, table alignment, and reduced visual noise.
+- Keep total schedule semantics stable for operators (`Pref` unchanged).
+- Increase transparency by exposing market-component traces and poll health.
+- Reduce noise in console operations while preserving actionable errors.
 
 ## Critical Workflows
-1. Plant start/stop: confirmation modal -> queued command -> control engine executes safe sequence -> UI reflects runtime state.
-2. Dispatch toggle: user toggles send/pause -> command queue -> scheduler gate updates.
-3. Fleet action: modal-confirmed start/stop for both plants; in local mode `Start All` completes plant start/seed before enabling recording.
-4. Transport switch: modal-confirmed switch with safe-stop and cache invalidation.
-5. API credentialing: optional env preload at startup (`HIL_API_PASSWORD`) and/or API-tab `Save Password`; `Connect` attempts probe login with stored password.
-6. Public monitoring: observer checks API indicators, top summary table, then drill-down in plots/history.
+1. mFRR polling loop: periodic fetch -> update per-plant mFRR maps -> recompute total schedule -> publish telemetry.
+2. API monitoring: operator checks API tab first line (connection/posting) and second line (mFRR polling state).
+3. Dispatch execution: scheduler continues consuming authoritative total schedule.
+4. Historical review: users load CSV-backed data and compare total/day-ahead/mFRR intent against POI/battery response.

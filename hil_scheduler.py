@@ -109,6 +109,24 @@ def _default_posting_runtime(policy_enabled):
     }
 
 
+def _default_mfrr_poll_status(poll_period_s):
+    try:
+        cadence_s = float(poll_period_s)
+    except (TypeError, ValueError):
+        cadence_s = 60.0
+    if cadence_s <= 0.0:
+        cadence_s = 60.0
+    return {
+        "last_attempt_at": None,
+        "last_success_at": None,
+        "last_result": "never",
+        "last_error": None,
+        "last_points_lib": 0,
+        "next_scheduled_at": None,
+        "poll_period_s": cadence_s,
+    }
+
+
 def build_initial_shared_data(config):
     """Create the authoritative runtime shared_data contract."""
     plant_ids = tuple(config.get("PLANT_IDS", ("lib", "vrfb")))
@@ -126,6 +144,8 @@ def build_initial_shared_data(config):
         "manual_schedule_series_df_by_key": _empty_manual_series_df_by_key(),
         "manual_schedule_merge_enabled_by_key": _default_manual_merge_enabled_by_key(),
         "manual_series_runtime_state_by_key": _default_manual_series_runtime_state_by_key(),
+        "api_day_ahead_schedule_df_by_plant": _empty_df_by_plant(plant_ids),
+        "api_mfrr_schedule_df_by_plant": _empty_df_by_plant(plant_ids),
         "api_schedule_df_by_plant": _empty_df_by_plant(plant_ids),
         "transport_mode": startup_transport_mode,
         "scheduler_running_by_plant": {plant_id: False for plant_id in plant_ids},
@@ -153,6 +173,7 @@ def build_initial_shared_data(config):
             "tomorrow_points_by_plant": {plant_id: 0 for plant_id in plant_ids},
             "last_attempt": None,
             "error": None,
+            "mfrr_poll": _default_mfrr_poll_status(config.get("ISTENTORE_MFRR_POLL_PERIOD_S", 60)),
         },
         "transport_switching": False,
         "control_command_queue": queue.Queue(maxsize=128),

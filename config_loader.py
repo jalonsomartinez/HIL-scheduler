@@ -602,6 +602,12 @@ def load_config(config_path="config.yaml"):
         "istentore_api.schedule_period_minutes",
         min_value=1,
     )
+    config["ISTENTORE_MFRR_POLL_PERIOD_S"] = _parse_float(
+        api_cfg.get("mfrr_poll_period_s", 60),
+        60,
+        "istentore_api.mfrr_poll_period_s",
+        min_value=1.0,
+    )
     config["ISTENTORE_POST_MEASUREMENTS_IN_API_MODE"] = _parse_bool(
         api_cfg.get("post_measurements_in_api_mode", True),
         True,

@@ -19,6 +19,8 @@ DEFAULT_PLOT_THEME = {
 
 DEFAULT_TRACE_COLORS = {
     "p_setpoint": "#00945a",
+    "p_day_ahead": "#1d6fd0",
+    "p_mfrr": "#d25c2c",
     "q_setpoint": "#8d7b00",
     "p_poi": "#006f9e",
     "p_battery": "#8fd4b2",
@@ -86,6 +88,8 @@ def create_plant_figure(
     trace_colors,
     x_window_start=None,
     x_window_end=None,
+    day_ahead_schedule_df=None,
+    mfrr_schedule_df=None,
     time_indicator_ts=None,
     voltage_autorange_padding_kv=None,
 ):
@@ -102,14 +106,19 @@ def create_plant_figure(
         ),
     )
 
-    if schedule_df is not None and not schedule_df.empty:
-        schedule_plot_df = schedule_df
+    def _crop_schedule_for_plot(df):
+        if df is None or df.empty:
+            return None
+        cropped = df
         if x_window_start is not None:
-            schedule_plot_df = schedule_plot_df.loc[schedule_plot_df.index >= x_window_start]
+            cropped = cropped.loc[cropped.index >= x_window_start]
         if x_window_end is not None:
-            schedule_plot_df = schedule_plot_df.loc[schedule_plot_df.index < x_window_end]
-    else:
-        schedule_plot_df = None
+            cropped = cropped.loc[cropped.index < x_window_end]
+        return cropped
+
+    schedule_plot_df = _crop_schedule_for_plot(schedule_df)
+    day_ahead_plot_df = _crop_schedule_for_plot(day_ahead_schedule_df)
+    mfrr_plot_df = _crop_schedule_for_plot(mfrr_schedule_df)
 
     if measurements_df is not None and not measurements_df.empty:
         df = measurements_df.copy()
@@ -131,9 +140,30 @@ def create_plant_figure(
     if schedule_plot_df is not None and not schedule_plot_df.empty and "power_setpoint_kw" in schedule_plot_df.columns:
         pref_x = schedule_plot_df.index
         pref_y = schedule_plot_df["power_setpoint_kw"]
+    elif not df.empty and "p_schedule_total_kw" in df.columns:
+        pref_x = df["datetime"]
+        pref_y = df["p_schedule_total_kw"]
     elif not df.empty and "p_setpoint_kw" in df.columns:
         pref_x = df["datetime"]
         pref_y = df["p_setpoint_kw"]
+
+    day_ahead_x = None
+    day_ahead_y = None
+    if day_ahead_plot_df is not None and not day_ahead_plot_df.empty and "power_setpoint_kw" in day_ahead_plot_df.columns:
+        day_ahead_x = day_ahead_plot_df.index
+        day_ahead_y = day_ahead_plot_df["power_setpoint_kw"]
+    elif not df.empty and "p_schedule_day_ahead_kw" in df.columns:
+        day_ahead_x = df["datetime"]
+        day_ahead_y = df["p_schedule_day_ahead_kw"]
+
+    mfrr_x = None
+    mfrr_y = None
+    if mfrr_plot_df is not None and not mfrr_plot_df.empty and "power_setpoint_kw" in mfrr_plot_df.columns:
+        mfrr_x = mfrr_plot_df.index
+        mfrr_y = mfrr_plot_df["power_setpoint_kw"]
+    elif not df.empty and "p_schedule_mfrr_kw" in df.columns:
+        mfrr_x = df["datetime"]
+        mfrr_y = df["p_schedule_mfrr_kw"]
 
     qref_x = None
     qref_y = None
@@ -146,6 +176,8 @@ def create_plant_figure(
 
     legend_rank = {
         "Pref": 10,
+        "day-ahead": 15,
+        "mfrr": 18,
         "P POI": 20,
         "P Bat": 30,
         "SoC": 40,
@@ -155,7 +187,7 @@ def create_plant_figure(
         "Voltage": 80,
     }
 
-    # Legend order (when traces are present): Pref, P POI, P Bat, SoC, Qref, Q POI, Q Bat, Voltage.
+    # Legend order (when traces are present): Pref, day-ahead, mfrr, P POI, P Bat, SoC, Qref, Q POI, Q Bat, Voltage.
     if pref_x is not None and pref_y is not None:
         fig.add_trace(
             go.Scatter(
@@ -166,6 +198,34 @@ def create_plant_figure(
                 name="Pref",
                 line=dict(color=trace_colors["p_setpoint"], width=2, dash="dot"),
                 legendrank=legend_rank["Pref"],
+            ),
+            row=1,
+            col=1,
+        )
+    if day_ahead_x is not None and day_ahead_y is not None:
+        fig.add_trace(
+            go.Scatter(
+                x=day_ahead_x,
+                y=day_ahead_y,
+                mode="lines",
+                line_shape="hv",
+                name="day-ahead",
+                line=dict(color=trace_colors["p_day_ahead"], width=2, dash="dash"),
+                legendrank=legend_rank["day-ahead"],
+            ),
+            row=1,
+            col=1,
+        )
+    if mfrr_x is not None and mfrr_y is not None:
+        fig.add_trace(
+            go.Scatter(
+                x=mfrr_x,
+                y=mfrr_y,
+                mode="lines",
+                line_shape="hv",
+                name="mfrr",
+                line=dict(color=trace_colors["p_mfrr"], width=2, dash="longdash"),
+                legendrank=legend_rank["mfrr"],
             ),
             row=1,
             col=1,

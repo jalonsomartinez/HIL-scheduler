@@ -31,6 +31,8 @@ Top-level keys in `config.yaml`:
 - `startup.transport_mode`: `local|remote`.
 - `dashboard.public_readonly.auth.mode`: `basic|none`.
 - `istentore_api.tomorrow_poll_start_time`: `HH:MM` required format.
+- `istentore_api.schedule_period_minutes`: scheduler API validity window (minutes).
+- `istentore_api.mfrr_poll_period_s`: mFRR polling cadence (seconds, min 1).
 - Optional env-derived API credential: `HIL_API_PASSWORD` -> `ISTENTORE_API_PASSWORD`.
 - Optional Flask secret env for dashboard session support: `HIL_FLASK_SECRET_KEY` (fallback alias `HIL_PUBLIC_DASH_SECRET_KEY`).
 
@@ -39,6 +41,7 @@ Important normalized keys include:
 - Timing: `DATA_FETCHER_PERIOD_S`, `SCHEDULER_PERIOD_S`, `PLANT_PERIOD_S`, `MEASUREMENT_PERIOD_S`.
 - Dashboard: `DASHBOARD_PRIVATE_*`, `DASHBOARD_PUBLIC_READONLY_*`.
 - API: `ISTENTORE_*` fetch/post settings.
+- mFRR polling cadence: `ISTENTORE_MFRR_POLL_PERIOD_S`.
 - Plant topology: `PLANTS`, `PLANT_IDS`.
 - Startup behavior: `STARTUP_TRANSPORT_MODE`, `STARTUP_SCHEDULE_SOURCE`, `STARTUP_INITIAL_SOC_PU`.
 - Recording compression: `MEASUREMENT_COMPRESSION_ENABLED`, tolerances, keep-gap threshold.
@@ -53,11 +56,19 @@ Important normalized keys include:
 - Runtime Modbus client backend is `pymodbus` when available (pinned `pymodbus==3.9.2`), with `pyModbusTCP` fallback.
 - Runtime clients now share per-endpoint transports to reduce multi-session contention.
 - Grouped reads are used for stable read sets (measurement and observed-state) to reduce request count.
+- Recorded schedule intent columns use active-power kW units:
+  - `p_schedule_total_kw`,
+  - `p_schedule_day_ahead_kw`,
+  - `p_schedule_mfrr_kw`.
 
 ## Logging Behavior
 - Global log level is config-driven (`general.log_level`).
 - Session and file logging are available; dashboard includes logs tab for today/history files.
 - Control/settings engines publish queue and exception status to shared runtime state for UI visibility.
+- Data fetcher mFRR logs:
+  - transition-level poll summaries at INFO,
+  - unchanged steady-state poll summaries at DEBUG,
+  - failures at ERROR.
 
 ## Operational Constraints
 - Queue sizes are bounded (default 128 for control/settings commands).
@@ -69,3 +80,4 @@ Important normalized keys include:
 - Pooled Modbus access introduces endpoint-level serialization; this reduces contention but can increase wait time under heavy mixed workloads.
 - Grouped reads are static/planned, not dynamically re-optimized per cycle.
 - Cross-origin dashboard comparisons are sensitive to environment drift: even with identical browser/version, mismatched server dependency versions can produce different Dash component rendering.
+- mFRR API window may not cover full 2-day horizon; runtime now treats returned LIB mFRR timestamps as authoritative and aligns VRFB mFRR to that index.

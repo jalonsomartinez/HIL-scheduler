@@ -22,6 +22,8 @@ class SharedStateContractTests(unittest.TestCase):
             "manual_schedule_series_df_by_key",
             "manual_schedule_merge_enabled_by_key",
             "manual_series_runtime_state_by_key",
+            "api_day_ahead_schedule_df_by_plant",
+            "api_mfrr_schedule_df_by_plant",
             "api_schedule_df_by_plant",
             "transport_mode",
             "scheduler_running_by_plant",
@@ -68,6 +70,8 @@ class SharedStateContractTests(unittest.TestCase):
         self.assertEqual(set(shared_data["manual_schedule_series_df_by_key"].keys()), {"lib_p", "lib_q", "vrfb_p", "vrfb_q"})
         self.assertEqual(set(shared_data["manual_schedule_merge_enabled_by_key"].keys()), {"lib_p", "lib_q", "vrfb_p", "vrfb_q"})
         self.assertEqual(set(shared_data["manual_series_runtime_state_by_key"].keys()), {"lib_p", "lib_q", "vrfb_p", "vrfb_q"})
+        self.assertEqual(set(shared_data["api_day_ahead_schedule_df_by_plant"].keys()), set(plant_ids))
+        self.assertEqual(set(shared_data["api_mfrr_schedule_df_by_plant"].keys()), set(plant_ids))
         self.assertEqual(set(shared_data["api_schedule_df_by_plant"].keys()), set(plant_ids))
         self.assertEqual(set(shared_data["scheduler_running_by_plant"].keys()), set(plant_ids))
         self.assertEqual(set(shared_data["measurement_post_status"].keys()), set(plant_ids))
@@ -81,6 +85,21 @@ class SharedStateContractTests(unittest.TestCase):
         self.assertIsInstance(shared_data["settings_engine_status"], dict)
         self.assertIsInstance(shared_data["api_connection_runtime"], dict)
         self.assertIsInstance(shared_data["posting_runtime"], dict)
+        fetcher_status = dict(shared_data.get("data_fetcher_status", {}) or {})
+        mfrr_poll = dict(fetcher_status.get("mfrr_poll", {}) or {})
+        self.assertTrue(
+            {
+                "last_attempt_at",
+                "last_success_at",
+                "last_result",
+                "last_error",
+                "last_points_lib",
+                "next_scheduled_at",
+                "poll_period_s",
+            }.issubset(mfrr_poll.keys())
+        )
+        self.assertEqual(str(mfrr_poll.get("last_result")), "never")
+        self.assertEqual(int(mfrr_poll.get("last_points_lib", 0)), 0)
         self.assertTrue(
             all(result.get("status") == "idle" for result in shared_data["local_emulator_soc_seed_result_by_plant"].values())
         )

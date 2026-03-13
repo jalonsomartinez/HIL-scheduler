@@ -102,13 +102,7 @@ class IstentoreAPI:
 
     def get_day_ahead_schedules(self, start_time: datetime, end_time: datetime) -> dict:
         """Return day-ahead schedules for both logical plants: {'lib': {...}, 'vrfb': {...}}."""
-        if start_time.tzinfo is None:
-            start_time = start_time.replace(tzinfo=self.timezone)
-        if end_time.tzinfo is None:
-            end_time = end_time.replace(tzinfo=self.timezone)
-
-        start_utc = start_time.astimezone(timezone.utc)
-        end_utc = end_time.astimezone(timezone.utc)
+        start_utc, end_utc = self._normalize_range_to_utc(start_time, end_time)
         logging.debug(
             "Istentore API: get_day_ahead_schedules request utc_range=[%s -> %s]",
             start_utc.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
@@ -126,28 +120,23 @@ class IstentoreAPI:
         if not data_list:
             return result
 
-        market_data = data_list[0]
-        logging.debug(
-            "Istentore API: day-ahead delivery_periods count=%s",
-            len(market_data.get("delivery_periods", []) or []),
-        )
-        for period in market_data.get("delivery_periods", []):
-            delivery_period_str = period.get("delivery_period")
-            if not delivery_period_str:
-                continue
-
-            delivery_dt_utc = datetime.strptime(
-                delivery_period_str.replace("+00:00", ""),
-                "%Y-%m-%dT%H:%M:%S",
-            ).replace(tzinfo=timezone.utc)
-
-            activation = (period.get("activation") or [{}])[0]
-            result["lib"][delivery_dt_utc.isoformat()] = (
-                float(activation.get("lib_to_vpp_kw", 0.0)) - float(activation.get("vpp_to_lib_kw", 0.0))
+        for market_data in data_list:
+            logging.debug(
+                "Istentore API: day-ahead delivery_periods count=%s",
+                len(market_data.get("delivery_periods", []) or []),
             )
-            result["vrfb"][delivery_dt_utc.isoformat()] = (
-                float(activation.get("vrfb_to_vpp_kw", 0.0)) - float(activation.get("vpp_to_vrfb_kw", 0.0))
-            )
+            for period in market_data.get("delivery_periods", []):
+                delivery_dt_utc = self._parse_delivery_period_utc(period.get("delivery_period"))
+                if delivery_dt_utc is None:
+                    continue
+
+                activation = (period.get("activation") or [{}])[0]
+                result["lib"][delivery_dt_utc.isoformat()] = (
+                    float(activation.get("lib_to_vpp_kw", 0.0)) - float(activation.get("vpp_to_lib_kw", 0.0))
+                )
+                result["vrfb"][delivery_dt_utc.isoformat()] = (
+                    float(activation.get("vrfb_to_vpp_kw", 0.0)) - float(activation.get("vpp_to_vrfb_kw", 0.0))
+                )
 
         logging.info(
             "Istentore API: Fetched day-ahead setpoints LIB=%s VRFB=%s",
@@ -161,34 +150,76 @@ class IstentoreAPI:
         schedules = self.get_day_ahead_schedules(start_time, end_time)
         return schedules.get("lib", {})
 
-    def get_mfrr_next_activation(self) -> dict:
-        now_utc = datetime.now(self.timezone).astimezone(timezone.utc)
-        data_list = self._get_market_products(market_id=3, delivery_period_gte=now_utc.isoformat())
+    def get_mfrr_activations(self, start_time: datetime, end_time: datetime) -> dict:
+        """Return LIB mFRR activations in a window as {delivery_period_iso_utc: net_power_kw}."""
+        start_utc, end_utc = self._normalize_range_to_utc(start_time, end_time)
+        logging.debug(
+            "Istentore API: get_mfrr_activations request utc_range=[%s -> %s]",
+            start_utc.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
+            end_utc.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
+        )
 
+        data_list = self._get_market_products(
+            market_id=3,
+            delivery_period_gte=start_utc.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
+            delivery_period_lte=end_utc.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
+        )
         schedule = {}
         if not data_list:
             return schedule
 
-        market_data = data_list[0]
-        delivery_periods = market_data.get("delivery_periods", [])
-        if not delivery_periods:
-            return schedule
+        for market_data in data_list:
+            delivery_periods = market_data.get("delivery_periods", []) or []
+            for period in delivery_periods:
+                delivery_dt_utc = self._parse_delivery_period_utc(period.get("delivery_period"))
+                if delivery_dt_utc is None:
+                    continue
+                activation = (period.get("activation") or [{}])[0]
+                schedule[delivery_dt_utc.isoformat()] = (
+                    float(activation.get("total_upward_kw", 0.0))
+                    - float(activation.get("total_downward_kw", 0.0))
+                )
 
-        first_period = delivery_periods[0]
-        delivery_period_api = first_period.get("delivery_period")
-        if not delivery_period_api:
-            return schedule
-
-        delivery_dt_utc = datetime.strptime(
-            delivery_period_api.replace("+00:00", ""),
-            "%Y-%m-%dT%H:%M:%S",
-        ).replace(tzinfo=timezone.utc)
-
-        activation = (first_period.get("activation") or [{}])[0]
-        schedule[delivery_dt_utc.isoformat()] = (
-            float(activation.get("total_upward_kw", 0.0)) - float(activation.get("total_downward_kw", 0.0))
-        )
+        logging.info("Istentore API: Fetched mFRR activations LIB=%s", len(schedule))
         return schedule
+
+    def get_mfrr_next_activation(self) -> dict:
+        now_local = datetime.now(self.timezone)
+        lookahead_end = now_local + timedelta(days=2)
+        all_activations = self.get_mfrr_activations(now_local, lookahead_end)
+        if not all_activations:
+            return {}
+
+        try:
+            first_key = min(all_activations.keys(), key=lambda value: datetime.fromisoformat(str(value).replace("Z", "+00:00")))
+        except Exception:
+            first_key = sorted(all_activations.keys())[0]
+        return {first_key: float(all_activations[first_key])}
+
+    def _normalize_range_to_utc(self, start_time: datetime, end_time: datetime):
+        if start_time.tzinfo is None:
+            start_time = start_time.replace(tzinfo=self.timezone)
+        if end_time.tzinfo is None:
+            end_time = end_time.replace(tzinfo=self.timezone)
+        return start_time.astimezone(timezone.utc), end_time.astimezone(timezone.utc)
+
+    @staticmethod
+    def _parse_delivery_period_utc(delivery_period_str):
+        if not delivery_period_str:
+            return None
+        text = str(delivery_period_str).strip()
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        try:
+            dt_value = datetime.fromisoformat(text)
+        except ValueError:
+            try:
+                dt_value = datetime.strptime(text.replace("+00:00", ""), "%Y-%m-%dT%H:%M:%S")
+            except ValueError:
+                return None
+        if dt_value.tzinfo is None:
+            dt_value = dt_value.replace(tzinfo=timezone.utc)
+        return dt_value.astimezone(timezone.utc)
 
     def _format_timestamp_iso_utc(self, timestamp=None) -> str:
         if timestamp is None:

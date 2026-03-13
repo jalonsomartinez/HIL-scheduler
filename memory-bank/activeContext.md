@@ -1,20 +1,35 @@
 # Active Context: HIL Scheduler
 
 ## Current Focus (Now)
-- Stabilize remote Modbus reliability after confirming VRFB endpoint session-contention behavior.
-- Reduce endpoint load across all plants/transports through shared Modbus sessions and grouped stable reads.
-- Validate that start/stop command flows plus observed-state command readbacks behave consistently on field hardware.
-- Keep local SoC continuity guarantees intact while introducing Modbus transport/request-shaping changes.
-- Keep dashboard/runtime dependency parity across local and remote servers to avoid frontend component drift.
+- Stabilize and validate the new three-layer schedule model (`day-ahead`, `mFRR`, `total`) for LIB and VRFB.
+- Keep API tab observability high-signal, including runtime mFRR polling telemetry.
+- Ensure historical and live plots/CSV exports remain backward-compatible while exposing schedule components.
+- Continue remote Modbus reliability work without regressing schedule/measurement behavior.
 
 ## Open Decisions and Risks
-- Whether scheduler setpoint readbacks should also move to grouped reads (currently measurement and observed-state use grouping).
-- Whether to keep endpoint-sharing key at `(backend, host, port, unit_id)` or broaden/narrow it for future multi-slave endpoints.
-- Fake-client based local smoke tests may need adaptation to pooled-client semantics; one targeted smoke test currently fails under the new sharing model.
-- Whether API credentials should support secure-at-rest storage beyond process memory and env files.
-- Whether to keep only direct dependency pins or introduce a full lock/export workflow for transitive reproducibility.
+- Whether mFRR API should eventually be polled/retained with adaptive windows if provider payload shape changes.
+- Whether scheduler readback paths should move to grouped reads (measurement/observed already grouped).
+- Fake-client local smoke tests still need adaptation to pooled-client semantics.
+- API password remains process-memory only (no secure at-rest persistence).
+- Full lockfile/transitive pin strategy remains undecided.
 
 ## Rolling Change Log (Compressed, 30-Day Window)
+- 2026-03-13:
+  - Implemented split API schedule maps:
+    - `api_day_ahead_schedule_df_by_plant`,
+    - `api_mfrr_schedule_df_by_plant`,
+    - `api_schedule_df_by_plant` (authoritative total).
+  - Added full-window mFRR parsing in API wrapper and compatibility `get_mfrr_next_activation()` wrapper behavior.
+  - Added dedicated mFRR polling cadence config (`istentore_api.mfrr_poll_period_s`) and fetcher dual-cadence orchestration.
+  - Extended measurement model/storage/history with schedule intent columns:
+    - `p_schedule_total_kw`, `p_schedule_day_ahead_kw`, `p_schedule_mfrr_kw`.
+  - Updated plotting contracts (private/public + historical fallback):
+    - traces `Pref`, `day-ahead`, `mfrr`.
+  - Added private API-tab mFRR telemetry line (`Last`, `Result`, `Next`, `LIB points`, optional `Error`).
+  - Reduced mFRR poll log noise:
+    - per-poll attempt logging at DEBUG,
+    - summary logging INFO only on result/point-count transitions.
+  - Aligned VRFB mFRR index to LIB mFRR response timestamps (no synthetic expansion to day-ahead horizon); empty LIB mFRR now yields empty VRFB mFRR.
 - 2026-03-06:
   - Investigated remote dashboard rendering differences over Tailscale and identified cross-server Dash bundle-version drift (`dash_core_components` mismatch between origins).
   - Pinned direct Python dependencies in `requirements.txt` to current known-good versions (`dash`, `dash-auth`, `plotly`, `pandas`, `numpy`, `pyModbusTCP`, `pymodbus`, `PyYAML`) to enforce environment parity across servers.

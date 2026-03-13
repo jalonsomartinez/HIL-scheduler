@@ -262,6 +262,38 @@ class DashboardPlottingTests(unittest.TestCase):
         self.assertAlmostEqual(axis_range[0], 0.209, places=6)
         self.assertAlmostEqual(axis_range[1], 0.231, places=6)
 
+    def test_day_ahead_and_mfrr_schedule_traces_render_when_provided(self):
+        base = datetime(2026, 2, 23, 0, 0, tzinfo=self.tz)
+        total_df = _schedule_df(base, base + timedelta(hours=1))
+        day_ahead_df = total_df.copy()
+        day_ahead_df["power_setpoint_kw"] = [8.0, 9.0]
+        mfrr_df = total_df.copy()
+        mfrr_df["power_setpoint_kw"] = [2.0, 1.0]
+        measurements_df = _measurements_df(base, base + timedelta(hours=1))
+
+        fig = self._fig(
+            total_df,
+            measurements_df,
+            day_ahead_schedule_df=day_ahead_df,
+            mfrr_schedule_df=mfrr_df,
+        )
+
+        self.assertEqual(list(_trace_by_suffix(fig, "day-ahead").y), [8.0, 9.0])
+        self.assertEqual(list(_trace_by_suffix(fig, "mfrr").y), [2.0, 1.0])
+
+    def test_history_fallback_uses_recorded_schedule_columns(self):
+        base = datetime(2026, 2, 23, 0, 0, tzinfo=self.tz)
+        measurements_df = _measurements_df(base, base + timedelta(hours=1))
+        measurements_df["p_schedule_total_kw"] = [101.0, 102.0]
+        measurements_df["p_schedule_day_ahead_kw"] = [100.0, 100.0]
+        measurements_df["p_schedule_mfrr_kw"] = [1.0, 2.0]
+
+        fig = self._fig(pd.DataFrame(), measurements_df)
+
+        self.assertEqual(list(_trace_by_suffix(fig, "Pref").y), [101.0, 102.0])
+        self.assertEqual(list(_trace_by_suffix(fig, "day-ahead").y), [100.0, 100.0])
+        self.assertEqual(list(_trace_by_suffix(fig, "mfrr").y), [1.0, 2.0])
+
 
 if __name__ == "__main__":
     unittest.main()

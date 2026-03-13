@@ -70,6 +70,25 @@ from runtime.shared_state import snapshot_locked
 from time_utils import get_config_tz, normalize_datetime_series, normalize_schedule_index, normalize_timestamp_value, now_tz
 
 
+def format_mfrr_polling_status_line(mfrr_poll, *, format_ts):
+    poll = dict(mfrr_poll or {})
+    last_text = format_ts(poll.get("last_attempt_at")) or "never"
+    result_text = str(poll.get("last_result") or "never")
+    next_text = format_ts(poll.get("next_scheduled_at")) or "n/a"
+    try:
+        points_text = int(poll.get("last_points_lib", 0) or 0)
+    except (TypeError, ValueError):
+        points_text = 0
+    status_line = (
+        f"mFRR Polling: Last={last_text} | Result={result_text} | "
+        f"Next={next_text} | LIB points={points_text}"
+    )
+    error_text = poll.get("last_error")
+    if error_text:
+        status_line += f" | Error={error_text}"
+    return status_line
+
+
 def dashboard_agent(config, shared_data):
     """Dash dashboard with global source/transport and per-plant controls/plots."""
     logging.info("Dashboard agent started.")
@@ -1631,6 +1650,7 @@ def dashboard_agent(config, shared_data):
     def update_api_tab(n_intervals, api_password_action, api_connection_action, posting_settings_action):
         with shared_data["lock"]:
             status = shared_data.get("data_fetcher_status", {}).copy()
+            mfrr_poll = dict(status.get("mfrr_poll", {}) or {})
             api_password = shared_data.get("api_password")
             api_connection_runtime = dict(shared_data.get("api_connection_runtime", {}) or {})
             posting_runtime = dict(shared_data.get("posting_runtime", {}) or {})
@@ -1682,6 +1702,12 @@ def dashboard_agent(config, shared_data):
                 return f"{float(value):.3f}"
             except (TypeError, ValueError):
                 return "n/a"
+
+        mfrr_status_text = format_mfrr_polling_status_line(mfrr_poll, format_ts=format_ts)
+        status_children = [
+            html.Div(status_text, className="status-text"),
+            html.Div(mfrr_status_text, className="status-text"),
+        ]
 
         def metric_label(metric):
             mapping = {"soc": "SoC", "p": "P", "q": "Q", "v": "V"}
@@ -1785,7 +1811,7 @@ def dashboard_agent(config, shared_data):
             uirevision="api-preview",
         )
         fig.update_yaxes(title_text="kW")
-        return status_text, posting_cards, fig
+        return status_children, posting_cards, fig
 
     @app.callback(
         [
@@ -1873,6 +1899,14 @@ def dashboard_agent(config, shared_data):
             status = shared_data.get("data_fetcher_status", {}).copy()
             api_schedule_map = {
                 plant_id: shared_data.get("api_schedule_df_by_plant", {}).get(plant_id, pd.DataFrame()).copy()
+                for plant_id in plant_ids
+            }
+            api_day_ahead_schedule_map = {
+                plant_id: shared_data.get("api_day_ahead_schedule_df_by_plant", {}).get(plant_id, pd.DataFrame()).copy()
+                for plant_id in plant_ids
+            }
+            api_mfrr_schedule_map = {
+                plant_id: shared_data.get("api_mfrr_schedule_df_by_plant", {}).get(plant_id, pd.DataFrame()).copy()
                 for plant_id in plant_ids
             }
             manual_series_map = dict(shared_data.get("manual_schedule_series_df_by_key", {}))
@@ -2112,6 +2146,10 @@ def dashboard_agent(config, shared_data):
 
         lib_schedule = normalize_schedule_index(effective_schedule_map.get("lib", pd.DataFrame()), tz)
         vrfb_schedule = normalize_schedule_index(effective_schedule_map.get("vrfb", pd.DataFrame()), tz)
+        lib_day_ahead_schedule = normalize_schedule_index(api_day_ahead_schedule_map.get("lib", pd.DataFrame()), tz)
+        vrfb_day_ahead_schedule = normalize_schedule_index(api_day_ahead_schedule_map.get("vrfb", pd.DataFrame()), tz)
+        lib_mfrr_schedule = normalize_schedule_index(api_mfrr_schedule_map.get("lib", pd.DataFrame()), tz)
+        vrfb_mfrr_schedule = normalize_schedule_index(api_mfrr_schedule_map.get("vrfb", pd.DataFrame()), tz)
         lib_fig = create_plant_figure(
             "lib",
             plant_name,
@@ -2123,6 +2161,8 @@ def dashboard_agent(config, shared_data):
             trace_colors=trace_colors,
             x_window_start=status_window_start,
             x_window_end=status_window_end,
+            day_ahead_schedule_df=lib_day_ahead_schedule,
+            mfrr_schedule_df=lib_mfrr_schedule,
             time_indicator_ts=status_now,
             voltage_autorange_padding_kv=_voltage_padding_kv_for_plant("lib"),
         )
@@ -2137,6 +2177,8 @@ def dashboard_agent(config, shared_data):
             trace_colors=trace_colors,
             x_window_start=status_window_start,
             x_window_end=status_window_end,
+            day_ahead_schedule_df=vrfb_day_ahead_schedule,
+            mfrr_schedule_df=vrfb_mfrr_schedule,
             time_indicator_ts=status_now,
             voltage_autorange_padding_kv=_voltage_padding_kv_for_plant("vrfb"),
         )

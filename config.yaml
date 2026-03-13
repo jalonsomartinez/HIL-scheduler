@@ -21,6 +21,7 @@ istentore_api:
   email: "i-STENTORE"
   tomorrow_poll_start_time: "15:00"  # gates polling for next-day schedule only (today is fetched whenever missing)
   schedule_period_minutes: 15
+  mfrr_poll_period_s: 60
   post_measurements_in_api_mode: true
   measurement_post_period_s: 60
   measurement_post_queue_maxlen: 2000
