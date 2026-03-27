@@ -34,6 +34,11 @@ Operators need one runtime that can safely execute multi-market battery schedule
 - API credential workflow remains split:
   - `Save Password` stores runtime password,
   - `Connect/Disconnect` controls runtime API state.
+- Navigation model (private + public dashboards):
+  - menu-driven route pages replace tabbed navigation,
+  - private routes: `/status`, `/plots`, `/manual-schedule`, `/api-schedule`, `/logs`,
+  - public routes: `/status`, `/plots`,
+  - unknown routes fallback to status content (no 404 page).
 
 ## UX Intent
 - Keep total schedule semantics stable for operators (`Pref` unchanged).
@@ -45,3 +50,4 @@ Operators need one runtime that can safely execute multi-market battery schedule
 2. API monitoring: operator checks API tab first line (connection/posting) and second line (mFRR polling state).
 3. Dispatch execution: scheduler continues consuming authoritative total schedule.
 4. Historical review: users load CSV-backed data and compare total/day-ahead/mFRR intent against POI/battery response.
+5. Section navigation: users switch views through left menu links and can deep-link to routes directly.

@@ -21,8 +21,8 @@ HIL Scheduler is a dual-plant control application for LIB and VRFB batteries. It
 - VRFB mFRR contract: zero-power mFRR frame aligned to LIB mFRR timestamps (no synthetic expansion).
 - Control model: dashboard enqueues commands; control/settings engines execute and publish status.
 - Dashboards:
-  - private operator dashboard with controls and API tab observability,
-  - public read-only dashboard with mirrored status and plots.
+  - private operator dashboard with route-based menu pages (`status`, `plots`, `manual-schedule`, `api-schedule`, `logs`),
+  - public read-only dashboard with route-based menu pages (`status`, `plots`).
 
 ## In Scope
 - Multi-thread agents: fetcher, scheduler, plant emulator, measurement, control engine, settings engine, private/public dashboards.
@@ -39,6 +39,6 @@ HIL Scheduler is a dual-plant control application for LIB and VRFB batteries. It
 ## Success Criteria
 1. Dispatch uses correct `total` schedule (day-ahead + mFRR + manual overrides).
 2. LIB/VRFB schedule model is uniform and internally consistent.
-3. API tab clearly exposes polling state, including mFRR poll telemetry.
+3. API Schedule page clearly exposes polling state, including mFRR poll telemetry.
 4. Measurement files and history retain backward compatibility while adding schedule intent columns.
-5. Operational logs remain high signal (mFRR poll transitions at INFO, steady-state polls at DEBUG).
+5. Operator/public dashboards remain menu-only (no tab-strip regression) while preserving existing controls and observability.

@@ -103,6 +103,10 @@ Key maps:
   - scheduler write/readback loop remains functionally unchanged unless explicitly extended.
 - Public dashboard is strictly read-only: no enqueue helpers and no write-side actions.
 - Public basic-auth contract ensures Flask session secret key is set before auth middleware to avoid session warnings.
+- Dashboard navigation pattern:
+  - tab components were removed from both dashboards,
+  - section visibility is route-driven (`page-section` / `page-section--active`),
+  - menu drawer toggle state is callback-controlled and auto-closes on non-toggle triggers.
 
 ## Time and Timestamp Conventions
 - Runtime timestamps are timezone-aware in configured timezone.

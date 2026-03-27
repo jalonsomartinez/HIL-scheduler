@@ -65,11 +65,11 @@ The dashboard callback returns immediately after enqueueing. Execution happens i
 
 It now reads `shared_data["plant_observed_state_by_plant"]` and treats `enable_state` as unknown when the cached state is marked stale.
 
-The Status tab also reads server-published:
+The Status page also reads server-published:
 - `shared_data["control_engine_status"]` for control-engine/queue health summary,
 - extended observed-state metadata (`read_status`, `last_error`, `consecutive_failures`) for per-plant Modbus link diagnostics.
 
-## Status tab health surfacing (current)
+## Status page health surfacing (current)
 
 ### Top-card runtime health
 - `Control Engine` summary line shows:
@@ -91,7 +91,7 @@ The Status tab also reads server-published:
   - consecutive failure count,
   - last error message (if available).
 
-### API tab actions
+### API page actions
 - `Connect`: enqueues `api.connect` (uses input password if provided, otherwise stored password).
 - `Disconnect`: enqueues `api.disconnect` (intentionally disconnects without clearing stored password).
 - `Measurement Posting Enabled/Disabled`: enqueue `posting.enable` / `posting.disable` settings commands.

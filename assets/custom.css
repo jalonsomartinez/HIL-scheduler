@@ -61,6 +61,10 @@ a {
 }
 
 .app-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
     margin-bottom: 12px;
     padding: 6px 12px;
     border: 1px solid var(--border);
@@ -73,6 +77,81 @@ a {
     display: flex;
     align-items: center;
     gap: 12px;
+    min-width: 0;
+}
+
+.menu-toggle-btn {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    background: #ffffff;
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.app-shell {
+    position: relative;
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+}
+
+.side-menu {
+    position: sticky;
+    top: 14px;
+    width: 220px;
+    min-width: 220px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px 10px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+}
+
+.side-menu-title {
+    margin-bottom: 4px;
+    color: var(--text-soft);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.side-nav-link {
+    display: block;
+    padding: 8px 10px;
+    border: 1px solid transparent;
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition: color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.side-nav-link:hover {
+    color: #203c32;
+    background: #f3fbf6;
+}
+
+.side-nav-link--active {
+    color: var(--brand-ink);
+    background: #e9f9f0;
+    border-color: #bee2cf;
+}
+
+.side-menu-overlay {
+    display: none;
+}
+
+.app-main-content {
+    flex: 1 1 auto;
+    min-width: 0;
 }
 
 .brand-logo {
@@ -103,49 +182,12 @@ a {
     font-size: 0.9rem;
 }
 
-.main-tabs-parent {
-    border: none;
-    border-radius: 0;
-    background: transparent;
-    box-shadow: none;
+.page-section {
+    display: none;
 }
 
-.main-tabs {
-    border-radius: 0;
-    overflow: visible;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 12px;
-}
-
-.main-tab {
-    padding: 6px 10px;
-    background: transparent;
-    border: none !important;
-    border-bottom: 2px solid transparent !important;
-    color: var(--text-muted);
-    font-size: 0.82rem;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    transition: background-color 0.2s ease, color 0.2s ease;
-}
-
-/* Dash tabs keep their own minimum height; force a compact strip. */
-.main-tabs .main-tab {
-    min-height: 40px !important;
-    height: auto !important;
-    line-height: 1.2 !important;
-    padding: 10px 10px !important;
-}
-
-.main-tab:hover {
-    background: #f3fbf6;
-    color: #24463b;
-}
-
-.main-tab--selected {
-    color: var(--brand-ink) !important;
-    border-bottom: 2px solid var(--brand-green) !important;
-    background: transparent;
+.page-section--active {
+    display: block;
 }
 
 .card,
@@ -940,8 +982,7 @@ input[type="number"]:focus,
 
 /* Quick visual test: flat surfaces + minimal corners */
 .app-header,
-.main-tabs-parent,
-.main-tabs,
+.side-menu,
 .card,
 .plant-card,
 .control-panel,
@@ -963,7 +1004,7 @@ input[type="number"],
 }
 
 .app-header,
-.main-tabs-parent,
+.side-menu,
 .card,
 .plant-card,
 .control-panel,
@@ -992,6 +1033,48 @@ input[type="number"],
 }
 
 @media (max-width: 900px) {
+    .menu-toggle-btn {
+        display: inline-flex;
+        flex: 0 0 auto;
+    }
+
+    .app-shell {
+        display: block;
+    }
+
+    .side-menu {
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        width: min(80vw, 300px);
+        min-width: 0;
+        max-width: 300px;
+        z-index: 1200;
+        overflow-y: auto;
+        transform: translateX(-105%);
+        transition: transform 0.2s ease;
+        border-right: 1px solid var(--border);
+    }
+
+    .side-menu.side-menu--open {
+        transform: translateX(0);
+    }
+
+    .side-menu-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 1100;
+        background: rgba(5, 7, 8, 0.4);
+        border: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    .side-menu-overlay.side-menu-overlay--open {
+        display: block;
+    }
+
     .brand-logo {
         width: min(42vw, 300px);
     }

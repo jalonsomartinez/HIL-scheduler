@@ -12,7 +12,8 @@
 ## Repository Runtime Modules
 - `hil_scheduler.py`: process entrypoint, shared-state init, thread startup/shutdown.
 - `config_loader.py`: strict schema normalization and runtime config map.
-- `dashboard/`: layout, callbacks, plotting helpers, history helpers, logs tab.
+- `dashboard/`: layout, route/menu callbacks, plotting helpers, history helpers, logs page.
+- `dashboard/navigation.py`: route normalization and shared menu/page-section state helpers.
 - `control/`: command intents and execution flows (safe-stop, transport switch, fleet actions).
 - `settings/`: API/manual settings intents and engine execution.
 - `measurement/`: telemetry sampling, compression, persistence, posting queue.

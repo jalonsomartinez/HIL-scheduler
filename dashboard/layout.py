@@ -15,6 +15,9 @@ def build_dashboard_layout(
     return html.Div(
         className="app-container",
         children=[
+            dcc.Location(id="dashboard-url", refresh=False),
+            dcc.Store(id="dashboard-route-store", data="/status"),
+            dcc.Store(id="dashboard-menu-open-store", data=False),
             html.Header(
                 className="app-header",
                 children=[
@@ -30,21 +33,38 @@ def build_dashboard_layout(
                                 ],
                             ),
                         ],
-                    )
+                    ),
+                    html.Button(
+                        "Menu",
+                        id="dashboard-menu-toggle-btn",
+                        className="menu-toggle-btn",
+                        n_clicks=0,
+                    ),
                 ],
             ),
-            dcc.Tabs(
-                id="main-tabs",
-                value="status",
-                className="main-tabs",
-                parent_className="main-tabs-parent",
+            html.Div(
+                className="app-shell",
                 children=[
-                    dcc.Tab(
-                        label="Status",
-                        value="status",
-                        className="main-tab",
-                        selected_className="main-tab--selected",
+                    html.Nav(
+                        id="dashboard-side-menu",
+                        className="side-menu",
                         children=[
+                            html.Div("Navigation", className="side-menu-title"),
+                            dcc.Link("Status", id="menu-link-status", href="/status", className="side-nav-link"),
+                            dcc.Link("Plots", id="menu-link-plots", href="/plots", className="side-nav-link"),
+                            dcc.Link("Manual Schedule", id="menu-link-manual-schedule", href="/manual-schedule", className="side-nav-link"),
+                            dcc.Link("API Schedule", id="menu-link-api-schedule", href="/api-schedule", className="side-nav-link"),
+                            dcc.Link("Logs", id="menu-link-logs", href="/logs", className="side-nav-link"),
+                        ],
+                    ),
+                    html.Div(id="dashboard-menu-overlay", className="side-menu-overlay", n_clicks=0),
+                    html.Div(
+                        className="app-main-content",
+                        children=[
+                            html.Div(
+                                id="page-private-status",
+                                className="page-section page-section--active",
+                                children=[
                             html.Div(
                                 className="control-panel",
                                 children=[
@@ -227,14 +247,12 @@ def build_dashboard_layout(
                                     dcc.Graph(id="graph-vrfb", className="plot-graph"),
                                 ],
                             ),
-                        ],
-                    ),
-                    dcc.Tab(
-                        label="Plots",
-                        value="plots",
-                        className="main-tab",
-                        selected_className="main-tab--selected",
-                        children=[
+                                ],
+                            ),
+                            html.Div(
+                                id="page-private-plots",
+                                className="page-section",
+                                children=[
                             html.Div(
                                 className="card",
                                 children=[
@@ -316,14 +334,12 @@ def build_dashboard_layout(
                                     html.Div(id="plots-vrfb-png-noop", style={"display": "none"}),
                                 ],
                             ),
-                        ],
-                    ),
-                    dcc.Tab(
-                        label="Manual Schedule",
-                        value="manual",
-                        className="main-tab",
-                        selected_className="main-tab--selected",
-                        children=[
+                                ],
+                            ),
+                            html.Div(
+                                id="page-private-manual-schedule",
+                                className="page-section",
+                                children=[
                             html.Div(
                                 className="card",
                                 children=[
@@ -531,14 +547,12 @@ def build_dashboard_layout(
                                     ),
                                 ],
                             )
-                        ],
-                    ),
-                    dcc.Tab(
-                        label="API Schedule",
-                        value="api",
-                        className="main-tab",
-                        selected_className="main-tab--selected",
-                        children=[
+                                ],
+                            ),
+                            html.Div(
+                                id="page-private-api-schedule",
+                                className="page-section",
+                                children=[
                             html.Div(
                                 className="card",
                                 children=[
@@ -613,14 +627,12 @@ def build_dashboard_layout(
                                     dcc.Graph(id="api-preview-graph", className="plot-graph"),
                                 ],
                             )
-                        ],
-                    ),
-                    dcc.Tab(
-                        label="Logs",
-                        value="logs",
-                        className="main-tab",
-                        selected_className="main-tab--selected",
-                        children=[
+                                ],
+                            ),
+                            html.Div(
+                                id="page-private-logs",
+                                className="page-section",
+                                children=[
                             html.Div(
                                 className="card",
                                 children=[
@@ -646,6 +658,8 @@ def build_dashboard_layout(
                                     html.Div(id="logs-display", className="logs-display"),
                                 ],
                             )
+                                ],
+                            ),
                         ],
                     ),
                 ],

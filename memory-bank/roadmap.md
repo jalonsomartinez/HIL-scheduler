@@ -18,6 +18,7 @@ Increase operational confidence by stabilizing multi-market schedule composition
 
 3. UX and observability
 - Add lightweight visual regression checks for schedule traces (`Pref`, `day-ahead`, `mfrr`).
+- Add lightweight visual regression checks for menu-only route pages (private/public) to prevent tab-strip/navigation regressions.
 - Refine API tab messaging around polling windows/cadence if operator feedback requests it.
 - Keep private/public status summaries aligned and unambiguous.
 

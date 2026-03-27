@@ -4,6 +4,7 @@
 - Verifying mFRR + day-ahead composition behavior in live runtime and dashboards.
 - Confirming API tab mFRR polling telemetry reflects real poll state transitions.
 - Validating that VRFB mFRR index now follows LIB response window and no longer expands to synthetic 2-day grids.
+- Stabilizing menu-only route navigation in private/public dashboards after full tab removal.
 
 ## In Progress
 1. Schedule model rollout:
@@ -18,12 +19,17 @@
 4. Regression alignment:
    - extending fetcher/plot/storage tests for new contracts,
    - keeping backward compatibility for legacy CSV data.
+5. Dashboard navigation refactor rollout:
+   - remove tab components,
+   - route-drive section visibility,
+   - preserve existing control and plotting component IDs.
 
 ## Next
 1. Run full dependency-enabled test suite in target environments (`pytest`, `pandas`, `dash` installed).
 2. Perform field validation for mFRR polling windows and transition-based logging behavior.
 3. Continue remote Modbus reliability hardening and pooled-client smoke-test adaptation.
 4. Evaluate API credential hardening options beyond process-memory storage.
+5. Run dependency-enabled dashboard tests in an environment with `dash` and `pandas` installed to validate new layout/navigation tests.
 
 ## Known Issues / Gaps
 1. No persistent durability for measurement-post retry queue across process restarts.

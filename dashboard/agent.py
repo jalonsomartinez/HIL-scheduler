@@ -36,6 +36,7 @@ from dashboard.history import (
     serialize_measurements_for_download,
 )
 from dashboard.layout import build_dashboard_layout
+from dashboard.navigation import normalize_private_route, page_section_class, resolve_menu_open_state
 from dashboard.logs import get_logs_dir, get_today_log_file_path, parse_and_format_historical_logs, read_log_tail
 from dashboard.plotting import (
     DEFAULT_PLOT_THEME,
@@ -516,6 +517,89 @@ def dashboard_agent(config, shared_data):
         initial_posting_enabled,
         _round_up_to_next_10min(now_tz(config)),
     )
+
+    def _nav_link_class(route, active_route):
+        base = "side-nav-link"
+        if str(route) == str(active_route):
+            return f"{base} side-nav-link--active"
+        return base
+
+    @app.callback(
+        [
+            Output("dashboard-route-store", "data"),
+            Output("dashboard-menu-open-store", "data"),
+            Output("dashboard-side-menu", "className"),
+            Output("dashboard-menu-overlay", "className"),
+            Output("menu-link-status", "className"),
+            Output("menu-link-plots", "className"),
+            Output("menu-link-manual-schedule", "className"),
+            Output("menu-link-api-schedule", "className"),
+            Output("menu-link-logs", "className"),
+            Output("page-private-status", "className"),
+            Output("page-private-plots", "className"),
+            Output("page-private-manual-schedule", "className"),
+            Output("page-private-api-schedule", "className"),
+            Output("page-private-logs", "className"),
+        ],
+        [
+            Input("dashboard-url", "pathname"),
+            Input("dashboard-menu-toggle-btn", "n_clicks"),
+            Input("dashboard-menu-overlay", "n_clicks"),
+            Input("menu-link-status", "n_clicks"),
+            Input("menu-link-plots", "n_clicks"),
+            Input("menu-link-manual-schedule", "n_clicks"),
+            Input("menu-link-api-schedule", "n_clicks"),
+            Input("menu-link-logs", "n_clicks"),
+        ],
+        [State("dashboard-menu-open-store", "data")],
+        prevent_initial_call=False,
+    )
+    def sync_dashboard_route(
+        pathname,
+        _menu_toggle_clicks,
+        _menu_overlay_clicks,
+        _status_clicks,
+        _plots_clicks,
+        _manual_clicks,
+        _api_clicks,
+        _logs_clicks,
+        menu_open,
+    ):
+        ctx = callback_context
+        trigger_id = None
+        if ctx.triggered:
+            trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
+
+        active_route = normalize_private_route(pathname)
+        is_menu_open = resolve_menu_open_state(
+            trigger_id=trigger_id,
+            previous_open=menu_open,
+            toggle_trigger_id="dashboard-menu-toggle-btn",
+        )
+
+        side_menu_class = "side-menu side-menu--open" if is_menu_open else "side-menu"
+        overlay_class = "side-menu-overlay side-menu-overlay--open" if is_menu_open else "side-menu-overlay"
+        status_section = page_section_class(active_route == "/status")
+        plots_section = page_section_class(active_route == "/plots")
+        manual_section = page_section_class(active_route == "/manual-schedule")
+        api_section = page_section_class(active_route == "/api-schedule")
+        logs_section = page_section_class(active_route == "/logs")
+        return (
+            active_route,
+            is_menu_open,
+            side_menu_class,
+            overlay_class,
+            _nav_link_class("/status", active_route),
+            _nav_link_class("/plots", active_route),
+            _nav_link_class("/manual-schedule", active_route),
+            _nav_link_class("/api-schedule", active_route),
+            _nav_link_class("/logs", active_route),
+            status_section,
+            plots_section,
+            manual_section,
+            api_section,
+            logs_section,
+        )
 
     app.clientside_callback(
         """
@@ -2293,12 +2377,12 @@ def dashboard_agent(config, shared_data):
             Output("plots-range-slider", "disabled"),
             Output("plots-status-text", "children"),
         ],
-        [Input("main-tabs", "value"), Input("plots-refresh-interval", "n_intervals")],
+        [Input("dashboard-url", "pathname"), Input("plots-refresh-interval", "n_intervals")],
         [State("plots-range-slider", "value")],
         prevent_initial_call=False,
     )
-    def update_historical_plots_index(active_tab, plots_refresh_n, current_slider_value):
-        if active_tab != "plots":
+    def update_historical_plots_index(active_pathname, plots_refresh_n, current_slider_value):
+        if normalize_private_route(active_pathname) != "/plots":
             raise PreventUpdate
 
         plant_suffix_by_id = {plant_id: sanitize_plant_name(plant_name(plant_id), plant_id) for plant_id in plant_ids}
@@ -2346,11 +2430,11 @@ def dashboard_agent(config, shared_data):
             Output("plots-timeline-graph", "figure"),
             Output("plots-range-meta-store", "data"),
         ],
-        [Input("main-tabs", "value"), Input("plots-index-store", "data"), Input("plots-range-slider", "value")],
+        [Input("dashboard-url", "pathname"), Input("plots-index-store", "data"), Input("plots-range-slider", "value")],
         prevent_initial_call=False,
     )
-    def update_historical_range_view(active_tab, index_data, selected_range):
-        if active_tab != "plots":
+    def update_historical_range_view(active_pathname, index_data, selected_range):
+        if normalize_private_route(active_pathname) != "/plots":
             raise PreventUpdate
 
         if not isinstance(index_data, dict) or not index_data.get("has_data"):
@@ -2371,11 +2455,11 @@ def dashboard_agent(config, shared_data):
 
     @app.callback(
         [Output("plots-graph-lib", "figure"), Output("plots-graph-vrfb", "figure")],
-        [Input("main-tabs", "value"), Input("plots-index-store", "data"), Input("plots-range-slider", "value")],
+        [Input("dashboard-url", "pathname"), Input("plots-index-store", "data"), Input("plots-range-slider", "value")],
         prevent_initial_call=False,
     )
-    def update_historical_plots(active_tab, index_data, selected_range):
-        if active_tab != "plots":
+    def update_historical_plots(active_pathname, index_data, selected_range):
+        if normalize_private_route(active_pathname) != "/plots":
             raise PreventUpdate
 
         if not isinstance(index_data, dict) or not index_data.get("has_data"):

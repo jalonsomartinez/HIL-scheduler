@@ -87,8 +87,8 @@ Open the dashboard at:
 
 ## Basic Dashboard Workflow
 1. Select source (`Manual` or `API`) and transport mode (`Local` or `Remote`).
-2. Load or generate manual schedule data (or in API tab: set password with `Save Password`, then `Connect` / `Disconnect`).
-3. Start a plant (`LIB` and/or `VRFB`) from the Status & Plots tab.
+2. Load or generate manual schedule data (or in the `API Schedule` page: set password with `Save Password`, then `Connect` / `Disconnect`).
+3. Start a plant (`LIB` and/or `VRFB`) from the `Status` page in the left menu.
 4. Click `Record` per plant to write measurements to `data/YYYYMMDD_<plant>.csv`.
 5. Use `Stop` for dispatch stop and `Stop Recording` when session capture should end.
 

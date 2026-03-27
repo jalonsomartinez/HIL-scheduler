@@ -5,6 +5,7 @@
 - Keep API tab observability high-signal, including runtime mFRR polling telemetry.
 - Ensure historical and live plots/CSV exports remain backward-compatible while exposing schedule components.
 - Continue remote Modbus reliability work without regressing schedule/measurement behavior.
+- Keep the new menu-only dashboard navigation stable across private/public routes and mobile drawer behavior.
 
 ## Open Decisions and Risks
 - Whether mFRR API should eventually be polled/retained with adaptive windows if provider payload shape changes.
@@ -14,6 +15,16 @@
 - Full lockfile/transitive pin strategy remains undecided.
 
 ## Rolling Change Log (Compressed, 30-Day Window)
+- 2026-03-27:
+  - Replaced private/public dashboard tab components with menu-only route sections.
+  - Private routes now map to section visibility: `/status`, `/plots`, `/manual-schedule`, `/api-schedule`, `/logs`.
+  - Public routes now map to section visibility: `/status`, `/plots`.
+  - Added shared navigation helpers (`dashboard/navigation.py`) for route normalization, section-class resolution, and menu toggle state.
+  - Updated dashboard callbacks to drive page-section classes instead of tab values.
+  - Added/updated navigation regression tests:
+    - `tests/test_dashboard_navigation.py`,
+    - `tests/test_dashboard_layout_navigation.py`.
+  - Updated user-facing docs wording from tab-based navigation to menu/page wording in README and dashboard controls doc.
 - 2026-03-13:
   - Implemented split API schedule maps:
     - `api_day_ahead_schedule_df_by_plant`,

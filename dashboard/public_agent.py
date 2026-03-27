@@ -7,7 +7,7 @@ import time
 
 import pandas as pd
 import plotly.graph_objects as go
-from dash import Dash, Input, Output, State, dcc, html
+from dash import Dash, Input, Output, State, callback_context, dcc, html
 from dash.exceptions import PreventUpdate
 
 from dashboard.history import (
@@ -16,6 +16,7 @@ from dashboard.history import (
     load_cropped_measurements_for_range,
     scan_measurement_history_index,
 )
+from dashboard.navigation import normalize_public_route, page_section_class, resolve_menu_open_state
 from dashboard.plotting import (
     DEFAULT_PLOT_THEME,
     DEFAULT_TRACE_COLORS,
@@ -157,6 +158,9 @@ def _public_layout(*, plant_name_fn, brand_logo_src, measurement_period_s):
     return html.Div(
         className="app-container",
         children=[
+            dcc.Location(id="public-url", refresh=False),
+            dcc.Store(id="public-route-store", data="/status"),
+            dcc.Store(id="public-menu-open-store", data=False),
             html.Header(
                 className="app-header",
                 children=[
@@ -175,21 +179,36 @@ def _public_layout(*, plant_name_fn, brand_logo_src, measurement_period_s):
                                 ],
                             ),
                         ],
-                    )
+                    ),
+                    html.Button(
+                        "Menu",
+                        id="public-menu-toggle-btn",
+                        className="menu-toggle-btn",
+                        n_clicks=0,
+                        **{"aria-expanded": "false", "aria-label": "Toggle navigation menu"},
+                    ),
                 ],
             ),
-            dcc.Tabs(
-                id="public-main-tabs",
-                value="status",
-                className="main-tabs",
-                parent_className="main-tabs-parent",
+            html.Div(
+                className="app-shell",
                 children=[
-                    dcc.Tab(
-                        label="Status",
-                        value="status",
-                        className="main-tab",
-                        selected_className="main-tab--selected",
+                    html.Nav(
+                        id="public-side-menu",
+                        className="side-menu",
                         children=[
+                            html.Div("Navigation", className="side-menu-title"),
+                            dcc.Link("Status", id="public-menu-link-status", href="/status", className="side-nav-link"),
+                            dcc.Link("Plots", id="public-menu-link-plots", href="/plots", className="side-nav-link"),
+                        ],
+                    ),
+                    html.Div(id="public-menu-overlay", className="side-menu-overlay", n_clicks=0),
+                    html.Div(
+                        className="app-main-content",
+                        children=[
+                            html.Div(
+                                id="page-public-status",
+                                className="page-section page-section--active",
+                                children=[
                             html.Div(
                                 className="control-panel",
                                 children=[
@@ -404,14 +423,12 @@ def _public_layout(*, plant_name_fn, brand_logo_src, measurement_period_s):
                                     dcc.Graph(id="public-graph-vrfb", className="plot-graph"),
                                 ],
                             ),
-                        ],
-                    ),
-                    dcc.Tab(
-                        label="Plots",
-                        value="plots",
-                        className="main-tab",
-                        selected_className="main-tab--selected",
-                        children=[
+                                ],
+                            ),
+                            html.Div(
+                                id="page-public-plots",
+                                className="page-section",
+                                children=[
                             html.Div(
                                 className="card",
                                 children=[
@@ -443,6 +460,8 @@ def _public_layout(*, plant_name_fn, brand_logo_src, measurement_period_s):
                                 children=[
                                     html.H3(f"{plant_name_fn('vrfb')}"),
                                     dcc.Graph(id="public-plots-graph-vrfb", className="plot-graph"),
+                                ],
+                            ),
                                 ],
                             ),
                         ],
@@ -608,6 +627,68 @@ def build_public_readonly_app(config, shared_data):
         brand_logo_src=app.get_asset_url("brand/Logotype i-STENTORE.png"),
         measurement_period_s=config.get("MEASUREMENT_PERIOD_S", 5.0),
     )
+
+    def _nav_link_class(route, active_route):
+        base = "side-nav-link"
+        if str(route) == str(active_route):
+            return f"{base} side-nav-link--active"
+        return base
+
+    @app.callback(
+        [
+            Output("public-route-store", "data"),
+            Output("public-menu-open-store", "data"),
+            Output("public-side-menu", "className"),
+            Output("public-menu-overlay", "className"),
+            Output("public-menu-link-status", "className"),
+            Output("public-menu-link-plots", "className"),
+            Output("page-public-status", "className"),
+            Output("page-public-plots", "className"),
+        ],
+        [
+            Input("public-url", "pathname"),
+            Input("public-menu-toggle-btn", "n_clicks"),
+            Input("public-menu-overlay", "n_clicks"),
+            Input("public-menu-link-status", "n_clicks"),
+            Input("public-menu-link-plots", "n_clicks"),
+        ],
+        [State("public-menu-open-store", "data")],
+        prevent_initial_call=False,
+    )
+    def sync_public_route(
+        pathname,
+        _menu_toggle_clicks,
+        _menu_overlay_clicks,
+        _status_clicks,
+        _plots_clicks,
+        menu_open,
+    ):
+        ctx = callback_context
+        trigger_id = None
+        if ctx.triggered:
+            trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
+
+        active_route = normalize_public_route(pathname)
+        is_menu_open = resolve_menu_open_state(
+            trigger_id=trigger_id,
+            previous_open=menu_open,
+            toggle_trigger_id="public-menu-toggle-btn",
+        )
+
+        side_menu_class = "side-menu side-menu--open" if is_menu_open else "side-menu"
+        overlay_class = "side-menu-overlay side-menu-overlay--open" if is_menu_open else "side-menu-overlay"
+        status_section = page_section_class(active_route == "/status")
+        plots_section = page_section_class(active_route == "/plots")
+        return (
+            active_route,
+            is_menu_open,
+            side_menu_class,
+            overlay_class,
+            _nav_link_class("/status", active_route),
+            _nav_link_class("/plots", active_route),
+            status_section,
+            plots_section,
+        )
 
     @app.callback(
         [
@@ -966,12 +1047,12 @@ def build_public_readonly_app(config, shared_data):
             Output("public-plots-range-label", "children"),
             Output("public-plots-timeline-graph", "figure"),
         ],
-        [Input("public-main-tabs", "value"), Input("public-plots-refresh-interval", "n_intervals")],
+        [Input("public-url", "pathname"), Input("public-plots-refresh-interval", "n_intervals")],
         [State("public-plots-range-slider", "value")],
         prevent_initial_call=False,
     )
-    def update_public_historical_range(active_tab, _plots_refresh_n, current_slider_value):
-        if active_tab != "plots":
+    def update_public_historical_range(active_pathname, _plots_refresh_n, current_slider_value):
+        if normalize_public_route(active_pathname) != "/plots":
             raise PreventUpdate
 
         index_data = scan_measurement_history_index(data_dir, _plant_suffix_by_id(), tz)
@@ -1020,14 +1101,14 @@ def build_public_readonly_app(config, shared_data):
     @app.callback(
         [Output("public-plots-graph-lib", "figure"), Output("public-plots-graph-vrfb", "figure")],
         [
-            Input("public-main-tabs", "value"),
+            Input("public-url", "pathname"),
             Input("public-plots-range-slider", "value"),
             Input("public-plots-refresh-interval", "n_intervals"),
         ],
         prevent_initial_call=False,
     )
-    def update_public_historical_plots(active_tab, selected_range, _plots_refresh_n):
-        if active_tab != "plots":
+    def update_public_historical_plots(active_pathname, selected_range, _plots_refresh_n):
+        if normalize_public_route(active_pathname) != "/plots":
             raise PreventUpdate
 
         suffix_map = _plant_suffix_by_id()
