@@ -1,0 +1,58 @@
+{
+  "mapping": {
+    "mapping_codes_total": 227,
+    "unresolved_codes_sample": [],
+    "unresolved_codes_total": 0,
+    "workbook_codes_total": 227
+  },
+  "network": {
+    "asymmetric_load_count": 228,
+    "battery_bus": 845,
+    "battery_line_index": 851,
+    "battery_load_index": 227,
+    "bus_count": 846,
+    "dropped_ext_grid_count": 2,
+    "ext_grid_count": 1,
+    "ext_grid_index": 0,
+    "ext_grid_s_sc_max_mva": 500.0,
+    "ext_grid_s_sc_min_mva": 250.0,
+    "hub_bus": 840,
+    "line_count": 852,
+    "line_length_km": 0.015,
+    "line_std_type": "NA2XS2Y 1x95 RM/25 12/20 kV",
+    "other_trafo_hv_bus": 842,
+    "source_line_c_nf_per_km": 0.0,
+    "source_line_design_cosphi": 1.0,
+    "source_line_design_current_a": 57.735026918962575,
+    "source_line_design_voltage_kv": 20.0,
+    "source_line_index": 849,
+    "source_line_length_km": 5.0,
+    "source_line_max_i_ka": 0.14433756729740646,
+    "source_line_name": "DT_20KV_SOURCE_TO_HUB",
+    "source_line_r_ohm_per_km": 0.8000000000000002,
+    "source_line_r_total_ohm": 4.000000000000001,
+    "source_line_sn_mva": 5.0,
+    "source_line_target_p_mw": 2.0,
+    "source_line_target_vdrop_pct": 2.0,
+    "source_line_target_vdrop_v": 400.0,
+    "source_line_x_ohm_per_km": 0.33738019169329087,
+    "source_line_x_r_ratio": 0.42172523961661346,
+    "source_line_x_total_ohm": 1.6869009584664543,
+    "source_terminal_bus": 844,
+    "tie_line_index": 850
+  },
+  "outputs": {
+    "device_mapping_json": "digital_twin_package/device_mapping.json",
+    "metadata_json": "digital_twin_package/package_metadata.json",
+    "network_pickle": "digital_twin_package/net_digital_twin.p",
+    "timeseries_csv": "digital_twin_package/timeseries_input_2026-03-23_to_2026-05-31.csv"
+  },
+  "timeseries": {
+    "generated_rows": 424179,
+    "generated_unique_hours": 1679,
+    "source_unique_codes": 257,
+    "source_unique_hours": 744,
+    "target_end_utc": "2026-05-31 21:00:00+00:00",
+    "target_start_utc": "2026-03-22 23:00:00+00:00"
+  }
+}

@@ -16,6 +16,12 @@ from dashboard.history import (
     load_cropped_measurements_for_range,
     scan_measurement_history_index,
 )
+from dashboard.grid_map import (
+    build_grid_map_meta_children,
+    build_grid_map_page,
+    build_grid_map_status_text,
+    build_grid_map_summary_cards,
+)
 from dashboard.navigation import normalize_public_route, page_section_class, resolve_menu_open_state
 from dashboard.plotting import (
     DEFAULT_PLOT_THEME,
@@ -31,6 +37,7 @@ from dashboard.ui_state import (
 )
 import scheduling.manual_schedule_manager as msm
 from measurement.storage import MEASUREMENT_COLUMNS
+from grid_map_runtime import build_grid_map_figure, build_grid_map_meta_lines, snapshot_grid_map_runtime
 from runtime.contracts import sanitize_plant_name
 from runtime.paths import get_assets_dir, get_data_dir, get_project_root
 from runtime.shared_state import snapshot_locked
@@ -153,7 +160,7 @@ def _ensure_flask_secret_key(app):
     server.secret_key = secrets.token_urlsafe(48)
 
 
-def _public_layout(*, plant_name_fn, brand_logo_src, measurement_period_s):
+def _public_layout(*, plant_name_fn, brand_logo_src, measurement_period_s, grid_map_period_s):
     interval_ms = max(1000, int(float(measurement_period_s) * 1000.0))
     return html.Div(
         className="app-container",
@@ -199,6 +206,7 @@ def _public_layout(*, plant_name_fn, brand_logo_src, measurement_period_s):
                             html.Div("Navigation", className="side-menu-title"),
                             dcc.Link("Status", id="public-menu-link-status", href="/status", className="side-nav-link"),
                             dcc.Link("Plots", id="public-menu-link-plots", href="/plots", className="side-nav-link"),
+                            dcc.Link("Grid Map", id="public-menu-link-grid-map", href="/grid-map", className="side-nav-link"),
                         ],
                     ),
                     html.Div(id="public-menu-overlay", className="side-menu-overlay", n_clicks=0),
@@ -464,12 +472,18 @@ def _public_layout(*, plant_name_fn, brand_logo_src, measurement_period_s):
                             ),
                                 ],
                             ),
+                            html.Div(
+                                id="page-public-grid-map",
+                                className="page-section",
+                                children=[build_grid_map_page(prefix="public", title="Grid Map")],
+                            ),
                         ],
                     ),
                 ],
             ),
             dcc.Interval(id="public-interval-component", interval=interval_ms, n_intervals=0),
             dcc.Interval(id="public-plots-refresh-interval", interval=30000, n_intervals=0),
+            dcc.Interval(id="public-grid-map-refresh-interval", interval=max(1000, int(float(grid_map_period_s) * 1000.0)), n_intervals=0),
         ],
     )
 
@@ -626,6 +640,7 @@ def build_public_readonly_app(config, shared_data):
         plant_name_fn=plant_name,
         brand_logo_src=app.get_asset_url("brand/Logotype i-STENTORE.png"),
         measurement_period_s=config.get("MEASUREMENT_PERIOD_S", 5.0),
+        grid_map_period_s=config.get("GRID_MAP_PERIOD_S", 5.0),
     )
 
     def _nav_link_class(route, active_route):
@@ -642,8 +657,10 @@ def build_public_readonly_app(config, shared_data):
             Output("public-menu-overlay", "className"),
             Output("public-menu-link-status", "className"),
             Output("public-menu-link-plots", "className"),
+            Output("public-menu-link-grid-map", "className"),
             Output("page-public-status", "className"),
             Output("page-public-plots", "className"),
+            Output("page-public-grid-map", "className"),
         ],
         [
             Input("public-url", "pathname"),
@@ -651,6 +668,7 @@ def build_public_readonly_app(config, shared_data):
             Input("public-menu-overlay", "n_clicks"),
             Input("public-menu-link-status", "n_clicks"),
             Input("public-menu-link-plots", "n_clicks"),
+            Input("public-menu-link-grid-map", "n_clicks"),
         ],
         [State("public-menu-open-store", "data")],
         prevent_initial_call=False,
@@ -661,6 +679,7 @@ def build_public_readonly_app(config, shared_data):
         _menu_overlay_clicks,
         _status_clicks,
         _plots_clicks,
+        _grid_map_clicks,
         menu_open,
     ):
         ctx = callback_context
@@ -679,6 +698,7 @@ def build_public_readonly_app(config, shared_data):
         overlay_class = "side-menu-overlay side-menu-overlay--open" if is_menu_open else "side-menu-overlay"
         status_section = page_section_class(active_route == "/status")
         plots_section = page_section_class(active_route == "/plots")
+        grid_map_section = page_section_class(active_route == "/grid-map")
         return (
             active_route,
             is_menu_open,
@@ -686,8 +706,10 @@ def build_public_readonly_app(config, shared_data):
             overlay_class,
             _nav_link_class("/status", active_route),
             _nav_link_class("/plots", active_route),
+            _nav_link_class("/grid-map", active_route),
             status_section,
             plots_section,
+            grid_map_section,
         )
 
     @app.callback(
@@ -1035,6 +1057,32 @@ def build_public_readonly_app(config, shared_data):
             lib_fig,
             vrfb_fig,
         )
+
+    @app.callback(
+        [
+            Output("public-grid-map-status", "children"),
+            Output("public-grid-map-summary", "children"),
+            Output("public-grid-map-meta", "children"),
+            Output("public-grid-map-figure", "figure"),
+        ],
+        [Input("public-url", "pathname"), Input("public-grid-map-refresh-interval", "n_intervals")],
+        prevent_initial_call=False,
+    )
+    def update_public_grid_map_page(active_pathname, _grid_map_refresh_n):
+        if normalize_public_route(active_pathname) != "/grid-map":
+            raise PreventUpdate
+
+        runtime_state = snapshot_grid_map_runtime(shared_data)
+        status_text = build_grid_map_status_text(runtime_state)
+        summary_children = build_grid_map_summary_cards(runtime_state.get("summary"))
+        meta_children = build_grid_map_meta_children(build_grid_map_meta_lines(runtime_state, config))
+        figure = build_grid_map_figure(
+            runtime_state.get("topology_cache"),
+            runtime_state.get("dynamic_payload"),
+            title="Distribution Grid Map",
+            uirevision_key="public-grid-map",
+        )
+        return status_text, summary_children, meta_children, figure
 
     @app.callback(
         [

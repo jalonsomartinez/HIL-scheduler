@@ -56,6 +56,7 @@ class SharedStateContractTests(unittest.TestCase):
             "settings_command_active_id",
             "settings_command_next_id",
             "settings_engine_status",
+            "grid_map_runtime",
             "lock",
             "shutdown_event",
             "log_file_path",
@@ -83,8 +84,41 @@ class SharedStateContractTests(unittest.TestCase):
         self.assertIsInstance(shared_data["control_engine_status"], dict)
         self.assertIsInstance(shared_data["settings_command_queue"], queue.Queue)
         self.assertIsInstance(shared_data["settings_engine_status"], dict)
+        self.assertIsInstance(shared_data["grid_map_runtime"], dict)
         self.assertIsInstance(shared_data["api_connection_runtime"], dict)
         self.assertIsInstance(shared_data["posting_runtime"], dict)
+        grid_map_runtime = dict(shared_data["grid_map_runtime"])
+        self.assertTrue(
+            {
+                "state",
+                "poll_period_s",
+                "topology_ready",
+                "topology_error",
+                "topology_cache",
+                "topology_cache_meta",
+                "last_run_at",
+                "last_success_at",
+                "last_error",
+                "requested_timestamp_local",
+                "selected_timestamp_local",
+                "selected_timestamp_utc",
+                "used_previous_hour_fallback",
+                "input_source",
+                "input_measured_at",
+                "battery_input_p_kw",
+                "battery_input_q_kvar",
+                "battery_input_p_mw",
+                "battery_input_q_mvar",
+                "summary",
+                "dynamic_payload",
+                "coordinate_mode",
+                "source_crs",
+                "target_crs",
+                "map_background_enabled",
+                "map_background_reason",
+                "stale",
+            }.issubset(grid_map_runtime.keys())
+        )
         fetcher_status = dict(shared_data.get("data_fetcher_status", {}) or {})
         mfrr_poll = dict(fetcher_status.get("mfrr_poll", {}) or {})
         self.assertTrue(
@@ -100,6 +134,10 @@ class SharedStateContractTests(unittest.TestCase):
         )
         self.assertEqual(str(mfrr_poll.get("last_result")), "never")
         self.assertEqual(int(mfrr_poll.get("last_points_lib", 0)), 0)
+        self.assertEqual(float(grid_map_runtime.get("poll_period_s")), 5.0)
+        self.assertEqual(str(grid_map_runtime.get("coordinate_mode")), "schematic")
+        self.assertFalse(bool(grid_map_runtime.get("map_background_enabled", False)))
+        self.assertTrue(bool(grid_map_runtime.get("stale", True)))
         self.assertTrue(
             all(result.get("status") == "idle" for result in shared_data["local_emulator_soc_seed_result_by_plant"].values())
         )

@@ -516,6 +516,12 @@ def load_config(config_path="config.yaml"):
         "timing.measurements_write_period_s",
         min_value=0.1,
     )
+    config["GRID_MAP_PERIOD_S"] = _parse_float(
+        timing_cfg.get("grid_map_period_s", 5),
+        5,
+        "timing.grid_map_period_s",
+        min_value=0.1,
+    )
 
     dashboard_cfg = yaml_config.get("dashboard", {})
     dashboard_private_cfg = dashboard_cfg.get("private", {})

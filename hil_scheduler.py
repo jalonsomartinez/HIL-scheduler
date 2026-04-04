@@ -9,6 +9,8 @@ from runtime.api_runtime_state import default_api_connection_runtime
 from runtime.defaults import default_measurement_post_status_by_plant
 from runtime.dispatch_write_runtime import default_dispatch_write_status_by_plant
 from runtime.engine_status_runtime import default_engine_status
+from grid_map_agent import grid_map_agent
+from grid_map_runtime import default_grid_map_runtime
 import scheduling.manual_schedule_manager as msm
 from config_loader import load_config
 from control.engine_agent import control_engine_agent
@@ -191,6 +193,7 @@ def build_initial_shared_data(config):
         "settings_command_active_id": None,
         "settings_command_next_id": 1,
         "settings_engine_status": default_engine_status(include_last_observed_refresh=False),
+        "grid_map_runtime": default_grid_map_runtime(config.get("GRID_MAP_PERIOD_S", 5.0)),
         "lock": threading.Lock(),
         "shutdown_event": threading.Event(),
         "log_file_path": None,
@@ -203,6 +206,7 @@ def build_agent_threads(config, shared_data):
         threading.Thread(target=scheduler_agent, args=(config, shared_data), daemon=True),
         threading.Thread(target=plant_agent, args=(config, shared_data), daemon=True),
         threading.Thread(target=measurement_agent, args=(config, shared_data), daemon=True),
+        threading.Thread(target=grid_map_agent, args=(config, shared_data), daemon=True),
         threading.Thread(target=control_engine_agent, args=(config, shared_data), daemon=True),
         threading.Thread(target=settings_engine_agent, args=(config, shared_data), daemon=True),
         threading.Thread(target=dashboard_agent, args=(config, shared_data), daemon=True),

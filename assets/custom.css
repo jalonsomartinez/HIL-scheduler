@@ -384,6 +384,57 @@ a {
     font-size: 0.8rem;
 }
 
+.grid-map-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.grid-map-summary-card {
+    border: 1px solid var(--border);
+    border-radius: var(--public-top-radius);
+    padding: 12px 14px;
+    background: linear-gradient(180deg, #fbfefd 0%, #f4faf7 100%);
+}
+
+.grid-map-summary-card--ok {
+    border-color: #b9e1c7;
+    background: linear-gradient(180deg, #fbfefd 0%, #edf9f1 100%);
+}
+
+.grid-map-summary-card--alert {
+    border-color: #efc7c7;
+    background: linear-gradient(180deg, #fffafa 0%, #fbeeee 100%);
+}
+
+.grid-map-summary-label {
+    color: var(--text-soft);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.grid-map-summary-value {
+    margin-top: 6px;
+    color: #1f372f;
+    font-size: 1.05rem;
+    font-weight: 700;
+}
+
+.grid-map-meta-block {
+    margin-top: 12px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--public-top-radius);
+    background: rgba(255, 255, 255, 0.75);
+}
+
+.grid-map-graph {
+    margin-top: 12px;
+}
+
 .public-status-chip {
     display: inline-flex;
     align-items: center;

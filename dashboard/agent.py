@@ -28,6 +28,7 @@ from dashboard.control_health import (
     summarize_dispatch_write_status,
     summarize_plant_modbus_health,
 )
+from dashboard.grid_map import build_grid_map_meta_children, build_grid_map_status_text, build_grid_map_summary_cards
 from dashboard.history import (
     build_slider_marks,
     clamp_epoch_range,
@@ -61,6 +62,7 @@ from dashboard.settings_ui_state import (
     posting_display_state,
     resolve_command_click_feedback_state,
 )
+from grid_map_runtime import build_grid_map_figure, build_grid_map_meta_lines, snapshot_grid_map_runtime
 import scheduling.manual_schedule_manager as msm
 from measurement.storage import MEASUREMENT_COLUMNS
 from runtime.contracts import sanitize_plant_name
@@ -532,11 +534,13 @@ def dashboard_agent(config, shared_data):
             Output("dashboard-menu-overlay", "className"),
             Output("menu-link-status", "className"),
             Output("menu-link-plots", "className"),
+            Output("menu-link-grid-map", "className"),
             Output("menu-link-manual-schedule", "className"),
             Output("menu-link-api-schedule", "className"),
             Output("menu-link-logs", "className"),
             Output("page-private-status", "className"),
             Output("page-private-plots", "className"),
+            Output("page-private-grid-map", "className"),
             Output("page-private-manual-schedule", "className"),
             Output("page-private-api-schedule", "className"),
             Output("page-private-logs", "className"),
@@ -547,6 +551,7 @@ def dashboard_agent(config, shared_data):
             Input("dashboard-menu-overlay", "n_clicks"),
             Input("menu-link-status", "n_clicks"),
             Input("menu-link-plots", "n_clicks"),
+            Input("menu-link-grid-map", "n_clicks"),
             Input("menu-link-manual-schedule", "n_clicks"),
             Input("menu-link-api-schedule", "n_clicks"),
             Input("menu-link-logs", "n_clicks"),
@@ -560,6 +565,7 @@ def dashboard_agent(config, shared_data):
         _menu_overlay_clicks,
         _status_clicks,
         _plots_clicks,
+        _grid_map_clicks,
         _manual_clicks,
         _api_clicks,
         _logs_clicks,
@@ -581,6 +587,7 @@ def dashboard_agent(config, shared_data):
         overlay_class = "side-menu-overlay side-menu-overlay--open" if is_menu_open else "side-menu-overlay"
         status_section = page_section_class(active_route == "/status")
         plots_section = page_section_class(active_route == "/plots")
+        grid_map_section = page_section_class(active_route == "/grid-map")
         manual_section = page_section_class(active_route == "/manual-schedule")
         api_section = page_section_class(active_route == "/api-schedule")
         logs_section = page_section_class(active_route == "/logs")
@@ -591,11 +598,13 @@ def dashboard_agent(config, shared_data):
             overlay_class,
             _nav_link_class("/status", active_route),
             _nav_link_class("/plots", active_route),
+            _nav_link_class("/grid-map", active_route),
             _nav_link_class("/manual-schedule", active_route),
             _nav_link_class("/api-schedule", active_route),
             _nav_link_class("/logs", active_route),
             status_section,
             plots_section,
+            grid_map_section,
             manual_section,
             api_section,
             logs_section,
@@ -2366,6 +2375,32 @@ def dashboard_agent(config, shared_data):
             vrfb_record_classes[1],
             bool(vrfb_record_controls["negative_disabled"]),
         )
+
+    @app.callback(
+        [
+            Output("grid-map-status", "children"),
+            Output("grid-map-summary", "children"),
+            Output("grid-map-meta", "children"),
+            Output("grid-map-figure", "figure"),
+        ],
+        [Input("dashboard-url", "pathname"), Input("grid-map-refresh-interval", "n_intervals")],
+        prevent_initial_call=False,
+    )
+    def update_grid_map_page(active_pathname, _grid_map_refresh_n):
+        if normalize_private_route(active_pathname) != "/grid-map":
+            raise PreventUpdate
+
+        runtime_state = snapshot_grid_map_runtime(shared_data)
+        status_text = build_grid_map_status_text(runtime_state)
+        summary_children = build_grid_map_summary_cards(runtime_state.get("summary"))
+        meta_children = build_grid_map_meta_children(build_grid_map_meta_lines(runtime_state, config))
+        figure = build_grid_map_figure(
+            runtime_state.get("topology_cache"),
+            runtime_state.get("dynamic_payload"),
+            title="Distribution Grid Map",
+            uirevision_key="private-grid-map",
+        )
+        return status_text, summary_children, meta_children, figure
 
     @app.callback(
         [

@@ -1,0 +1,1591 @@
+{
+  "SAG0145996860": [
+    {
+      "index": 87,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0146965312": [
+    {
+      "index": 217,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0155327341": [
+    {
+      "index": 132,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0155332390": [
+    {
+      "index": 145,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0155339816": [
+    {
+      "index": 117,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0155358777": [
+    {
+      "index": 108,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0165762631": [
+    {
+      "index": 95,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0165771472": [
+    {
+      "index": 30,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0165771474": [
+    {
+      "index": 20,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0176452538": [
+    {
+      "index": 220,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0176452539": [
+    {
+      "index": 125,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0176452560": [
+    {
+      "index": 223,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0176452575": [
+    {
+      "index": 214,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0185901470": [
+    {
+      "index": 140,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0185923928": [
+    {
+      "index": 141,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0186255411": [
+    {
+      "index": 109,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0186256039": [
+    {
+      "index": 111,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0186450287": [
+    {
+      "index": 219,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0186450293": [
+    {
+      "index": 126,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0195929711": [
+    {
+      "index": 26,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0205906308": [
+    {
+      "index": 112,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0205910223": [
+    {
+      "index": 168,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0215901472": [
+    {
+      "index": 154,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0225908762": [
+    {
+      "index": 100,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0225908770": [
+    {
+      "index": 211,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0225909909": [
+    {
+      "index": 175,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0225909918": [
+    {
+      "index": 73,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0225909925": [
+    {
+      "index": 63,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0226253597": [
+    {
+      "index": 207,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0232804241": [
+    {
+      "index": 181,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0232804242": [
+    {
+      "index": 225,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0232804270": [
+    {
+      "index": 160,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0232804313": [
+    {
+      "index": 82,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0232804314": [
+    {
+      "index": 146,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0235900710": [
+    {
+      "index": 208,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0235900773": [
+    {
+      "index": 224,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0242800013": [
+    {
+      "index": 86,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0242800057": [
+    {
+      "index": 18,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0242800101": [
+    {
+      "index": 22,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0242800172": [
+    {
+      "index": 150,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0242800194": [
+    {
+      "index": 62,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0242800299": [
+    {
+      "index": 183,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0252807289": [
+    {
+      "index": 5,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0252807361": [
+    {
+      "index": 200,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0252807364": [
+    {
+      "index": 27,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0252807366": [
+    {
+      "index": 28,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0252807367": [
+    {
+      "index": 184,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0252807368": [
+    {
+      "index": 29,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0252807369": [
+    {
+      "index": 193,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SAG0252807484": [
+    {
+      "index": 113,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "SOG0020127455": [
+    {
+      "index": 2,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034771914": [
+    {
+      "index": 78,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034824541": [
+    {
+      "index": 128,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034824545": [
+    {
+      "index": 70,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034824549": [
+    {
+      "index": 152,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034824562": [
+    {
+      "index": 110,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034847900": [
+    {
+      "index": 174,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034848222": [
+    {
+      "index": 199,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034848305": [
+    {
+      "index": 180,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034848308": [
+    {
+      "index": 143,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034902096": [
+    {
+      "index": 107,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034943727": [
+    {
+      "index": 172,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034943729": [
+    {
+      "index": 58,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034943730": [
+    {
+      "index": 57,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034943731": [
+    {
+      "index": 170,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034943732": [
+    {
+      "index": 101,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034943733": [
+    {
+      "index": 169,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034943735": [
+    {
+      "index": 56,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034943736": [
+    {
+      "index": 55,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034943757": [
+    {
+      "index": 50,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034943758": [
+    {
+      "index": 49,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034943761": [
+    {
+      "index": 52,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034943762": [
+    {
+      "index": 165,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034943763": [
+    {
+      "index": 51,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034943765": [
+    {
+      "index": 166,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034943766": [
+    {
+      "index": 167,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034943778": [
+    {
+      "index": 54,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034943779": [
+    {
+      "index": 171,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034943837": [
+    {
+      "index": 94,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034943838": [
+    {
+      "index": 93,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034943839": [
+    {
+      "index": 222,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034943840": [
+    {
+      "index": 216,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034943843": [
+    {
+      "index": 212,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034943844": [
+    {
+      "index": 92,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034943898": [
+    {
+      "index": 164,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034943899": [
+    {
+      "index": 48,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034943900": [
+    {
+      "index": 47,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034943901": [
+    {
+      "index": 46,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034943902": [
+    {
+      "index": 163,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034943903": [
+    {
+      "index": 45,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034943905": [
+    {
+      "index": 59,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034944712": [
+    {
+      "index": 118,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034944713": [
+    {
+      "index": 119,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034944717": [
+    {
+      "index": 129,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034944719": [
+    {
+      "index": 7,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034944720": [
+    {
+      "index": 8,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034944721": [
+    {
+      "index": 123,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034944723": [
+    {
+      "index": 124,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034944754": [
+    {
+      "index": 115,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034944796": [
+    {
+      "index": 6,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034944797": [
+    {
+      "index": 4,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034944800": [
+    {
+      "index": 120,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946436": [
+    {
+      "index": 137,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946437": [
+    {
+      "index": 19,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946438": [
+    {
+      "index": 99,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946439": [
+    {
+      "index": 98,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946441": [
+    {
+      "index": 138,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946444": [
+    {
+      "index": 134,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946446": [
+    {
+      "index": 135,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946456": [
+    {
+      "index": 11,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946457": [
+    {
+      "index": 13,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946458": [
+    {
+      "index": 12,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946459": [
+    {
+      "index": 14,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946460": [
+    {
+      "index": 133,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946461": [
+    {
+      "index": 16,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946462": [
+    {
+      "index": 15,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946463": [
+    {
+      "index": 17,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946464": [
+    {
+      "index": 64,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946465": [
+    {
+      "index": 71,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946466": [
+    {
+      "index": 72,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946467": [
+    {
+      "index": 61,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946468": [
+    {
+      "index": 60,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946469": [
+    {
+      "index": 74,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946471": [
+    {
+      "index": 76,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946472": [
+    {
+      "index": 75,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946473": [
+    {
+      "index": 177,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946474": [
+    {
+      "index": 24,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946475": [
+    {
+      "index": 25,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946483": [
+    {
+      "index": 33,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946494": [
+    {
+      "index": 0,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946495": [
+    {
+      "index": 179,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946497": [
+    {
+      "index": 176,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946498": [
+    {
+      "index": 77,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946499": [
+    {
+      "index": 80,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946502": [
+    {
+      "index": 182,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946503": [
+    {
+      "index": 105,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946504": [
+    {
+      "index": 31,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946505": [
+    {
+      "index": 32,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946507": [
+    {
+      "index": 144,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946509": [
+    {
+      "index": 67,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946510": [
+    {
+      "index": 149,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946511": [
+    {
+      "index": 147,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946544": [
+    {
+      "index": 203,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946545": [
+    {
+      "index": 205,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946546": [
+    {
+      "index": 204,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946547": [
+    {
+      "index": 155,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946548": [
+    {
+      "index": 157,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946549": [
+    {
+      "index": 1,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946552": [
+    {
+      "index": 159,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946553": [
+    {
+      "index": 39,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946604": [
+    {
+      "index": 173,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946605": [
+    {
+      "index": 69,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946606": [
+    {
+      "index": 68,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946609": [
+    {
+      "index": 178,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946610": [
+    {
+      "index": 162,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946611": [
+    {
+      "index": 66,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946612": [
+    {
+      "index": 103,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946613": [
+    {
+      "index": 65,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946614": [
+    {
+      "index": 131,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946615": [
+    {
+      "index": 9,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946616": [
+    {
+      "index": 130,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946617": [
+    {
+      "index": 10,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946619": [
+    {
+      "index": 127,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946804": [
+    {
+      "index": 185,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946805": [
+    {
+      "index": 85,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946807": [
+    {
+      "index": 83,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946808": [
+    {
+      "index": 84,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946809": [
+    {
+      "index": 79,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946810": [
+    {
+      "index": 104,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946811": [
+    {
+      "index": 81,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946814": [
+    {
+      "index": 187,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946815": [
+    {
+      "index": 189,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946816": [
+    {
+      "index": 190,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946817": [
+    {
+      "index": 186,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946818": [
+    {
+      "index": 192,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946819": [
+    {
+      "index": 89,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946820": [
+    {
+      "index": 191,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946821": [
+    {
+      "index": 151,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946822": [
+    {
+      "index": 35,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946823": [
+    {
+      "index": 34,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946825": [
+    {
+      "index": 36,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946826": [
+    {
+      "index": 90,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946827": [
+    {
+      "index": 195,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946829": [
+    {
+      "index": 194,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946831": [
+    {
+      "index": 88,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946832": [
+    {
+      "index": 96,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946833": [
+    {
+      "index": 97,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946834": [
+    {
+      "index": 198,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946835": [
+    {
+      "index": 197,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946836": [
+    {
+      "index": 196,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946837": [
+    {
+      "index": 91,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946838": [
+    {
+      "index": 38,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946839": [
+    {
+      "index": 37,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946840": [
+    {
+      "index": 106,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946842": [
+    {
+      "index": 201,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946843": [
+    {
+      "index": 202,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946864": [
+    {
+      "index": 41,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946865": [
+    {
+      "index": 40,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946866": [
+    {
+      "index": 156,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946867": [
+    {
+      "index": 42,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946868": [
+    {
+      "index": 43,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946869": [
+    {
+      "index": 44,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946870": [
+    {
+      "index": 161,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946871": [
+    {
+      "index": 153,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0034946872": [
+    {
+      "index": 142,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0036303016": [
+    {
+      "index": 116,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0036303116": [
+    {
+      "index": 3,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0036309402": [
+    {
+      "index": 21,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0036314060": [
+    {
+      "index": 206,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0036314085": [
+    {
+      "index": 102,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0036314093": [
+    {
+      "index": 213,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0036314094": [
+    {
+      "index": 209,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0036314095": [
+    {
+      "index": 210,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0036314097": [
+    {
+      "index": 215,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0036314098": [
+    {
+      "index": 218,
+      "phase": "B",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0036314099": [
+    {
+      "index": 53,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0036314110": [
+    {
+      "index": 122,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0036314112": [
+    {
+      "index": 114,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0036387229": [
+    {
+      "index": 148,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0039450401": [
+    {
+      "index": 121,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0050080352": [
+    {
+      "index": 221,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0050201398": [
+    {
+      "index": 23,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0050201416": [
+    {
+      "index": 158,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0050201419": [
+    {
+      "index": 188,
+      "phase": "C",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0050204714": [
+    {
+      "index": 139,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0050204727": [
+    {
+      "index": 136,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ],
+  "ZIV0050290499": [
+    {
+      "index": 226,
+      "phase": "A",
+      "table": "asymmetric_load"
+    }
+  ]
+}

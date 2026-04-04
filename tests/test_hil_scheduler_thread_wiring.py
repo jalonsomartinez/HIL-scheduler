@@ -14,6 +14,7 @@ class HilSchedulerThreadWiringTests(unittest.TestCase):
         target_names = {getattr(target, "__name__", "") for target in targets}
 
         self.assertIn("dashboard_agent", target_names)
+        self.assertIn("grid_map_agent", target_names)
         self.assertNotIn("public_dashboard_agent", target_names)
 
     def test_build_agent_threads_includes_public_dashboard_when_enabled(self):
@@ -25,6 +26,7 @@ class HilSchedulerThreadWiringTests(unittest.TestCase):
         target_names = {getattr(target, "__name__", "") for target in targets}
 
         self.assertIn("dashboard_agent", target_names)
+        self.assertIn("grid_map_agent", target_names)
         self.assertIn("public_dashboard_agent", target_names)
 
 

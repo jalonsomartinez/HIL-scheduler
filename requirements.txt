@@ -1,8 +1,12 @@
 dash==3.4.0
 dash-auth==2.3.0
-numpy==2.4.1
-pandas==3.0.0
+matplotlib==3.10.7
+numba==0.64.0
+numpy==2.3.3
+pandas==2.3.3
+pandapower==3.4.0
 plotly==6.5.2
+pyproj==3.7.2
 pyModbusTCP==0.3.0
 pymodbus==3.9.2
 PyYAML==6.0.3

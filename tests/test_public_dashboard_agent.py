@@ -153,6 +153,12 @@ class PublicDashboardAgentTests(unittest.TestCase):
             "public-transport-text",
             "public-error-text",
             "public-plant-summary-table",
+            "public-menu-link-grid-map",
+            "page-public-grid-map",
+            "public-grid-map-status",
+            "public-grid-map-summary",
+            "public-grid-map-meta",
+            "public-grid-map-figure",
         ]
         for indicator_id in indicator_ids:
             self.assertIn(indicator_id, by_id)

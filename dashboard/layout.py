@@ -2,6 +2,8 @@
 
 from dash import dcc, html
 
+from dashboard.grid_map import build_grid_map_page
+
 
 def build_dashboard_layout(
     config,
@@ -52,6 +54,7 @@ def build_dashboard_layout(
                             html.Div("Navigation", className="side-menu-title"),
                             dcc.Link("Status", id="menu-link-status", href="/status", className="side-nav-link"),
                             dcc.Link("Plots", id="menu-link-plots", href="/plots", className="side-nav-link"),
+                            dcc.Link("Grid Map", id="menu-link-grid-map", href="/grid-map", className="side-nav-link"),
                             dcc.Link("Manual Schedule", id="menu-link-manual-schedule", href="/manual-schedule", className="side-nav-link"),
                             dcc.Link("API Schedule", id="menu-link-api-schedule", href="/api-schedule", className="side-nav-link"),
                             dcc.Link("Logs", id="menu-link-logs", href="/logs", className="side-nav-link"),
@@ -335,6 +338,11 @@ def build_dashboard_layout(
                                 ],
                             ),
                                 ],
+                            ),
+                            html.Div(
+                                id="page-private-grid-map",
+                                className="page-section",
+                                children=[build_grid_map_page(prefix="", title="Grid Map")],
                             ),
                             html.Div(
                                 id="page-private-manual-schedule",
@@ -684,5 +692,6 @@ def build_dashboard_layout(
             dcc.ConfirmDialog(id="manual-editor-delete-confirm", message="Delete this breakpoint?"),
             dcc.Interval(id="interval-component", interval=int(float(config["MEASUREMENT_PERIOD_S"]) * 1000), n_intervals=0),
             dcc.Interval(id="plots-refresh-interval", interval=30000, n_intervals=0),
+            dcc.Interval(id="grid-map-refresh-interval", interval=int(float(config.get("GRID_MAP_PERIOD_S", 5.0)) * 1000), n_intervals=0),
         ],
     )

@@ -64,14 +64,20 @@ class DashboardLayoutNavigationTests(unittest.TestCase):
             "dashboard-menu-overlay",
             "menu-link-status",
             "menu-link-plots",
+            "menu-link-grid-map",
             "menu-link-manual-schedule",
             "menu-link-api-schedule",
             "menu-link-logs",
             "page-private-status",
             "page-private-plots",
+            "page-private-grid-map",
             "page-private-manual-schedule",
             "page-private-api-schedule",
             "page-private-logs",
+            "grid-map-status",
+            "grid-map-summary",
+            "grid-map-meta",
+            "grid-map-figure",
         ]
         for component_id in expected_ids:
             self.assertIn(component_id, by_id)
@@ -94,8 +100,14 @@ class DashboardLayoutNavigationTests(unittest.TestCase):
             "public-menu-overlay",
             "public-menu-link-status",
             "public-menu-link-plots",
+            "public-menu-link-grid-map",
             "page-public-status",
             "page-public-plots",
+            "page-public-grid-map",
+            "public-grid-map-status",
+            "public-grid-map-summary",
+            "public-grid-map-meta",
+            "public-grid-map-figure",
         ]
         for component_id in expected_ids:
             self.assertIn(component_id, by_id)

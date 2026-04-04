@@ -13,6 +13,7 @@ class DashboardNavigationTests(unittest.TestCase):
         self.assertEqual(normalize_private_route(None), "/status")
         self.assertEqual(normalize_private_route("/"), "/status")
         self.assertEqual(normalize_private_route("/status"), "/status")
+        self.assertEqual(normalize_private_route("/grid-map"), "/grid-map")
         self.assertEqual(normalize_private_route("/manual-schedule/"), "/manual-schedule")
         self.assertEqual(normalize_private_route("/unknown"), "/status")
 
@@ -20,6 +21,7 @@ class DashboardNavigationTests(unittest.TestCase):
         self.assertEqual(normalize_public_route(""), "/status")
         self.assertEqual(normalize_public_route("/"), "/status")
         self.assertEqual(normalize_public_route("/plots"), "/plots")
+        self.assertEqual(normalize_public_route("/grid-map"), "/grid-map")
         self.assertEqual(normalize_public_route("/plots/"), "/plots")
         self.assertEqual(normalize_public_route("/api-schedule"), "/status")
 

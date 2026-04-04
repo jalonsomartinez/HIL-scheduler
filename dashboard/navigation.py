@@ -3,6 +3,7 @@
 PRIVATE_ROUTES = {
     "/status",
     "/plots",
+    "/grid-map",
     "/manual-schedule",
     "/api-schedule",
     "/logs",
@@ -11,6 +12,7 @@ PRIVATE_ROUTES = {
 PUBLIC_ROUTES = {
     "/status",
     "/plots",
+    "/grid-map",
 }
 
 PRIVATE_DEFAULT_ROUTE = "/status"
