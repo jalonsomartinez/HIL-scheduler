@@ -9,6 +9,7 @@ from dash import dcc, html
 
 def build_grid_map_page(*, prefix: str, title: str = "Grid Map"):
     graph_id = f"{prefix}-grid-map-figure" if prefix else "grid-map-figure"
+    render_state_id = f"{prefix}-grid-map-render-state" if prefix else "grid-map-render-state"
     summary_id = f"{prefix}-grid-map-summary" if prefix else "grid-map-summary"
     meta_id = f"{prefix}-grid-map-meta" if prefix else "grid-map-meta"
     status_id = f"{prefix}-grid-map-status" if prefix else "grid-map-status"
@@ -16,6 +17,7 @@ def build_grid_map_page(*, prefix: str, title: str = "Grid Map"):
         className="card",
         children=[
             html.H3(title),
+            dcc.Store(id=render_state_id, data=None),
             html.Div(id=status_id, className="status-text"),
             html.Div(id=summary_id, className="grid-map-summary-grid"),
             html.Div(id=meta_id, className="grid-map-meta-block"),
@@ -78,7 +80,7 @@ def build_grid_map_status_text(runtime_state):
     error_text = str(runtime_state.get("last_error") or runtime_state.get("topology_error") or "").strip()
     status_text = (
         f"Grid Map Runtime: state={state} | topology_ready={topology_ready} | "
-        f"stale={stale} | mode={coordinate_mode} | basemap={map_background_enabled}"
+        f"stale={stale} | mode={coordinate_mode} | basemap={map_background_enabled} | map_refresh=static"
     )
     if error_text:
         status_text += f" | error={error_text}"

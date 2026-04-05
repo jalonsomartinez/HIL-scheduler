@@ -12,6 +12,7 @@ import importlib
 import json
 import logging
 import math
+import re
 from typing import Any
 
 import pandas as pd
@@ -27,6 +28,18 @@ GRID_MAP_STATUS_KEY = "grid_map_runtime"
 GRID_MAP_SOURCE_CRS = "EPSG:32630"
 GRID_MAP_TARGET_CRS = "EPSG:4326"
 GRID_MAP_MAP_STYLE = "open-street-map"
+GRID_MAP_LINE_WARNING_LIMIT_PCT = 80.0
+GRID_MAP_LINE_HOVER_MARKER_SIZE = 16
+GRID_MAP_LINE_HOVER_MARKER_COLOR = "rgba(47,91,78,0.12)"
+
+GRID_MAP_TRACE_ROLE_LINE_NORMAL = "line_normal"
+GRID_MAP_TRACE_ROLE_LINE_WARNING = "line_warning"
+GRID_MAP_TRACE_ROLE_LINE_OVERLOADED = "line_overloaded"
+GRID_MAP_TRACE_ROLE_TRAFO = "trafo"
+GRID_MAP_TRACE_ROLE_LINE_HOVER = "line_hover"
+GRID_MAP_TRACE_ROLE_BUS = "bus"
+
+GRID_MAP_LINE_BUCKETS = ("normal", "warning", "overloaded")
 
 _SIMULATOR_MODULE = None
 
@@ -60,6 +73,10 @@ def default_grid_map_runtime(period_s: float) -> dict[str, Any]:
         "battery_input_q_mvar": None,
         "summary": None,
         "dynamic_payload": None,
+        "initial_figure": None,
+        "trace_index_meta": None,
+        "topology_revision": None,
+        "dynamic_revision": 0,
         "coordinate_mode": "schematic",
         "source_crs": None,
         "target_crs": None,
@@ -251,6 +268,10 @@ def _parse_line_geodata(net: Any, bus_coords: dict[int, tuple[float, float]]) ->
 
 def _normalize_geojson_components_for_convert_crs(net: Any) -> None:
     bus_df = getattr(net, "bus", None)
+    if not isinstance(getattr(net, "bus_geodata", None), pd.DataFrame):
+        net.bus_geodata = pd.DataFrame(columns=["x", "y"])
+    if not isinstance(getattr(net, "line_geodata", None), pd.DataFrame):
+        net.line_geodata = pd.DataFrame(columns=["coords"])
     if isinstance(bus_df, pd.DataFrame) and not bus_df.empty and "geo" in bus_df.columns:
         bus_rows = []
         bus_index = []
@@ -328,8 +349,47 @@ def _parse_trafo_paths(net: Any, bus_coords: dict[int, tuple[float, float]]) -> 
 def _line_center(path: list[tuple[float, float]]) -> tuple[float, float]:
     if not path:
         return (0.0, 0.0)
-    point = path[len(path) // 2]
-    return float(point[0]), float(point[1])
+    if len(path) == 1:
+        point = path[0]
+        return float(point[0]), float(point[1])
+
+    total_length = 0.0
+    segments: list[tuple[tuple[float, float], tuple[float, float], float]] = []
+    previous_point = path[0]
+    for current_point in path[1:]:
+        dx = float(current_point[0]) - float(previous_point[0])
+        dy = float(current_point[1]) - float(previous_point[1])
+        segment_length = math.hypot(dx, dy)
+        segments.append((previous_point, current_point, segment_length))
+        total_length += segment_length
+        previous_point = current_point
+
+    if total_length <= 0.0:
+        xs = [float(point[0]) for point in path]
+        ys = [float(point[1]) for point in path]
+        return float(sum(xs) / len(xs)), float(sum(ys) / len(ys))
+
+    target_length = total_length / 2.0
+    traversed_length = 0.0
+    for start_point, end_point, segment_length in segments:
+        if traversed_length + segment_length < target_length:
+            traversed_length += segment_length
+            continue
+        if segment_length <= 0.0:
+            return float(end_point[0]), float(end_point[1])
+        ratio = (target_length - traversed_length) / segment_length
+        x = float(start_point[0]) + (float(end_point[0]) - float(start_point[0])) * ratio
+        y = float(start_point[1]) + (float(end_point[1]) - float(start_point[1])) * ratio
+        return float(x), float(y)
+
+    last_point = path[-1]
+    return float(last_point[0]), float(last_point[1])
+
+
+def _prepare_plot_net_for_pandapower_traces(plot_net: Any) -> Any:
+    prepared_net = copy.deepcopy(plot_net)
+    _normalize_geojson_components_for_convert_crs(prepared_net)
+    return prepared_net
 
 
 def _has_bus_geodata(net: Any) -> bool:
@@ -370,59 +430,823 @@ def _center_for_bounds(bounds: dict[str, float] | None) -> dict[str, float] | No
     }
 
 
-def _build_initial_plotly_figure(net: Any) -> dict[str, Any] | None:
-    try:
-        from pandapower.plotting import create_generic_coordinates
-        from pandapower.plotting.plotly import create_bus_trace, create_line_trace, create_trafo_trace, draw_traces
-    except Exception as exc:
-        logging.warning("Grid map: pandapower plotly helpers unavailable: %s", exc)
+def _geojson_point(point: tuple[float, float]) -> str:
+    return json.dumps({"type": "Point", "coordinates": [float(point[0]), float(point[1])]})
+
+
+def _geojson_linestring(path: list[tuple[float, float]]) -> str:
+    return json.dumps({"type": "LineString", "coordinates": [[float(x), float(y)] for x, y in list(path or [])]})
+
+
+def _prepare_plot_net(
+    net: Any,
+    *,
+    bus_coords: dict[int, tuple[float, float]],
+    line_paths: dict[int, list[tuple[float, float]]],
+) -> Any:
+    plot_net = copy.deepcopy(net)
+
+    if isinstance(getattr(plot_net, "bus", None), pd.DataFrame):
+        plot_net.bus = plot_net.bus.copy()
+        plot_net.bus["geo"] = pd.NA
+        for bus_index, point in bus_coords.items():
+            if bus_index in plot_net.bus.index:
+                plot_net.bus.at[bus_index, "geo"] = _geojson_point(point)
+        plot_net.bus_geodata = pd.DataFrame(
+            [{"x": float(point[0]), "y": float(point[1])} for _, point in sorted(bus_coords.items())],
+            index=[int(index) for index in sorted(bus_coords.keys())],
+        )
+
+    if isinstance(getattr(plot_net, "line", None), pd.DataFrame):
+        plot_net.line = plot_net.line.copy()
+        plot_net.line["geo"] = pd.NA
+        for line_index, path in line_paths.items():
+            if line_index in plot_net.line.index and len(path) >= 2:
+                plot_net.line.at[line_index, "geo"] = _geojson_linestring(path)
+        plot_net.line_geodata = pd.DataFrame(
+            [{"coords": [(float(point[0]), float(point[1])) for point in path]} for _, path in sorted(line_paths.items()) if len(path) >= 2],
+            index=[int(index) for index, path in sorted(line_paths.items()) if len(path) >= 2],
+        )
+
+    return plot_net
+
+
+def _trace_index_meta_from_data(trace_data: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    meta = []
+    for index, trace in enumerate(list(trace_data or [])):
+        trace_dict = dict(trace or {})
+        name = str(trace_dict.get("name") or "")
+        mode = str(trace_dict.get("mode") or "")
+        text_value = trace_dict.get("text")
+        if isinstance(text_value, str):
+            text_str = text_value
+        elif text_value is None:
+            text_str = ""
+        else:
+            try:
+                text_str = " ".join(str(item) for item in list(text_value))
+            except TypeError:
+                text_str = str(text_value)
+        role = None
+        element_index = None
+        if name == "Lines" and mode == "lines":
+            role = "line"
+            match = re.search(r"Line\s+(\d+)", text_str)
+            if match:
+                element_index = int(match.group(1))
+        elif name == "Transformers" and mode == "lines":
+            role = "trafo"
+            match = re.search(r"Transformer\s+(\d+)", text_str)
+            if match:
+                element_index = int(match.group(1))
+        elif name == "Buses" and mode == "markers":
+            role = "bus"
+        elif mode == "markers" and (name == "edge_center" or name.endswith("-center")):
+            if "Transformer" in text_str:
+                role = "trafo_hover"
+            else:
+                role = "line_hover"
+        meta.append(
+            {
+                "index": int(index),
+                "type": str(trace_dict.get("type") or ""),
+                "name": name,
+                "mode": mode,
+                "role": role,
+                "element_index": element_index,
+            }
+        )
+    return meta
+
+
+def _default_dynamic_payload_for_topology(topology_cache: dict[str, Any]) -> dict[str, Any]:
+    _ = topology_cache
+    return {"bus": {}, "line": {}, "trafo": {}}
+
+
+def _trace_role_groups(
+    topology_cache: dict[str, Any],
+    trace_index_meta: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    line_trace_by_element = {}
+    trafo_trace_by_element = {}
+    line_hover_trace_indices = []
+    trafo_hover_trace_indices = []
+    bus_trace_index = None
+
+    for item in list(trace_index_meta or []):
+        trace_index = int(item.get("index", -1))
+        if trace_index < 0:
+            continue
+        role = str(item.get("role") or "")
+        element_index = item.get("element_index")
+        if role == "line" and element_index is not None:
+            line_trace_by_element[int(element_index)] = trace_index
+        elif role == "trafo" and element_index is not None:
+            trafo_trace_by_element[int(element_index)] = trace_index
+        elif role == "line_hover":
+            line_hover_trace_indices.append(trace_index)
+        elif role == "trafo_hover":
+            trafo_hover_trace_indices.append(trace_index)
+        elif role == "bus":
+            bus_trace_index = trace_index
+
+    return {
+        "line_trace_indices": [
+            int(line_trace_by_element[element_index])
+            for element_index in list(topology_cache.get("line_order", []) or [])
+            if int(element_index) in line_trace_by_element
+        ],
+        "line_hover_trace_indices": [int(index) for index in line_hover_trace_indices],
+        "trafo_trace_indices": [
+            int(trafo_trace_by_element[element_index])
+            for element_index in list(topology_cache.get("trafo_order", []) or [])
+            if int(element_index) in trafo_trace_by_element
+        ],
+        "trafo_hover_trace_indices": [int(index) for index in trafo_hover_trace_indices],
+        "bus_trace_index": None if bus_trace_index is None else int(bus_trace_index),
+    }
+
+
+def build_grid_map_live_style_payload(
+    topology_cache: dict[str, Any] | None,
+    trace_index_meta: list[dict[str, Any]] | None,
+    dynamic_payload: dict[str, Any] | None,
+    *,
+    topology_revision: Any,
+    dynamic_revision: int,
+) -> dict[str, Any] | None:
+    if not isinstance(topology_cache, dict) or not isinstance(trace_index_meta, list) or not trace_index_meta:
         return None
 
+    dynamic_payload = dict(dynamic_payload or {})
+    bus_dynamic = dict(dynamic_payload.get("bus", {}) or {})
+    line_dynamic = dict(dynamic_payload.get("line", {}) or {})
+    trafo_dynamic = dict(dynamic_payload.get("trafo", {}) or {})
+    groups = _trace_role_groups(topology_cache, trace_index_meta)
+
+    bus_colors = []
+    bus_text = []
+    for bus_index in list(topology_cache.get("bus_order", []) or []):
+        bus_state = dict(bus_dynamic.get(str(bus_index), {}) or {})
+        vm_pu = _coerce_float(bus_state.get("vm_pu"))
+        bus_colors.append(_voltage_color(vm_pu))
+        bus_text.append(str(bus_state.get("hover") or f"Bus {bus_index}<br>Voltage=n/a"))
+
+    line_colors = []
+    line_text = []
+    line_hover_text = []
+    for line_index in list(topology_cache.get("line_order", []) or []):
+        line_state = dict(line_dynamic.get(str(line_index), {}) or {})
+        line_colors.append(_line_color(_coerce_float(line_state.get("loading_pct"))))
+        hover_text = str(line_state.get("hover") or f"Line {line_index}<br>Loading=n/a")
+        line_text.append(hover_text)
+        line_hover_text.append(hover_text)
+
+    trafo_colors = []
+    trafo_text = []
+    trafo_hover_text = []
+    for trafo_index in list(topology_cache.get("trafo_order", []) or []):
+        trafo_state = dict(trafo_dynamic.get(str(trafo_index), {}) or {})
+        trafo_colors.append(_line_color(_coerce_float(trafo_state.get("loading_pct"))))
+        hover_text = str(trafo_state.get("hover") or f"Transformer {trafo_index}<br>Loading=n/a")
+        trafo_text.append(hover_text)
+        trafo_hover_text.append(hover_text)
+
+    return {
+        "topology_revision": topology_revision,
+        "dynamic_revision": int(dynamic_revision or 0),
+        "line_trace_indices": list(groups.get("line_trace_indices", []) or []),
+        "line_colors": list(line_colors),
+        "line_text": list(line_text),
+        "line_hover_trace_indices": list(groups.get("line_hover_trace_indices", []) or []),
+        "line_hover_text_batches": [list(line_hover_text) for _ in list(groups.get("line_hover_trace_indices", []) or [])],
+        "trafo_trace_indices": list(groups.get("trafo_trace_indices", []) or []),
+        "trafo_colors": list(trafo_colors),
+        "trafo_text": list(trafo_text),
+        "trafo_hover_trace_indices": list(groups.get("trafo_hover_trace_indices", []) or []),
+        "trafo_hover_text_batches": [list(trafo_hover_text) for _ in list(groups.get("trafo_hover_trace_indices", []) or [])],
+        "bus_trace_index": groups.get("bus_trace_index"),
+        "bus_colors": list(bus_colors),
+        "bus_text": list(bus_text),
+    }
+
+
+def _apply_dynamic_payload_to_figure_dict(
+    figure_dict: dict[str, Any] | None,
+    topology_cache: dict[str, Any],
+    trace_index_meta: list[dict[str, Any]] | None,
+    dynamic_payload: dict[str, Any] | None,
+    *,
+    topology_revision: Any,
+    dynamic_revision: int,
+    title: str,
+    uirevision_key: str,
+) -> dict[str, Any]:
+    figure_dict = copy.deepcopy(figure_dict) if isinstance(figure_dict, dict) else {"data": [], "layout": {}}
+    data = list(figure_dict.get("data", []) or [])
+    layout = dict(figure_dict.get("layout", {}) or {})
+
+    dynamic_payload = dict(dynamic_payload or {})
+    bus_dynamic = dict(dynamic_payload.get("bus", {}) or {})
+    line_dynamic = dict(dynamic_payload.get("line", {}) or {})
+    trafo_dynamic = dict(dynamic_payload.get("trafo", {}) or {})
+
+    bus_colors = []
+    bus_text = []
+    for bus_index in list(topology_cache.get("bus_order", []) or []):
+        bus_state = dict(bus_dynamic.get(str(bus_index), {}) or {})
+        bus_colors.append(_voltage_color(_coerce_float(bus_state.get("vm_pu"))))
+        bus_text.append(str(bus_state.get("hover") or f"Bus {bus_index}<br>Voltage=n/a"))
+
+    line_text_by_index = {}
+    for line_index in list(topology_cache.get("line_order", []) or []):
+        line_state = dict(line_dynamic.get(str(line_index), {}) or {})
+        line_text_by_index[int(line_index)] = str(line_state.get("hover") or f"Line {line_index}<br>Loading=n/a")
+
+    trafo_text_by_index = {}
+    for trafo_index in list(topology_cache.get("trafo_order", []) or []):
+        trafo_state = dict(trafo_dynamic.get(str(trafo_index), {}) or {})
+        trafo_text_by_index[int(trafo_index)] = str(
+            trafo_state.get("hover") or f"Transformer {trafo_index}<br>Loading=n/a"
+        )
+
+    line_hover_text = [line_text_by_index[int(line_index)] for line_index in list(topology_cache.get("line_order", []) or [])]
+    trafo_hover_text = [
+        trafo_text_by_index[int(trafo_index)] for trafo_index in list(topology_cache.get("trafo_order", []) or [])
+    ]
+
+    for item in list(trace_index_meta or []):
+        trace_index = int(item.get("index", -1))
+        if trace_index < 0 or trace_index >= len(data):
+            continue
+        trace = dict(data[trace_index] or {})
+        role = str(item.get("role") or "")
+        element_index = item.get("element_index")
+        if role == "line" and element_index is not None:
+            line = dict(trace.get("line", {}) or {})
+            line_state = dict(line_dynamic.get(str(int(element_index)), {}) or {})
+            line["color"] = _line_color(_coerce_float(line_state.get("loading_pct")))
+            trace["line"] = line
+            trace["text"] = line_text_by_index.get(int(element_index), f"Line {int(element_index)}<br>Loading=n/a")
+        elif role == "trafo" and element_index is not None:
+            line = dict(trace.get("line", {}) or {})
+            trafo_state = dict(trafo_dynamic.get(str(int(element_index)), {}) or {})
+            line["color"] = _line_color(_coerce_float(trafo_state.get("loading_pct")))
+            trace["line"] = line
+            trace["text"] = trafo_text_by_index.get(
+                int(element_index),
+                f"Transformer {int(element_index)}<br>Loading=n/a",
+            )
+        elif role == "line_hover":
+            trace["text"] = list(line_hover_text)
+        elif role == "trafo_hover":
+            trace["text"] = list(trafo_hover_text)
+        elif role == "bus":
+            marker = dict(trace.get("marker", {}) or {})
+            marker["color"] = list(bus_colors)
+            trace["marker"] = marker
+            trace["text"] = list(bus_text)
+        data[trace_index] = trace
+
+    layout["title"] = {"text": title}
+    layout["uirevision"] = uirevision_key
+    layout["meta"] = {
+        "grid_map_topology_revision": topology_revision,
+        "grid_map_dynamic_revision": int(dynamic_revision or 0),
+    }
+    figure_dict["data"] = data
+    figure_dict["layout"] = layout
+    return figure_dict
+
+
+def _render_primary_key(topology_cache: dict[str, Any]) -> str:
+    return "lon" if bool(topology_cache.get("map_background_enabled", False)) else "x"
+
+
+def _render_secondary_key(topology_cache: dict[str, Any]) -> str:
+    return "lat" if bool(topology_cache.get("map_background_enabled", False)) else "y"
+
+
+def _render_bus_points(topology_cache: dict[str, Any]) -> dict[str, list[float]]:
+    if bool(topology_cache.get("map_background_enabled", False)):
+        return dict(topology_cache.get("geographic_bus_coords", {}) or {})
+    return dict(topology_cache.get("bus_coords", {}) or {})
+
+
+def _render_line_paths(topology_cache: dict[str, Any]) -> dict[str, list[list[float]]]:
+    if bool(topology_cache.get("map_background_enabled", False)):
+        return dict(topology_cache.get("geographic_line_paths", {}) or {})
+    return dict(topology_cache.get("line_paths", {}) or {})
+
+
+def _render_trafo_paths(topology_cache: dict[str, Any]) -> dict[str, list[list[float]]]:
+    if bool(topology_cache.get("map_background_enabled", False)):
+        return dict(topology_cache.get("geographic_trafo_paths", {}) or {})
+    return dict(topology_cache.get("trafo_paths", {}) or {})
+
+
+def _trace_roles() -> list[str]:
+    return [
+        GRID_MAP_TRACE_ROLE_LINE_NORMAL,
+        GRID_MAP_TRACE_ROLE_LINE_WARNING,
+        GRID_MAP_TRACE_ROLE_LINE_OVERLOADED,
+        GRID_MAP_TRACE_ROLE_TRAFO,
+        GRID_MAP_TRACE_ROLE_LINE_HOVER,
+        GRID_MAP_TRACE_ROLE_BUS,
+    ]
+
+
+def _default_trace_index_meta() -> list[dict[str, Any]]:
+    return [{"index": idx, "role": role} for idx, role in enumerate(_trace_roles())]
+
+
+def _bucket_trace_role(bucket_name: str) -> str:
+    return {
+        "normal": GRID_MAP_TRACE_ROLE_LINE_NORMAL,
+        "warning": GRID_MAP_TRACE_ROLE_LINE_WARNING,
+        "overloaded": GRID_MAP_TRACE_ROLE_LINE_OVERLOADED,
+    }[str(bucket_name)]
+
+
+def _line_bucket_name(loading_pct: float | None) -> str:
+    if loading_pct is None:
+        return "normal"
+    if float(loading_pct) > GRID_MAP_LINE_LOADING_LIMIT_PCT:
+        return "overloaded"
+    if float(loading_pct) >= GRID_MAP_LINE_WARNING_LIMIT_PCT:
+        return "warning"
+    return "normal"
+
+
+def _line_bucket_style(bucket_name: str) -> dict[str, Any]:
+    bucket = str(bucket_name)
+    if bucket == "overloaded":
+        return {"color": "#d93838", "width": 3.5}
+    if bucket == "warning":
+        return {"color": "#d28c00", "width": 2.5}
+    return {"color": "#6d8f82", "width": 1.8}
+
+
+def _bus_marker_size(bus_index: int, topology_cache: dict[str, Any]) -> float:
+    battery_bus = ((topology_cache.get("metadata", {}) or {}).get("battery_bus"))
+    if bool(topology_cache.get("map_background_enabled", False)):
+        return 14.0 if int(bus_index) == battery_bus else 10.0
+    return 10.0 if int(bus_index) == battery_bus else 7.0
+
+
+def _line_center_point(topology_cache: dict[str, Any], line_index: int) -> tuple[float, float]:
+    centers = dict(topology_cache.get("line_center_points", {}) or {})
+    point = centers.get(str(line_index)) or [0.0, 0.0]
+    return float(point[0]), float(point[1])
+
+
+def _empty_line_bucket_payload(topology_cache: dict[str, Any]) -> dict[str, Any]:
+    return {
+        _render_primary_key(topology_cache): [],
+        _render_secondary_key(topology_cache): [],
+    }
+
+
+def _empty_line_hover_payload(topology_cache: dict[str, Any]) -> dict[str, Any]:
+    return {
+        _render_primary_key(topology_cache): [],
+        _render_secondary_key(topology_cache): [],
+        "text": [],
+    }
+
+
+def _append_line_path_to_bucket(bucket_payload: dict[str, Any], topology_cache: dict[str, Any], line_index: int) -> None:
+    primary_key = _render_primary_key(topology_cache)
+    secondary_key = _render_secondary_key(topology_cache)
+    line_paths = _render_line_paths(topology_cache)
+    path = list(line_paths.get(str(line_index)) or [])
+    if len(path) < 2:
+        return
+    bucket_payload[primary_key].extend([float(point[0]) for point in path])
+    bucket_payload[primary_key].append(None)
+    bucket_payload[secondary_key].extend([float(point[1]) for point in path])
+    bucket_payload[secondary_key].append(None)
+
+
+def _build_dynamic_trace_payload(topology_cache: dict[str, Any], bus_dynamic: dict[str, Any], line_dynamic: dict[str, Any]) -> dict[str, Any]:
+    bus_trace = {
+        "color": [],
+        "size": [],
+        "text": [],
+    }
+    for bus_index in list(topology_cache.get("bus_order", []) or []):
+        bus_state = dict(bus_dynamic.get(str(bus_index), {}) or {})
+        vm_pu = _coerce_float(bus_state.get("vm_pu"))
+        bus_trace["color"].append(_voltage_color(vm_pu))
+        bus_trace["size"].append(_bus_marker_size(bus_index, topology_cache))
+        bus_trace["text"].append(str(bus_state.get("hover") or f"Bus {bus_index}<br>Voltage=n/a"))
+
+    line_traces = {bucket_name: _empty_line_bucket_payload(topology_cache) for bucket_name in GRID_MAP_LINE_BUCKETS}
+    hover_trace = _empty_line_hover_payload(topology_cache)
+    for line_index in list(topology_cache.get("line_hover_order", []) or []):
+        line_state = dict(line_dynamic.get(str(line_index), {}) or {})
+        loading_pct = _coerce_float(line_state.get("loading_pct"))
+        bucket_name = _line_bucket_name(loading_pct)
+        _append_line_path_to_bucket(line_traces[bucket_name], topology_cache, line_index)
+        center_primary, center_secondary = _line_center_point(topology_cache, line_index)
+        hover_trace[_render_primary_key(topology_cache)].append(center_primary)
+        hover_trace[_render_secondary_key(topology_cache)].append(center_secondary)
+        hover_trace["text"].append(str(line_state.get("hover") or f"Line {line_index}<br>Loading=n/a"))
+
+    return {
+        "bus_trace": bus_trace,
+        "line_traces": line_traces,
+        "line_hover_trace": hover_trace,
+    }
+
+
+def _build_static_trace_dicts(topology_cache: dict[str, Any], dynamic_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    primary_key = _render_primary_key(topology_cache)
+    secondary_key = _render_secondary_key(topology_cache)
+    trace_roles = dict(topology_cache.get("trace_roles", {}) or {})
+    bus_points = _render_bus_points(topology_cache)
+    bus_primary = []
+    bus_secondary = []
+    for bus_index in list(topology_cache.get("bus_order", []) or []):
+        point = list(bus_points.get(str(bus_index)) or [])
+        if len(point) < 2:
+            continue
+        bus_primary.append(float(point[0]))
+        bus_secondary.append(float(point[1]))
+
+    trafo_primary = []
+    trafo_secondary = []
+    for trafo_index in list(topology_cache.get("trafo_order", []) or []):
+        path = list(_render_trafo_paths(topology_cache).get(str(trafo_index)) or [])
+        if len(path) < 2:
+            continue
+        trafo_primary.extend([float(point[0]) for point in path])
+        trafo_primary.append(None)
+        trafo_secondary.extend([float(point[1]) for point in path])
+        trafo_secondary.append(None)
+    if trafo_primary and trafo_primary[-1] is None:
+        trafo_primary.pop()
+    if trafo_secondary and trafo_secondary[-1] is None:
+        trafo_secondary.pop()
+
+    line_traces = dict(dynamic_payload.get("line_traces", {}) or {})
+    bus_trace = dict(dynamic_payload.get("bus_trace", {}) or {})
+    hover_trace = dict(dynamic_payload.get("line_hover_trace", {}) or {})
+
+    line_trace_type = "scattermap" if bool(topology_cache.get("map_background_enabled", False)) else "scatter"
+    bus_marker = dict(size=list(bus_trace.get("size", []) or []), color=list(bus_trace.get("color", []) or []))
+    if line_trace_type == "scatter":
+        bus_marker["line"] = dict(color="#ffffff", width=1)
+    else:
+        bus_marker["opacity"] = 0.95
+
+    traces_by_role = {
+        GRID_MAP_TRACE_ROLE_LINE_NORMAL: {
+            "type": line_trace_type,
+            "mode": "lines",
+            primary_key: list((line_traces.get("normal", {}) or {}).get(primary_key, []) or []),
+            secondary_key: list((line_traces.get("normal", {}) or {}).get(secondary_key, []) or []),
+            "hoverinfo": "skip",
+            "name": "Lines",
+            "showlegend": False,
+            "line": dict(_line_bucket_style("normal")),
+        },
+        GRID_MAP_TRACE_ROLE_LINE_WARNING: {
+            "type": line_trace_type,
+            "mode": "lines",
+            primary_key: list((line_traces.get("warning", {}) or {}).get(primary_key, []) or []),
+            secondary_key: list((line_traces.get("warning", {}) or {}).get(secondary_key, []) or []),
+            "hoverinfo": "skip",
+            "name": "Lines",
+            "showlegend": False,
+            "line": dict(_line_bucket_style("warning")),
+        },
+        GRID_MAP_TRACE_ROLE_LINE_OVERLOADED: {
+            "type": line_trace_type,
+            "mode": "lines",
+            primary_key: list((line_traces.get("overloaded", {}) or {}).get(primary_key, []) or []),
+            secondary_key: list((line_traces.get("overloaded", {}) or {}).get(secondary_key, []) or []),
+            "hoverinfo": "skip",
+            "name": "Lines",
+            "showlegend": False,
+            "line": dict(_line_bucket_style("overloaded")),
+        },
+        GRID_MAP_TRACE_ROLE_TRAFO: {
+            "type": line_trace_type,
+            "mode": "lines",
+            primary_key: trafo_primary,
+            secondary_key: trafo_secondary,
+            "hoverinfo": "skip",
+            "name": "Transformers",
+            "showlegend": False,
+            "line": dict(color="#2f5b4e", width=3),
+        },
+        GRID_MAP_TRACE_ROLE_LINE_HOVER: {
+            "type": line_trace_type,
+            "mode": "markers",
+            primary_key: list(hover_trace.get(primary_key, []) or []),
+            secondary_key: list(hover_trace.get(secondary_key, []) or []),
+            "hoverinfo": "text",
+            "text": list(hover_trace.get("text", []) or []),
+            "hovertemplate": "%{text}<extra></extra>",
+            "name": "Line Hover",
+            "showlegend": False,
+            "marker": dict(
+                size=GRID_MAP_LINE_HOVER_MARKER_SIZE,
+                color=GRID_MAP_LINE_HOVER_MARKER_COLOR,
+            ),
+        },
+        GRID_MAP_TRACE_ROLE_BUS: {
+            "type": line_trace_type,
+            "mode": "markers",
+            primary_key: bus_primary,
+            secondary_key: bus_secondary,
+            "hoverinfo": "text",
+            "text": list(bus_trace.get("text", []) or []),
+            "hovertemplate": "%{text}<extra></extra>",
+            "name": "Buses",
+            "showlegend": False,
+            "marker": bus_marker,
+        },
+    }
+    return [traces_by_role[role] for role in _trace_roles()]
+
+
+def _build_low_trace_figure_dict(
+    topology_cache: dict[str, Any],
+    dynamic_payload: dict[str, Any],
+    *,
+    title: str,
+    uirevision_key: str,
+    topology_revision: Any,
+    dynamic_revision: int,
+) -> dict[str, Any]:
+    plot_theme = dict(DEFAULT_PLOT_THEME)
+    data = _build_static_trace_dicts(topology_cache, dynamic_payload)
+    layout = {
+        "title": {"text": title},
+        "height": 720,
+        "margin": {"l": 20, "r": 20, "t": 50, "b": 20},
+        "paper_bgcolor": plot_theme["paper_bg"],
+        "font": {"color": plot_theme["text"], "family": plot_theme["font_family"], "size": 12},
+        "uirevision": uirevision_key,
+        "meta": {
+            "grid_map_topology_revision": topology_revision,
+            "grid_map_dynamic_revision": int(dynamic_revision or 0),
+        },
+    }
+    if bool(topology_cache.get("map_background_enabled", False)):
+        center = dict(topology_cache.get("geographic_center", {}) or {})
+        layout["map"] = {
+            "style": GRID_MAP_MAP_STYLE,
+            "center": {
+                "lon": _coerce_float(center.get("lon")) or 0.0,
+                "lat": _coerce_float(center.get("lat")) or 0.0,
+            },
+            "zoom": _map_zoom_for_bounds(dict(topology_cache.get("geographic_bounds", {}) or {})),
+        }
+    else:
+        bounds = dict(topology_cache.get("bounds", {}) or {})
+        x_min = _coerce_float(bounds.get("x_min"))
+        x_max = _coerce_float(bounds.get("x_max"))
+        y_min = _coerce_float(bounds.get("y_min"))
+        y_max = _coerce_float(bounds.get("y_max"))
+        x_span = 1.0 if x_min is None or x_max is None else max(1e-9, x_max - x_min)
+        y_span = 1.0 if y_min is None or y_max is None else max(1e-9, y_max - y_min)
+        x_pad = x_span * 0.05
+        y_pad = y_span * 0.05
+        layout["plot_bgcolor"] = "#f8fcfa"
+        layout["xaxis"] = {
+            "visible": False,
+            "showgrid": False,
+            "zeroline": False,
+            "range": None if x_min is None or x_max is None else [x_min - x_pad, x_max + x_pad],
+        }
+        layout["yaxis"] = {
+            "visible": False,
+            "showgrid": False,
+            "zeroline": False,
+            "scaleanchor": "x",
+            "scaleratio": 1,
+            "range": None if y_min is None or y_max is None else [y_min - y_pad, y_max + y_pad],
+        }
+    return {"data": data, "layout": layout}
+
+
+def _build_empty_grid_map_figure_dict(*, title: str, uirevision_key: str, topology_revision: Any, dynamic_revision: int) -> dict[str, Any]:
+    plot_theme = dict(DEFAULT_PLOT_THEME)
+    return {
+        "data": [],
+        "layout": {
+            "title": {"text": title},
+            "height": 720,
+            "paper_bgcolor": plot_theme["paper_bg"],
+            "plot_bgcolor": plot_theme["paper_bg"],
+            "font": {"color": plot_theme["text"], "family": plot_theme["font_family"]},
+            "margin": {"l": 20, "r": 20, "t": 50, "b": 20},
+            "uirevision": uirevision_key,
+            "meta": {
+                "grid_map_topology_revision": topology_revision,
+                "grid_map_dynamic_revision": int(dynamic_revision or 0),
+            },
+            "annotations": [
+                {
+                    "text": "Grid topology unavailable.",
+                    "x": 0.5,
+                    "y": 0.5,
+                    "xref": "paper",
+                    "yref": "paper",
+                    "showarrow": False,
+                }
+            ],
+            "xaxis": {"visible": False},
+            "yaxis": {"visible": False},
+        },
+    }
+
+
+def _build_pandapower_traces(
+    topology_cache: dict[str, Any],
+    dynamic_payload: dict[str, Any] | None,
+) -> list[Any]:
     try:
-        plot_net = copy.deepcopy(net)
-        if not _has_bus_geodata(plot_net):
-            create_generic_coordinates(plot_net, overwrite=False)
+        from pandapower.plotting.plotly import create_bus_trace, create_line_trace, create_trafo_trace, draw_traces
+    except Exception as exc:
+        raise RuntimeError("pandapower plotly helpers unavailable") from exc
 
-        traces = []
-        try:
-            line_trace = create_line_trace(plot_net, lines=plot_net.line.index, use_line_geo=True)
-            if isinstance(line_trace, list):
-                traces.extend(line_trace)
-            elif line_trace is not None:
-                traces.append(line_trace)
-        except TypeError:
-            line_trace = create_line_trace(plot_net, lines=plot_net.line.index)
-            if isinstance(line_trace, list):
-                traces.extend(line_trace)
-            elif line_trace is not None:
-                traces.append(line_trace)
+    source_plot_net = topology_cache.get("plot_net")
+    if source_plot_net is None:
+        raise RuntimeError("prepared plot net is unavailable")
+    plot_net = _prepare_plot_net_for_pandapower_traces(source_plot_net)
 
-        if hasattr(plot_net, "trafo") and isinstance(plot_net.trafo, pd.DataFrame) and not plot_net.trafo.empty:
-            trafo_trace = create_trafo_trace(plot_net, trafos=plot_net.trafo.index)
-            if isinstance(trafo_trace, list):
-                traces.extend(trafo_trace)
-            elif trafo_trace is not None:
-                traces.append(trafo_trace)
+    dynamic_payload = dict(dynamic_payload or {})
+    bus_dynamic = dict(dynamic_payload.get("bus", {}) or {})
+    line_dynamic = dict(dynamic_payload.get("line", {}) or {})
 
-        bus_trace = create_bus_trace(plot_net, buses=plot_net.bus.index)
+    line_order = [int(index) for index in list(topology_cache.get("line_order", []) or [])]
+    bus_order = [int(index) for index in list(topology_cache.get("bus_order", []) or [])]
+    trafo_order = [int(index) for index in list(topology_cache.get("trafo_order", []) or [])]
+
+    line_info = pd.Series(
+        data=[str(dict(line_dynamic.get(str(index), {}) or {}).get("hover") or f"Line {index}") for index in line_order],
+        index=line_order,
+        dtype=object,
+    )
+    line_vals = [_coerce_float(dict(line_dynamic.get(str(index), {}) or {}).get("loading_pct")) or 0.0 for index in line_order]
+
+    bus_info = pd.Series(
+        data=[str(dict(bus_dynamic.get(str(index), {}) or {}).get("hover") or f"Bus {index}") for index in bus_order],
+        index=bus_order,
+        dtype=object,
+    )
+    bus_vals = [_coerce_float(dict(bus_dynamic.get(str(index), {}) or {}).get("vm_pu")) or 1.0 for index in bus_order]
+
+    traces: list[Any] = []
+    if line_order:
+        line_trace = create_line_trace(
+            plot_net,
+            lines=line_order,
+            use_line_geo=True,
+            infofunc=line_info,
+            trace_name="Lines",
+            cmap=True,
+            show_colorbar=False,
+            cmap_vals=line_vals,
+            cmin=0.0,
+            cmax=100.0,
+        )
+        if isinstance(line_trace, list):
+            traces.extend(line_trace)
+        elif line_trace is not None:
+            traces.append(line_trace)
+
+    if trafo_order:
+        trafo_info = pd.Series(
+            data=[f"Transformer {index}" for index in trafo_order],
+            index=trafo_order,
+            dtype=object,
+        )
+        trafo_trace = create_trafo_trace(
+            plot_net,
+            trafos=trafo_order,
+            infofunc=trafo_info,
+            use_line_geo=False,
+            trace_name="Transformers",
+        )
+        if isinstance(trafo_trace, list):
+            traces.extend(trafo_trace)
+        elif trafo_trace is not None:
+            traces.append(trafo_trace)
+
+    if bus_order:
+        bus_trace = create_bus_trace(
+            plot_net,
+            buses=bus_order,
+            infofunc=bus_info,
+            trace_name="Buses",
+            cmap=True,
+            cmap_vals=bus_vals,
+            cmin=GRID_MAP_VOLTAGE_MIN_PU,
+            cmax=GRID_MAP_VOLTAGE_MAX_PU,
+            size=8,
+        )
         if isinstance(bus_trace, list):
             traces.extend(bus_trace)
         elif bus_trace is not None:
             traces.append(bus_trace)
 
-        if not traces:
-            return None
+    return traces
 
-        try:
-            fig = draw_traces(traces, showlegend=False, filename=None, auto_open=False)
-        except TypeError:
-            fig = draw_traces(traces, showlegend=False)
-        if hasattr(fig, "to_dict"):
-            return fig.to_dict()
-        return None
+
+def _build_pandapower_figure_dict(
+    topology_cache: dict[str, Any],
+    dynamic_payload: dict[str, Any] | None,
+    *,
+    title: str,
+    uirevision_key: str,
+    topology_revision: Any,
+    dynamic_revision: int,
+) -> dict[str, Any]:
+    try:
+        from pandapower.plotting.plotly import draw_traces
     except Exception as exc:
-        logging.warning("Grid map: pandapower initial Plotly figure unavailable; falling back to native topology rendering: %s", exc)
-        return None
+        logging.warning("Grid map: pandapower plotly figure builder unavailable: %s", exc)
+        return _build_empty_grid_map_figure_dict(
+            title=title,
+            uirevision_key=uirevision_key,
+            topology_revision=topology_revision,
+            dynamic_revision=dynamic_revision,
+        )
+
+    try:
+        traces = _build_pandapower_traces(topology_cache, dynamic_payload)
+        if not traces:
+            return _build_empty_grid_map_figure_dict(
+                title=title,
+                uirevision_key=uirevision_key,
+                topology_revision=topology_revision,
+                dynamic_revision=dynamic_revision,
+            )
+
+        draw_kwargs = {
+            "showlegend": False,
+            "filename": None,
+            "auto_open": False,
+            "on_map": bool(topology_cache.get("map_background_enabled", False)),
+        }
+        if bool(topology_cache.get("map_background_enabled", False)):
+            draw_kwargs["map_style"] = GRID_MAP_MAP_STYLE
+            draw_kwargs["zoomlevel"] = _map_zoom_for_bounds(dict(topology_cache.get("geographic_bounds", {}) or {}))
+        map_loggers = [
+            logging.getLogger("pandapower.plotting.plotly.mapbox_plot"),
+            logging.getLogger("pandapower.plotting.plotly.traces"),
+            logging.getLogger("pandapower.plotting.plotly.draw_layers"),
+        ]
+        previous_map_logger_levels = [logger.level for logger in map_loggers]
+        if bool(topology_cache.get("map_background_enabled", False)):
+            for logger, previous_level in zip(map_loggers, previous_map_logger_levels):
+                logger.setLevel(max(logging.ERROR, previous_level))
+        try:
+            fig = draw_traces(traces, **draw_kwargs)
+        finally:
+            if bool(topology_cache.get("map_background_enabled", False)):
+                for logger, previous_level in zip(map_loggers, previous_map_logger_levels):
+                    logger.setLevel(previous_level)
+        fig_dict = fig.to_dict() if hasattr(fig, "to_dict") else go.Figure(fig).to_dict()
+    except Exception as exc:
+        logging.warning("Grid map: failed to build pandapower figure data: %s", exc)
+        return _build_empty_grid_map_figure_dict(
+            title=title,
+            uirevision_key=uirevision_key,
+            topology_revision=topology_revision,
+            dynamic_revision=dynamic_revision,
+        )
+
+    plot_theme = dict(DEFAULT_PLOT_THEME)
+    layout = dict(fig_dict.get("layout", {}) or {})
+    layout["title"] = {"text": title}
+    layout["height"] = 720
+    layout["margin"] = dict(l=20, r=20, t=50, b=20)
+    layout["paper_bgcolor"] = plot_theme["paper_bg"]
+    layout["font"] = dict(color=plot_theme["text"], family=plot_theme["font_family"], size=12)
+    layout["uirevision"] = uirevision_key
+    layout["meta"] = {
+        "grid_map_topology_revision": topology_revision,
+        "grid_map_dynamic_revision": int(dynamic_revision or 0),
+    }
+    if bool(topology_cache.get("map_background_enabled", False)):
+        map_layout = dict(layout.get("map", {}) or {})
+        center = dict(topology_cache.get("geographic_center", {}) or {})
+        map_layout["style"] = GRID_MAP_MAP_STYLE
+        map_layout["center"] = {
+            "lon": _coerce_float(center.get("lon")) or 0.0,
+            "lat": _coerce_float(center.get("lat")) or 0.0,
+        }
+        map_layout["zoom"] = _map_zoom_for_bounds(dict(topology_cache.get("geographic_bounds", {}) or {}))
+        layout["map"] = map_layout
+    fig_dict["layout"] = layout
+    return fig_dict
 
 
 def build_topology_cache() -> dict[str, Any]:
@@ -496,8 +1320,67 @@ def build_topology_cache() -> dict[str, Any]:
             logging.warning("Grid map: pandapower CRS conversion failed: %s", exc)
             map_background_reason = f"coordinate_conversion_failed:{exc}"
 
+    plot_bus_coords = geographic_bus_coords if map_background_enabled and geographic_bus_coords else bus_coords
+    plot_line_paths = geographic_line_paths if map_background_enabled and geographic_line_paths else line_paths
+    plot_net = _prepare_plot_net(net, bus_coords=plot_bus_coords, line_paths=plot_line_paths)
+    topology_revision = int(pd.Timestamp.utcnow().value)
+    render_line_paths = plot_line_paths
+    line_center_points = {
+        str(index): [float(point[0]), float(point[1])]
+        for index, path in render_line_paths.items()
+        for point in [_line_center(path)]
+    }
+    placeholder_cache = {
+        "plot_net": plot_net,
+        "metadata": metadata,
+        "bus_order": [int(index) for index in sorted(bus_coords.keys())],
+        "line_order": [int(index) for index in sorted(line_paths.keys())],
+        "trafo_order": [int(index) for index in sorted(trafo_paths.keys())],
+        "map_background_enabled": map_background_enabled,
+        "bounds": dict(bounds or {}),
+        "bus_coords": {str(index): [float(point[0]), float(point[1])] for index, point in bus_coords.items()},
+        "line_paths": {
+            str(index): [[float(point[0]), float(point[1])] for point in path]
+            for index, path in line_paths.items()
+        },
+        "trafo_paths": {
+            str(index): [[float(point[0]), float(point[1])] for point in path]
+            for index, path in trafo_paths.items()
+        },
+        "geographic_bounds": dict(geographic_bounds or {}),
+        "geographic_center": dict(geographic_center or {}),
+        "geographic_bus_coords": {
+            str(index): [float(point[0]), float(point[1])] for index, point in geographic_bus_coords.items()
+        },
+        "geographic_line_paths": {
+            str(index): [[float(point[0]), float(point[1])] for point in path]
+            for index, path in geographic_line_paths.items()
+        },
+        "geographic_trafo_paths": {
+            str(index): [[float(point[0]), float(point[1])] for point in path]
+            for index, path in geographic_trafo_paths.items()
+        },
+        "line_center_points": line_center_points,
+        "line_hover_order": [int(index) for index in sorted(line_paths.keys())],
+        "trace_roles": {role: idx for idx, role in enumerate(_trace_roles())},
+        "figure_renderer": "low-trace",
+    }
+    initial_figure = _build_low_trace_figure_dict(
+        placeholder_cache,
+        _build_dynamic_trace_payload(placeholder_cache, {}, {}),
+        title="Distribution Grid Map",
+        uirevision_key="grid-map",
+        topology_revision=topology_revision,
+        dynamic_revision=0,
+    )
+    trace_index_meta = _default_trace_index_meta()
+
     return {
-        "initial_figure": _build_initial_plotly_figure(net),
+        "plot_net": plot_net,
+        "initial_figure": initial_figure,
+        "trace_index_meta": trace_index_meta,
+        "topology_revision": topology_revision,
+        "figure_renderer": "low-trace",
         "metadata": metadata,
         "coordinate_mode": coordinate_mode,
         "source_crs": source_crs,
@@ -512,6 +1395,9 @@ def build_topology_cache() -> dict[str, Any]:
             str(index): [[float(point[0]), float(point[1])] for point in path]
             for index, path in line_paths.items()
         },
+        "line_center_points": dict(line_center_points),
+        "line_hover_order": [int(index) for index in sorted(line_paths.keys())],
+        "trace_roles": {role: idx for idx, role in enumerate(_trace_roles())},
         "trafo_order": [int(index) for index in sorted(trafo_paths.keys())],
         "trafo_paths": {
             str(index): [[float(point[0]), float(point[1])] for point in path]
@@ -541,6 +1427,7 @@ def summarize_topology_cache(topology_cache: dict[str, Any] | None) -> dict[str,
         "line_count": len(topology_cache.get("line_order", [])),
         "trafo_count": len(topology_cache.get("trafo_order", [])),
         "initial_figure_ready": bool(topology_cache.get("initial_figure")),
+        "trace_count": len((topology_cache.get("initial_figure", {}) or {}).get("data", []) if isinstance(topology_cache.get("initial_figure"), dict) else []),
         "coordinate_mode": str(topology_cache.get("coordinate_mode") or "schematic"),
         "source_crs": topology_cache.get("source_crs"),
         "target_crs": topology_cache.get("target_crs"),
@@ -634,6 +1521,7 @@ def build_dynamic_payload(power_flow_result: dict[str, Any], topology_cache: dic
     results_tables = dict(power_flow_result.get("results_tables", {}) or {})
     res_bus = results_tables.get("res_bus")
     res_line = results_tables.get("res_line")
+    res_trafo = results_tables.get("res_trafo")
 
     bus_vm = (
         pd.to_numeric(res_bus["vm_pu"], errors="coerce")
@@ -643,6 +1531,11 @@ def build_dynamic_payload(power_flow_result: dict[str, Any], topology_cache: dic
     line_loading = (
         pd.to_numeric(res_line["loading_percent"], errors="coerce")
         if isinstance(res_line, pd.DataFrame) and "loading_percent" in res_line.columns
+        else pd.Series(dtype=float)
+    )
+    trafo_loading = (
+        pd.to_numeric(res_trafo["loading_percent"], errors="coerce")
+        if isinstance(res_trafo, pd.DataFrame) and "loading_percent" in res_trafo.columns
         else pd.Series(dtype=float)
     )
 
@@ -677,9 +1570,26 @@ def build_dynamic_payload(power_flow_result: dict[str, Any], topology_cache: dic
             ),
         }
 
+    trafo_dynamic = {}
+    for trafo_index in topology_cache.get("trafo_order", []):
+        loading_pct = _coerce_float(trafo_loading.get(trafo_index))
+        status = "unknown"
+        if loading_pct is not None:
+            status = "overloaded" if loading_pct > GRID_MAP_LINE_LOADING_LIMIT_PCT else "ok"
+        trafo_dynamic[str(trafo_index)] = {
+            "loading_pct": loading_pct,
+            "status": status,
+            "hover": (
+                f"Transformer {trafo_index}<br>Loading={loading_pct:.1f}%"
+                if loading_pct is not None
+                else f"Transformer {trafo_index}<br>Loading=n/a"
+            ),
+        }
+
     return {
         "bus": bus_dynamic,
         "line": line_dynamic,
+        "trafo": trafo_dynamic,
     }
 
 
@@ -720,6 +1630,10 @@ def publish_grid_map_topology(shared_data: dict[str, Any], *, topology_cache: di
         runtime_state["topology_error"] = None
         runtime_state["topology_cache"] = topology_cache
         runtime_state["topology_cache_meta"] = topology_meta
+        runtime_state["initial_figure"] = topology_cache.get("initial_figure")
+        runtime_state["trace_index_meta"] = topology_cache.get("trace_index_meta")
+        runtime_state["topology_revision"] = topology_cache.get("topology_revision")
+        runtime_state["dynamic_revision"] = 0
         runtime_state["coordinate_mode"] = str((topology_meta or {}).get("coordinate_mode") or "schematic")
         runtime_state["source_crs"] = (topology_meta or {}).get("source_crs")
         runtime_state["target_crs"] = (topology_meta or {}).get("target_crs")
@@ -734,6 +1648,10 @@ def publish_grid_map_topology_error(shared_data: dict[str, Any], *, error_text: 
         runtime_state["topology_ready"] = False
         runtime_state["topology_error"] = str(error_text)
         runtime_state["last_error"] = str(error_text)
+        runtime_state["initial_figure"] = None
+        runtime_state["trace_index_meta"] = None
+        runtime_state["topology_revision"] = None
+        runtime_state["dynamic_revision"] = 0
         runtime_state["coordinate_mode"] = "schematic"
         runtime_state["source_crs"] = None
         runtime_state["target_crs"] = None
@@ -784,6 +1702,7 @@ def publish_grid_map_success(
         runtime_state["battery_input_q_mvar"] = run_payload.get("battery_input_q_mvar")
         runtime_state["summary"] = dict(summary or {})
         runtime_state["dynamic_payload"] = dict(dynamic_payload or {})
+        runtime_state["dynamic_revision"] = int(runtime_state.get("dynamic_revision", 0) or 0) + 1
         runtime_state["stale"] = False
 
 
@@ -822,12 +1741,15 @@ def snapshot_grid_map_runtime(shared_data: dict[str, Any]) -> dict[str, Any]:
         # The topology cache is immutable after startup, so callbacks can safely
         # share the reference without paying a large deep-copy cost every refresh.
         current["topology_cache"] = topology_cache
+        current["initial_figure"] = current.get("initial_figure")
         dynamic_payload = current.get("dynamic_payload")
         current["dynamic_payload"] = copy.deepcopy(dynamic_payload) if isinstance(dynamic_payload, dict) else dynamic_payload
         summary = current.get("summary")
         current["summary"] = dict(summary or {}) if isinstance(summary, dict) else summary
         meta = current.get("topology_cache_meta")
         current["topology_cache_meta"] = dict(meta or {}) if isinstance(meta, dict) else meta
+        trace_meta = current.get("trace_index_meta")
+        current["trace_index_meta"] = copy.deepcopy(trace_meta) if isinstance(trace_meta, list) else trace_meta
         return current
 
 
@@ -1167,24 +2089,97 @@ def build_grid_map_figure(
     title: str = "Distribution Grid Map",
     uirevision_key: str = "grid-map",
 ) -> go.Figure:
-    plot_theme = dict(DEFAULT_PLOT_THEME)
-    dynamic_payload = dict(dynamic_payload or {})
     topology_cache = dict(topology_cache or {})
-    if bool(topology_cache.get("map_background_enabled", False)) and topology_cache.get("geographic_bus_coords"):
-        return _build_geographic_grid_map_figure(
-            topology_cache,
-            dynamic_payload,
-            title=title,
-            uirevision_key=uirevision_key,
-            plot_theme=plot_theme,
-        )
-    return _build_schematic_grid_map_figure(
+    topology_revision = topology_cache.get("topology_revision")
+    dynamic_revision = 0
+    if isinstance(dynamic_payload, dict):
+        dynamic_revision = 1
+    figure_dict = _build_pandapower_figure_dict(
         topology_cache,
         dynamic_payload,
         title=title,
         uirevision_key=uirevision_key,
-        plot_theme=plot_theme,
+        topology_revision=topology_revision,
+        dynamic_revision=dynamic_revision,
     )
+    return go.Figure(figure_dict)
+
+
+def build_grid_map_figure_update(
+    runtime_state: dict[str, Any],
+    current_figure: dict[str, Any] | None,
+    *,
+    title: str = "Distribution Grid Map",
+    uirevision_key: str = "grid-map",
+) -> go.Figure | None:
+    runtime_state = dict(runtime_state or {})
+    topology_cache = runtime_state.get("topology_cache")
+    topology_revision = runtime_state.get("topology_revision")
+    dynamic_revision = int(runtime_state.get("dynamic_revision", 0) or 0)
+    dynamic_payload = runtime_state.get("dynamic_payload")
+    initial_figure = runtime_state.get("initial_figure")
+    trace_index_meta = runtime_state.get("trace_index_meta")
+
+    current_figure = dict(current_figure or {}) if isinstance(current_figure, dict) else None
+    current_meta = dict(((current_figure or {}).get("layout", {}) or {}).get("meta", {}) or {})
+    current_topology_revision = current_meta.get("grid_map_topology_revision")
+    current_dynamic_revision = int(current_meta.get("grid_map_dynamic_revision", -1) or -1)
+
+    if not isinstance(topology_cache, dict):
+        return go.Figure(
+            _build_empty_grid_map_figure_dict(
+                title=title,
+                uirevision_key=uirevision_key,
+                topology_revision=topology_revision,
+                dynamic_revision=dynamic_revision,
+            )
+        )
+
+    if current_figure is None or current_topology_revision != topology_revision:
+        if str(topology_cache.get("figure_renderer") or "") == "low-trace":
+            dynamic_payload_dict = dict(dynamic_payload or {})
+            return go.Figure(
+                _build_low_trace_figure_dict(
+                    topology_cache,
+                    _build_dynamic_trace_payload(
+                        topology_cache,
+                        dict(dynamic_payload_dict.get("bus", {}) or {}),
+                        dict(dynamic_payload_dict.get("line", {}) or {}),
+                    ),
+                    title=title,
+                    uirevision_key=uirevision_key,
+                    topology_revision=topology_revision,
+                    dynamic_revision=dynamic_revision,
+                )
+            )
+        if isinstance(initial_figure, dict) and isinstance(trace_index_meta, list) and trace_index_meta:
+            return go.Figure(
+                _apply_dynamic_payload_to_figure_dict(
+                    initial_figure,
+                    topology_cache,
+                    trace_index_meta,
+                    dynamic_payload,
+                    topology_revision=topology_revision,
+                    dynamic_revision=dynamic_revision,
+                    title=title,
+                    uirevision_key=uirevision_key,
+                )
+            )
+        return go.Figure(
+            _build_pandapower_figure_dict(
+                topology_cache,
+                dynamic_payload,
+                title=title,
+                uirevision_key=uirevision_key,
+                topology_revision=topology_revision,
+                dynamic_revision=dynamic_revision,
+            )
+        )
+
+    if current_dynamic_revision == dynamic_revision:
+        return None
+
+    return None
 
 
 def build_grid_map_meta_lines(runtime_state: dict[str, Any], config: dict[str, Any]) -> list[str]:
@@ -1219,6 +2214,7 @@ def build_grid_map_meta_lines(runtime_state: dict[str, Any], config: dict[str, A
             f"Map Mode: {coordinate_mode} | Background: {map_background_enabled} | "
             f"CRS: {source_crs} -> {target_crs}"
         ),
+        "Map Refresh: static during stabilization pass | summary values remain live",
         (
             f"Simulation Timestamp: requested={requested} | selected={selected} | "
             f"previous-hour fallback={fallback}"

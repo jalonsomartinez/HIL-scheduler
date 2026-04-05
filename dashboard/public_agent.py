@@ -7,7 +7,7 @@ import time
 
 import pandas as pd
 import plotly.graph_objects as go
-from dash import Dash, Input, Output, State, callback_context, dcc, html
+from dash import Dash, Input, Output, State, callback_context, dcc, html, no_update
 from dash.exceptions import PreventUpdate
 
 from dashboard.history import (
@@ -37,7 +37,7 @@ from dashboard.ui_state import (
 )
 import scheduling.manual_schedule_manager as msm
 from measurement.storage import MEASUREMENT_COLUMNS
-from grid_map_runtime import build_grid_map_figure, build_grid_map_meta_lines, snapshot_grid_map_runtime
+from grid_map_runtime import build_grid_map_figure_update, build_grid_map_meta_lines, snapshot_grid_map_runtime
 from runtime.contracts import sanitize_plant_name
 from runtime.paths import get_assets_dir, get_data_dir, get_project_root
 from runtime.shared_state import snapshot_locked
@@ -666,9 +666,6 @@ def build_public_readonly_app(config, shared_data):
             Input("public-url", "pathname"),
             Input("public-menu-toggle-btn", "n_clicks"),
             Input("public-menu-overlay", "n_clicks"),
-            Input("public-menu-link-status", "n_clicks"),
-            Input("public-menu-link-plots", "n_clicks"),
-            Input("public-menu-link-grid-map", "n_clicks"),
         ],
         [State("public-menu-open-store", "data")],
         prevent_initial_call=False,
@@ -677,9 +674,6 @@ def build_public_readonly_app(config, shared_data):
         pathname,
         _menu_toggle_clicks,
         _menu_overlay_clicks,
-        _status_clicks,
-        _plots_clicks,
-        _grid_map_clicks,
         menu_open,
     ):
         ctx = callback_context
@@ -1064,11 +1058,13 @@ def build_public_readonly_app(config, shared_data):
             Output("public-grid-map-summary", "children"),
             Output("public-grid-map-meta", "children"),
             Output("public-grid-map-figure", "figure"),
+            Output("public-grid-map-render-state", "data"),
         ],
         [Input("public-url", "pathname"), Input("public-grid-map-refresh-interval", "n_intervals")],
+        [State("public-grid-map-render-state", "data")],
         prevent_initial_call=False,
     )
-    def update_public_grid_map_page(active_pathname, _grid_map_refresh_n):
+    def update_public_grid_map_page(active_pathname, _grid_map_refresh_n, current_render_state):
         if normalize_public_route(active_pathname) != "/grid-map":
             raise PreventUpdate
 
@@ -1076,13 +1072,27 @@ def build_public_readonly_app(config, shared_data):
         status_text = build_grid_map_status_text(runtime_state)
         summary_children = build_grid_map_summary_cards(runtime_state.get("summary"))
         meta_children = build_grid_map_meta_children(build_grid_map_meta_lines(runtime_state, config))
-        figure = build_grid_map_figure(
-            runtime_state.get("topology_cache"),
-            runtime_state.get("dynamic_payload"),
+        current_figure = {"layout": {"meta": current_render_state}} if isinstance(current_render_state, dict) else None
+        figure = build_grid_map_figure_update(
+            runtime_state,
+            current_figure,
             title="Distribution Grid Map",
             uirevision_key="public-grid-map",
         )
-        return status_text, summary_children, meta_children, figure
+        next_render_state = {
+            "grid_map_topology_revision": runtime_state.get("topology_revision"),
+            "grid_map_dynamic_revision": int(runtime_state.get("dynamic_revision", 0) or 0),
+        }
+        if figure is None:
+            figure = no_update
+            if (
+                isinstance(current_render_state, dict)
+                and current_render_state.get("grid_map_topology_revision") == next_render_state.get("grid_map_topology_revision")
+                and int(current_render_state.get("grid_map_dynamic_revision", -1) or -1)
+                == int(next_render_state.get("grid_map_dynamic_revision", 0) or 0)
+            ):
+                next_render_state = no_update
+        return status_text, summary_children, meta_children, figure, next_render_state
 
     @app.callback(
         [

@@ -78,6 +78,7 @@ class DashboardLayoutNavigationTests(unittest.TestCase):
             "grid-map-summary",
             "grid-map-meta",
             "grid-map-figure",
+            "grid-map-render-state",
         ]
         for component_id in expected_ids:
             self.assertIn(component_id, by_id)
@@ -108,6 +109,7 @@ class DashboardLayoutNavigationTests(unittest.TestCase):
             "public-grid-map-summary",
             "public-grid-map-meta",
             "public-grid-map-figure",
+            "public-grid-map-render-state",
         ]
         for component_id in expected_ids:
             self.assertIn(component_id, by_id)

@@ -111,6 +111,10 @@ class SharedStateContractTests(unittest.TestCase):
                 "battery_input_q_mvar",
                 "summary",
                 "dynamic_payload",
+                "initial_figure",
+                "trace_index_meta",
+                "topology_revision",
+                "dynamic_revision",
                 "coordinate_mode",
                 "source_crs",
                 "target_crs",
@@ -135,6 +139,7 @@ class SharedStateContractTests(unittest.TestCase):
         self.assertEqual(str(mfrr_poll.get("last_result")), "never")
         self.assertEqual(int(mfrr_poll.get("last_points_lib", 0)), 0)
         self.assertEqual(float(grid_map_runtime.get("poll_period_s")), 5.0)
+        self.assertEqual(int(grid_map_runtime.get("dynamic_revision", 0)), 0)
         self.assertEqual(str(grid_map_runtime.get("coordinate_mode")), "schematic")
         self.assertFalse(bool(grid_map_runtime.get("map_background_enabled", False)))
         self.assertTrue(bool(grid_map_runtime.get("stale", True)))
