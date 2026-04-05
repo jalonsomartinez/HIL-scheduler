@@ -638,6 +638,51 @@ class GridMapRuntimeTests(unittest.TestCase):
 
         self.assertIsNone(update)
 
+    def test_build_grid_map_figure_update_low_trace_returns_new_figure_when_dynamic_revision_changes(self):
+        topology_cache = {
+            "figure_renderer": "low-trace",
+            "map_background_enabled": False,
+            "metadata": {"battery_bus": 2},
+            "bounds": {"x_min": 0.0, "x_max": 2.0, "y_min": 0.0, "y_max": 1.0},
+            "bus_order": [1, 2, 3],
+            "bus_coords": {"1": [0.0, 0.0], "2": [1.0, 0.5], "3": [2.0, 1.0]},
+            "line_order": [11, 12],
+            "line_paths": {"11": [[0.0, 0.0], [1.0, 0.5]], "12": [[1.0, 0.5], [2.0, 1.0]]},
+            "line_center_points": {"11": [0.5, 0.25], "12": [1.5, 0.75]},
+            "line_hover_order": [11, 12],
+            "trace_roles": {role: idx for idx, role in enumerate(gmr._trace_roles())},
+            "trafo_order": [21],
+            "trafo_paths": {"21": [[0.0, 0.0], [2.0, 1.0]]},
+            "topology_revision": 7007,
+        }
+        runtime_state = {
+            "topology_cache": topology_cache,
+            "topology_revision": 7007,
+            "dynamic_revision": 2,
+            "dynamic_payload": {
+                "bus": {
+                    "1": {"vm_pu": 0.94, "hover": "Bus 1<br>Voltage=0.9400 pu"},
+                    "2": {"vm_pu": 1.00, "hover": "Bus 2<br>Voltage=1.0000 pu"},
+                    "3": {"vm_pu": 1.06, "hover": "Bus 3<br>Voltage=1.0600 pu"},
+                },
+                "line": {
+                    "11": {"loading_pct": 20.0, "hover": "Line 11<br>Loading=20.0%"},
+                    "12": {"loading_pct": 120.0, "hover": "Line 12<br>Loading=120.0%"},
+                },
+                "trafo": {},
+            },
+        }
+        current_figure = {"layout": {"meta": {"grid_map_topology_revision": 7007, "grid_map_dynamic_revision": 1}}}
+
+        figure = gmr.build_grid_map_figure_update(runtime_state, current_figure, uirevision_key="refresh-key")
+
+        self.assertIsNotNone(figure)
+        self.assertEqual(figure.layout.uirevision, "refresh-key")
+        self.assertEqual(figure.layout.meta["grid_map_dynamic_revision"], 2)
+        self.assertEqual(len(figure.data), 6)
+        self.assertEqual(list(figure.data[4].text), ["Line 11<br>Loading=20.0%", "Line 12<br>Loading=120.0%"])
+        self.assertEqual(list(figure.data[5].text), ["Bus 1<br>Voltage=0.9400 pu", "Bus 2<br>Voltage=1.0000 pu", "Bus 3<br>Voltage=1.0600 pu"])
+
 
 if __name__ == "__main__":
     unittest.main()

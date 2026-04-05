@@ -34,7 +34,7 @@ timing:
   plant_period_s: 2
   measurement_period_s: 10
   measurements_write_period_s: 60
-  grid_map_period_s: 5
+  grid_map_period_s: 10
 
 dashboard:
   private:

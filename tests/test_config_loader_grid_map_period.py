@@ -24,7 +24,7 @@ def _write_temp_yaml(data):
 class ConfigLoaderGridMapPeriodTests(unittest.TestCase):
     def test_load_config_exposes_grid_map_period(self):
         config = load_config("config.yaml")
-        self.assertEqual(float(config["GRID_MAP_PERIOD_S"]), 5.0)
+        self.assertEqual(float(config["GRID_MAP_PERIOD_S"]), 10.0)
 
     def test_accepts_custom_grid_map_period(self):
         payload = _load_yaml("config.yaml")
@@ -46,7 +46,7 @@ class ConfigLoaderGridMapPeriodTests(unittest.TestCase):
                     config = load_config(path)
                 finally:
                     os.unlink(path)
-                self.assertEqual(float(config["GRID_MAP_PERIOD_S"]), 5.0)
+                self.assertEqual(float(config["GRID_MAP_PERIOD_S"]), 10.0)
 
 
 if __name__ == "__main__":

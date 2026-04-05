@@ -692,6 +692,6 @@ def build_dashboard_layout(
             dcc.ConfirmDialog(id="manual-editor-delete-confirm", message="Delete this breakpoint?"),
             dcc.Interval(id="interval-component", interval=int(float(config["MEASUREMENT_PERIOD_S"]) * 1000), n_intervals=0),
             dcc.Interval(id="plots-refresh-interval", interval=30000, n_intervals=0),
-            dcc.Interval(id="grid-map-refresh-interval", interval=int(float(config.get("GRID_MAP_PERIOD_S", 5.0)) * 1000), n_intervals=0),
+            dcc.Interval(id="grid-map-refresh-interval", interval=int(float(config.get("GRID_MAP_PERIOD_S", 10.0)) * 1000), n_intervals=0),
         ],
     )

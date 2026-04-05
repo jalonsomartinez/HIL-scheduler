@@ -193,7 +193,7 @@ def build_initial_shared_data(config):
         "settings_command_active_id": None,
         "settings_command_next_id": 1,
         "settings_engine_status": default_engine_status(include_last_observed_refresh=False),
-        "grid_map_runtime": default_grid_map_runtime(config.get("GRID_MAP_PERIOD_S", 5.0)),
+        "grid_map_runtime": default_grid_map_runtime(config.get("GRID_MAP_PERIOD_S", 10.0)),
         "lock": threading.Lock(),
         "shutdown_event": threading.Event(),
         "log_file_path": None,

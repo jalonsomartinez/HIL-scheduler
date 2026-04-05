@@ -517,8 +517,8 @@ def load_config(config_path="config.yaml"):
         min_value=0.1,
     )
     config["GRID_MAP_PERIOD_S"] = _parse_float(
-        timing_cfg.get("grid_map_period_s", 5),
-        5,
+        timing_cfg.get("grid_map_period_s", 10),
+        10,
         "timing.grid_map_period_s",
         min_value=0.1,
     )

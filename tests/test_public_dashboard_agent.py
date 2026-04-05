@@ -160,6 +160,7 @@ class PublicDashboardAgentTests(unittest.TestCase):
             "public-grid-map-meta",
             "public-grid-map-figure",
             "public-grid-map-render-state",
+            "public-grid-map-interaction-state",
         ]
         for indicator_id in indicator_ids:
             self.assertIn(indicator_id, by_id)

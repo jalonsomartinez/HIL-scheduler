@@ -2179,6 +2179,23 @@ def build_grid_map_figure_update(
     if current_dynamic_revision == dynamic_revision:
         return None
 
+    if str(topology_cache.get("figure_renderer") or "") == "low-trace":
+        dynamic_payload_dict = dict(dynamic_payload or {})
+        return go.Figure(
+            _build_low_trace_figure_dict(
+                topology_cache,
+                _build_dynamic_trace_payload(
+                    topology_cache,
+                    dict(dynamic_payload_dict.get("bus", {}) or {}),
+                    dict(dynamic_payload_dict.get("line", {}) or {}),
+                ),
+                title=title,
+                uirevision_key=uirevision_key,
+                topology_revision=topology_revision,
+                dynamic_revision=dynamic_revision,
+            )
+        )
+
     return None
 
 

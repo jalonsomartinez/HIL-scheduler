@@ -28,7 +28,13 @@ from dashboard.control_health import (
     summarize_dispatch_write_status,
     summarize_plant_modbus_health,
 )
-from dashboard.grid_map import build_grid_map_meta_children, build_grid_map_status_text, build_grid_map_summary_cards
+from dashboard.grid_map import (
+    build_grid_map_meta_children,
+    build_grid_map_status_text,
+    build_grid_map_summary_cards,
+    is_grid_map_refresh_paused,
+    register_grid_map_interaction,
+)
 from dashboard.history import (
     build_slider_marks,
     clamp_epoch_range,
@@ -2365,6 +2371,17 @@ def dashboard_agent(config, shared_data):
         )
 
     @app.callback(
+        Output("grid-map-interaction-state", "data"),
+        [Input("grid-map-figure", "relayoutData")],
+        prevent_initial_call=True,
+    )
+    def update_grid_map_interaction_state(relayout_data):
+        interaction_state = register_grid_map_interaction(relayout_data)
+        if interaction_state is None:
+            raise PreventUpdate
+        return interaction_state
+
+    @app.callback(
         [
             Output("grid-map-status", "children"),
             Output("grid-map-summary", "children"),
@@ -2373,28 +2390,36 @@ def dashboard_agent(config, shared_data):
             Output("grid-map-render-state", "data"),
         ],
         [Input("dashboard-url", "pathname"), Input("grid-map-refresh-interval", "n_intervals")],
-        [State("grid-map-render-state", "data")],
+        [State("grid-map-render-state", "data"), State("grid-map-interaction-state", "data")],
         prevent_initial_call=False,
     )
-    def update_grid_map_page(active_pathname, _grid_map_refresh_n, current_render_state):
+    def update_grid_map_page(active_pathname, _grid_map_refresh_n, current_render_state, interaction_state):
         if normalize_private_route(active_pathname) != "/grid-map":
             raise PreventUpdate
 
         runtime_state = snapshot_grid_map_runtime(shared_data)
+        refresh_paused = bool(current_render_state) and is_grid_map_refresh_paused(interaction_state)
+        runtime_state = dict(runtime_state or {})
+        runtime_state["refresh_paused"] = refresh_paused
         status_text = build_grid_map_status_text(runtime_state)
         summary_children = build_grid_map_summary_cards(runtime_state.get("summary"))
         meta_children = build_grid_map_meta_children(build_grid_map_meta_lines(runtime_state, config))
         current_figure = {"layout": {"meta": current_render_state}} if isinstance(current_render_state, dict) else None
+        next_render_state = {
+            "grid_map_topology_revision": runtime_state.get("topology_revision"),
+            "grid_map_dynamic_revision": int(runtime_state.get("dynamic_revision", 0) or 0),
+        }
+        if refresh_paused:
+            figure = no_update
+            next_render_state = no_update
+            return status_text, summary_children, meta_children, figure, next_render_state
+
         figure = build_grid_map_figure_update(
             runtime_state,
             current_figure,
             title="Distribution Grid Map",
             uirevision_key="private-grid-map",
         )
-        next_render_state = {
-            "grid_map_topology_revision": runtime_state.get("topology_revision"),
-            "grid_map_dynamic_revision": int(runtime_state.get("dynamic_revision", 0) or 0),
-        }
         if figure is None:
             figure = no_update
             if (

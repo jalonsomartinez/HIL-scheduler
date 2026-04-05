@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import math
+import time
 
 from dash import dcc, html
+
+GRID_MAP_INTERACTION_PAUSE_WINDOW_S = 5.0
 
 
 def build_grid_map_page(*, prefix: str, title: str = "Grid Map"):
     graph_id = f"{prefix}-grid-map-figure" if prefix else "grid-map-figure"
     render_state_id = f"{prefix}-grid-map-render-state" if prefix else "grid-map-render-state"
+    interaction_state_id = f"{prefix}-grid-map-interaction-state" if prefix else "grid-map-interaction-state"
     summary_id = f"{prefix}-grid-map-summary" if prefix else "grid-map-summary"
     meta_id = f"{prefix}-grid-map-meta" if prefix else "grid-map-meta"
     status_id = f"{prefix}-grid-map-status" if prefix else "grid-map-status"
@@ -18,6 +22,7 @@ def build_grid_map_page(*, prefix: str, title: str = "Grid Map"):
         children=[
             html.H3(title),
             dcc.Store(id=render_state_id, data=None),
+            dcc.Store(id=interaction_state_id, data=None),
             html.Div(id=status_id, className="status-text"),
             html.Div(id=summary_id, className="grid-map-summary-grid"),
             html.Div(id=meta_id, className="grid-map-meta-block"),
@@ -70,6 +75,33 @@ def build_grid_map_meta_children(lines):
     return [html.Div(str(line), className="status-text") for line in list(lines or [])]
 
 
+def register_grid_map_interaction(relayout_data, *, now_s=None):
+    if not isinstance(relayout_data, dict) or not relayout_data:
+        return None
+    interaction_time_s = float(time.time() if now_s is None else now_s)
+    return {
+        "last_interaction_at_s": interaction_time_s,
+        "last_relayout_keys": sorted(str(key) for key in relayout_data.keys()),
+    }
+
+
+def is_grid_map_refresh_paused(interaction_state, *, now_s=None, pause_window_s=GRID_MAP_INTERACTION_PAUSE_WINDOW_S):
+    if not isinstance(interaction_state, dict):
+        return False
+    try:
+        last_interaction_at_s = float(interaction_state.get("last_interaction_at_s"))
+    except (TypeError, ValueError):
+        return False
+    current_time_s = float(time.time() if now_s is None else now_s)
+    try:
+        pause_window = float(pause_window_s)
+    except (TypeError, ValueError):
+        pause_window = GRID_MAP_INTERACTION_PAUSE_WINDOW_S
+    if pause_window <= 0.0:
+        return False
+    return (current_time_s - last_interaction_at_s) < pause_window
+
+
 def build_grid_map_status_text(runtime_state):
     runtime_state = dict(runtime_state or {})
     state = str(runtime_state.get("state") or "idle")
@@ -77,10 +109,12 @@ def build_grid_map_status_text(runtime_state):
     stale = bool(runtime_state.get("stale", True))
     coordinate_mode = str(runtime_state.get("coordinate_mode") or "schematic")
     map_background_enabled = bool(runtime_state.get("map_background_enabled", False))
+    refresh_paused = bool(runtime_state.get("refresh_paused", False))
     error_text = str(runtime_state.get("last_error") or runtime_state.get("topology_error") or "").strip()
     status_text = (
         f"Grid Map Runtime: state={state} | topology_ready={topology_ready} | "
-        f"stale={stale} | mode={coordinate_mode} | basemap={map_background_enabled} | map_refresh=static"
+        f"stale={stale} | mode={coordinate_mode} | basemap={map_background_enabled} | "
+        f"map_refresh={'paused' if refresh_paused else 'live'}"
     )
     if error_text:
         status_text += f" | error={error_text}"
