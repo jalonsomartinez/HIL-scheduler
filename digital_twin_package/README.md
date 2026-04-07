@@ -47,6 +47,7 @@ Notes:
 - `exclude_exported=True` ignores `ENERGY_EXPORTED (W)` and applies import-only load semantics.
 - If an exact timestamp is missing, the function uses the nearest previous available hour.
 - Positive battery active power means charging (load). Negative means discharging.
+- Added synthetic buses in the packaged network include display-only `geo` coordinates derived from hub bus `840`.
 
 The return includes:
 - KPI fields: ext-grid voltage, overload/violation counts, voltage min/max, max line loading.
