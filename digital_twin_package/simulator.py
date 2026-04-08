@@ -20,7 +20,7 @@ Example:
     )
 
     print(result["selected_timestamp_local"])
-    print(result["ext_grid_bus_vm_pu"])
+    print(result["battery_bus_vm_pu"])
     print(result["max_line_loading_pct"])
 
 Timestamp behavior
@@ -43,7 +43,7 @@ Returned data
   ``converged``, ``requested_timestamp_utc``, ``selected_timestamp_utc``,
   ``selected_timestamp_local``, ``used_previous_hour_fallback``.
 - KPI fields:
-  ``ext_grid_bus_vm_pu``, ``num_overloaded_lines``,
+  ``battery_bus_vm_pu``, ``num_overloaded_lines``,
   ``num_voltage_violations``, ``max_voltage_pu``, ``min_voltage_pu``,
   ``max_line_loading_pct``.
 - Full pandapower output tables in ``results_tables`` (all ``res_*`` DataFrames).
@@ -58,6 +58,7 @@ from __future__ import annotations
 
 import copy
 import json
+from numbers import Real
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, MutableMapping, Sequence, Tuple
 
@@ -91,6 +92,17 @@ def _safe_numeric_series(df: Any, column: str) -> pd.Series:
     if df is None or not hasattr(df, "columns") or column not in df.columns:
         return pd.Series(dtype=float)
     return pd.to_numeric(df[column], errors="coerce")
+
+
+def _safe_float_from_series(series: pd.Series, index: Any) -> float:
+    if index not in series.index:
+        return float("nan")
+    value = series.at[index]
+    if pd.isna(value):
+        return float("nan")
+    if not isinstance(value, Real):
+        raise TypeError(f"Expected numeric scalar at index {index!r}, got {type(value).__name__}.")
+    return float(value)
 
 
 def _build_reset_plan(net: Any) -> List[Tuple[str, Any, str]]:
@@ -157,7 +169,9 @@ def _load_assets() -> Dict[str, Any]:
 
     hourly_lookup: Dict[pd.Timestamp, List[Tuple[str, float, float]]] = {}
     for ts, group in grouped.groupby("timestamp_utc"):
-        hourly_lookup[pd.Timestamp(ts)] = list(
+        if not isinstance(ts, pd.Timestamp):
+            raise TypeError(f"Expected pandas.Timestamp group key, got {type(ts).__name__}.")
+        hourly_lookup[ts] = list(
             group[["device_code", "imported_w", "exported_w"]].itertuples(index=False, name=None)
         )
 
@@ -296,7 +310,7 @@ def run_power_flow(
           ``selected_timestamp_local`` (str).
         - ``used_previous_hour_fallback`` (bool): ``True`` when previous-hour
           selection was applied.
-        - ``ext_grid_bus_vm_pu`` (float): voltage magnitude at package hub bus.
+        - ``battery_bus_vm_pu`` (float): voltage magnitude at package battery bus.
         - ``num_overloaded_lines`` (int): count of lines with loading > 100%.
         - ``num_voltage_violations`` (int): count of buses outside 0.95..1.05 pu.
         - ``max_voltage_pu`` / ``min_voltage_pu`` / ``max_line_loading_pct``.
@@ -350,16 +364,21 @@ def run_power_flow(
         battery_q_mvar=float(battery_q_mvar),
     )
 
-    pp.runpp(net, algorithm="nr", max_iteration=500, tolerance_mva=1e-3)
+    runpp_kwargs: Dict[str, Any] = {
+        "algorithm": "nr",
+        "max_iteration": 500,
+        "tolerance_mva": 1e-3,
+    }
+    pp.runpp(net, **runpp_kwargs)
 
-    ext_grid_bus = int(assets["metadata"]["hub_bus"])
+    battery_bus = int(assets["metadata"]["battery_bus"])
     res_bus = getattr(net, "res_bus", pd.DataFrame())
     res_line = getattr(net, "res_line", pd.DataFrame())
 
     vm_series = _safe_numeric_series(res_bus, "vm_pu")
     line_loading = _safe_numeric_series(res_line, "loading_percent")
 
-    ext_grid_vm = float(res_bus.at[ext_grid_bus, "vm_pu"]) if ext_grid_bus in res_bus.index else float("nan")
+    battery_bus_vm = _safe_float_from_series(vm_series, battery_bus)
     num_overloaded_lines = int((line_loading > 100.0).sum()) if not line_loading.empty else 0
     if vm_series.empty:
         num_voltage_violations = 0
@@ -378,7 +397,7 @@ def run_power_flow(
         "selected_timestamp_utc": selected_utc.isoformat(),
         "selected_timestamp_local": selected_utc.tz_convert("Europe/Madrid").isoformat(),
         "used_previous_hour_fallback": not exact_match,
-        "ext_grid_bus_vm_pu": ext_grid_vm,
+        "battery_bus_vm_pu": battery_bus_vm,
         "num_overloaded_lines": num_overloaded_lines,
         "num_voltage_violations": num_voltage_violations,
         "max_voltage_pu": max_voltage,

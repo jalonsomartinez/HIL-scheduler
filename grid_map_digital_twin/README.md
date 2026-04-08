@@ -50,7 +50,7 @@ Notes:
 - Added synthetic buses in the packaged network include display-only `geo` coordinates derived from hub bus `840`.
 
 The return includes:
-- KPI fields: ext-grid voltage, overload/violation counts, voltage min/max, max line loading.
+- KPI fields: battery-bus voltage, overload/violation counts, voltage min/max, max line loading.
 - `results_tables`: full pandapower result tables (`res_bus`, `res_line`, `res_trafo`, `res_ext_grid`, and other available `res_*` tables).
 
 ## Run sample test

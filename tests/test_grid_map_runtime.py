@@ -78,6 +78,28 @@ class _FakeSimulatorModule:
         }
 
 
+class _FakeAssetsOnlySimulatorModule:
+    def __init__(self):
+        self.calls = []
+        self.asset_loads = 0
+
+    def _load_assets(self):
+        self.asset_loads += 1
+        return {"base_net": _FakeNet(), "metadata": {"battery_bus": 2, "hub_bus": 1}}
+
+    def run_power_flow(self, **kwargs):
+        self.calls.append(dict(kwargs))
+        return {
+            "selected_timestamp_local": kwargs["timestamp_iso"],
+            "selected_timestamp_utc": "2026-04-03T10:00:00+00:00",
+            "used_previous_hour_fallback": False,
+            "results_tables": {
+                "res_bus": pd.DataFrame({"vm_pu": [0.96, 1.02, 1.06]}, index=[1, 2, 3]),
+                "res_line": pd.DataFrame({"loading_percent": [55.0, 110.0]}, index=[11, 12]),
+            },
+        }
+
+
 def _fake_create_generic_coordinates(net, overwrite=False):
     _ = overwrite
     net.bus_geodata = pd.DataFrame(
@@ -370,6 +392,22 @@ class GridMapRuntimeTests(unittest.TestCase):
         self.assertTrue(bool(topology["initial_figure"]))
         self.assertTrue(bool(topology["trace_index_meta"]))
         self.assertTrue(bool(topology["topology_revision"]))
+        self.assertEqual(topology["coordinate_mode"], "schematic")
+
+    def test_build_topology_cache_uses_assets_when_simulator_helpers_are_absent(self):
+        fake_simulator = _FakeAssetsOnlySimulatorModule()
+        gmr._SIMULATOR_MODULE = fake_simulator
+
+        fake_plotting = types.ModuleType("pandapower.plotting")
+        fake_plotting.create_generic_coordinates = _fake_create_generic_coordinates
+
+        with patch.dict(sys.modules, {"pandapower.plotting": fake_plotting}):
+            topology = gmr.build_topology_cache()
+
+        self.assertGreaterEqual(fake_simulator.asset_loads, 1)
+        self.assertEqual(topology["metadata"], {"battery_bus": 2, "hub_bus": 1})
+        self.assertEqual(topology["bus_order"], [1, 2, 3])
+        self.assertTrue(bool(topology["initial_figure"]))
         self.assertEqual(topology["coordinate_mode"], "schematic")
 
     def test_build_topology_cache_detects_projected_coords_and_converts_to_geographic(self):

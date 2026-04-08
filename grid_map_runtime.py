@@ -1251,12 +1251,18 @@ def _build_pandapower_figure_dict(
 
 def build_topology_cache() -> dict[str, Any]:
     simulator_module = _import_simulator_module()
+    assets = None
     if hasattr(simulator_module, "get_base_network_copy"):
         net = simulator_module.get_base_network_copy()
     else:
         assets = simulator_module._load_assets()
         net = copy.deepcopy(assets["base_net"])
-    metadata = dict(getattr(simulator_module, "get_metadata", lambda: {})() or {})
+    if hasattr(simulator_module, "get_metadata"):
+        metadata = dict(simulator_module.get_metadata() or {})
+    else:
+        if assets is None:
+            assets = simulator_module._load_assets()
+        metadata = dict((assets.get("metadata") if isinstance(assets, dict) else {}) or {})
 
     try:
         from pandapower.plotting import create_generic_coordinates
