@@ -94,6 +94,27 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
         self.assertEqual(points["v_poi"]["unit"], "kv")
         self.assertEqual(points["soc"]["unit"], "pc")
 
+    def test_accepts_optional_v_poi_write_voltage_point(self):
+        payload = _load_yaml("config.yaml")
+        payload["plants"]["lib"]["modbus"]["local"]["points"]["v_poi_write"] = {
+            "address": 400,
+            "format": "uint16",
+            "access": "w",
+            "unit": "V",
+            "eng_per_count": 1.0,
+        }
+        path = _write_temp_yaml(payload)
+        try:
+            config = load_config(path)
+        finally:
+            os.unlink(path)
+
+        point = config["PLANTS"]["lib"]["modbus"]["local"]["points"]["v_poi_write"]
+        self.assertEqual(point["address"], 400)
+        self.assertEqual(point["access"], "w")
+        self.assertEqual(point["unit"], "v")
+        self.assertEqual(point["word_count"], 1)
+
     def test_rejects_invalid_point_unit_for_quantity(self):
         payload = _load_yaml("config.yaml")
         payload["plants"]["lib"]["modbus"]["local"]["points"]["p_setpoint"]["unit"] = "kV"

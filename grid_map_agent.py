@@ -17,6 +17,7 @@ from grid_map_runtime import (
     run_grid_map_power_flow,
     select_lib_power_inputs,
     summarize_topology_cache,
+    write_grid_map_optional_voltage_point,
 )
 from time_utils import now_tz
 
@@ -53,6 +54,7 @@ def grid_map_agent(config, shared_data):
                 raise ValueError("No recent LIB measured power is available for the grid map.")
             run_payload = run_grid_map_power_flow(input_payload, config)
             power_flow_result = run_payload["power_flow_result"]
+            write_grid_map_optional_voltage_point(config, shared_data, run_payload)
             summary = build_power_flow_summary(power_flow_result)
             dynamic_payload = build_dynamic_payload(power_flow_result, topology_cache)
             publish_grid_map_success(

@@ -18,6 +18,7 @@ def main() -> None:
 
     required_fields = [
         "battery_bus_vm_pu",
+        "battery_bus_vm_kv",
         "num_overloaded_lines",
         "num_voltage_violations",
         "max_voltage_pu",
@@ -42,6 +43,7 @@ def main() -> None:
     print("Sample test passed.")
     print(f"Selected local timestamp: {result['selected_timestamp_local']}")
     print(f"Battery bus voltage [pu]: {result['battery_bus_vm_pu']:.6f}")
+    print(f"Battery bus voltage [kV]: {result['battery_bus_vm_kv']:.6f}")
     print(f"Hub bus voltage [pu]: {hub_bus_vm:.6f}")
     print(f"Max line loading [%]: {result['max_line_loading_pct']:.3f}")
 

@@ -29,12 +29,15 @@ class ModbusUnitsTests(unittest.TestCase):
         self.assertAlmostEqual(external_to_internal("v_poi", "v", 20000.0), 20.0, places=6)
         self.assertAlmostEqual(external_to_internal("v_poi", "kv", 20.0), 20.0, places=6)
         self.assertAlmostEqual(internal_to_external("v_poi", "v", 20.0), 20000.0, places=6)
+        self.assertAlmostEqual(external_to_internal("v_poi_write", "v", 400.0), 0.4, places=6)
+        self.assertAlmostEqual(internal_to_external("v_poi_write", "kv", 0.4), 0.4, places=6)
 
     def test_invalid_unit_for_point_raises(self):
         with self.assertRaises(ValueError):
             validate_point_unit("p_setpoint", "kv")
         with self.assertRaises(ValueError):
             validate_point_unit("v_poi", "kvar")
+        self.assertEqual(validate_point_unit("v_poi_write", "kV"), "kv")
         with self.assertRaises(ValueError):
             validate_point_unit("soc", "kw")
 

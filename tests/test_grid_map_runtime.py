@@ -71,6 +71,8 @@ class _FakeSimulatorModule:
             "selected_timestamp_local": kwargs["timestamp_iso"],
             "selected_timestamp_utc": "2026-04-03T10:00:00+00:00",
             "used_previous_hour_fallback": False,
+            "battery_bus_vm_pu": 1.02,
+            "battery_bus_vm_kv": 20.4,
             "results_tables": {
                 "res_bus": pd.DataFrame({"vm_pu": [0.96, 1.02, 1.06]}, index=[1, 2, 3]),
                 "res_line": pd.DataFrame({"loading_percent": [55.0, 110.0]}, index=[11, 12]),
@@ -93,6 +95,8 @@ class _FakeAssetsOnlySimulatorModule:
             "selected_timestamp_local": kwargs["timestamp_iso"],
             "selected_timestamp_utc": "2026-04-03T10:00:00+00:00",
             "used_previous_hour_fallback": False,
+            "battery_bus_vm_pu": 1.02,
+            "battery_bus_vm_kv": 20.4,
             "results_tables": {
                 "res_bus": pd.DataFrame({"vm_pu": [0.96, 1.02, 1.06]}, index=[1, 2, 3]),
                 "res_line": pd.DataFrame({"loading_percent": [55.0, 110.0]}, index=[11, 12]),
@@ -205,6 +209,40 @@ def _fake_convert_crs(net, epsg_in=4326, epsg_out=31467):
     net.bus_geodata = pd.DataFrame(converted, index=geodata.index)
 
 
+def _grid_map_write_config():
+    point = {
+        "name": "v_poi_write",
+        "address": 400,
+        "format": "uint16",
+        "access": "rw",
+        "unit": "V",
+        "eng_per_count": 1.0,
+    }
+    return {
+        "TIMEZONE_NAME": "Europe/Madrid",
+        "PLANTS": {
+            "lib": {
+                "modbus": {
+                    "local": {
+                        "host": "127.0.0.1",
+                        "port": 15020,
+                        "byte_order": "big",
+                        "word_order": "msw_first",
+                        "points": {"v_poi_write": dict(point)},
+                    },
+                    "remote": {
+                        "host": "10.0.0.21",
+                        "port": 502,
+                        "byte_order": "big",
+                        "word_order": "msw_first",
+                        "points": {"v_poi_write": dict(point, address=500)},
+                    },
+                }
+            }
+        },
+    }
+
+
 class GridMapRuntimeTests(unittest.TestCase):
     def setUp(self):
         gmr._SIMULATOR_MODULE = None
@@ -289,6 +327,170 @@ class GridMapRuntimeTests(unittest.TestCase):
         self.assertIn("+02:00", call["timestamp_iso"])
         self.assertEqual(result["battery_input_p_mw"], -0.25)
         self.assertEqual(result["battery_input_q_mvar"], -0.05)
+        self.assertEqual(result["power_flow_result"]["battery_bus_vm_kv"], 20.4)
+
+    def test_write_grid_map_optional_voltage_point_skips_when_not_configured(self):
+        config = _grid_map_write_config()
+        config["PLANTS"]["lib"]["modbus"]["local"]["points"] = {}
+        shared_data = {"lock": threading.Lock(), "transport_mode": "local"}
+
+        with patch.object(gmr, "ModbusClient") as client_cls:
+            result = gmr.write_grid_map_optional_voltage_point(
+                config,
+                shared_data,
+                {"power_flow_result": {"battery_bus_vm_kv": 0.42}},
+            )
+
+        self.assertEqual(result["state"], "skipped")
+        self.assertEqual(result["message"], "point_not_configured")
+        client_cls.assert_not_called()
+
+    def test_write_grid_map_optional_voltage_point_writes_to_active_local_endpoint(self):
+        config = _grid_map_write_config()
+        shared_data = {"lock": threading.Lock(), "transport_mode": "local"}
+        client_events = []
+        write_call = {}
+
+        class _FakeClient:
+            def __init__(self, host, port):
+                self.host = host
+                self.port = port
+                client_events.append(("init", host, port))
+
+            def open(self):
+                client_events.append(("open", self.host, self.port))
+                return True
+
+            def close(self):
+                client_events.append(("close", self.host, self.port))
+
+        def _fake_write(client, endpoint, point_name, value):
+            write_call.update(
+                {
+                    "host": client.host,
+                    "port": client.port,
+                    "endpoint_host": endpoint.get("host"),
+                    "endpoint_port": endpoint.get("port"),
+                    "point_name": point_name,
+                    "value": value,
+                }
+            )
+            return True
+
+        with patch.object(gmr, "ModbusClient", _FakeClient), patch.object(
+            gmr, "write_point_internal", side_effect=_fake_write
+        ):
+            result = gmr.write_grid_map_optional_voltage_point(
+                config,
+                shared_data,
+                {"power_flow_result": {"battery_bus_vm_kv": 0.42}},
+            )
+
+        self.assertEqual(result["state"], "ok")
+        self.assertEqual(write_call["host"], "127.0.0.1")
+        self.assertEqual(write_call["port"], 15020)
+        self.assertEqual(write_call["endpoint_host"], "127.0.0.1")
+        self.assertEqual(write_call["endpoint_port"], 15020)
+        self.assertEqual(write_call["point_name"], "v_poi_write")
+        self.assertAlmostEqual(write_call["value"], 0.42, places=6)
+        self.assertEqual(client_events[0], ("init", "127.0.0.1", 15020))
+
+    def test_write_grid_map_optional_voltage_point_uses_active_remote_transport(self):
+        config = _grid_map_write_config()
+        shared_data = {"lock": threading.Lock(), "transport_mode": "remote"}
+        write_call = {}
+
+        class _FakeClient:
+            def __init__(self, host, port):
+                self.host = host
+                self.port = port
+
+            def open(self):
+                return True
+
+            def close(self):
+                return None
+
+        def _fake_write(client, endpoint, point_name, value):
+            write_call.update(
+                {
+                    "host": client.host,
+                    "port": client.port,
+                    "endpoint_host": endpoint.get("host"),
+                    "endpoint_port": endpoint.get("port"),
+                    "point_name": point_name,
+                    "value": value,
+                }
+            )
+            return True
+
+        with patch.object(gmr, "ModbusClient", _FakeClient), patch.object(
+            gmr, "write_point_internal", side_effect=_fake_write
+        ):
+            result = gmr.write_grid_map_optional_voltage_point(
+                config,
+                shared_data,
+                {"power_flow_result": {"battery_bus_vm_kv": 19.8}},
+            )
+
+        self.assertEqual(result["state"], "ok")
+        self.assertEqual(write_call["host"], "10.0.0.21")
+        self.assertEqual(write_call["port"], 502)
+        self.assertEqual(write_call["endpoint_host"], "10.0.0.21")
+        self.assertEqual(write_call["endpoint_port"], 502)
+        self.assertEqual(write_call["point_name"], "v_poi_write")
+        self.assertAlmostEqual(write_call["value"], 19.8, places=6)
+
+    def test_write_grid_map_optional_voltage_point_failure_is_nonfatal_to_runtime_state(self):
+        config = _grid_map_write_config()
+        shared_data = {"lock": threading.Lock(), "transport_mode": "local"}
+
+        class _FakeClient:
+            def __init__(self, host, port):
+                self.host = host
+                self.port = port
+
+            def open(self):
+                return True
+
+            def close(self):
+                return None
+
+        with patch.object(gmr, "ModbusClient", _FakeClient), patch.object(
+            gmr, "write_point_internal", return_value=False
+        ):
+            result = gmr.write_grid_map_optional_voltage_point(
+                config,
+                shared_data,
+                {"power_flow_result": {"battery_bus_vm_kv": 0.42}},
+            )
+
+        self.assertEqual(result["state"], "failed")
+        self.assertEqual(result["message"], "write_failed")
+
+        gmr.publish_grid_map_success(
+            shared_data,
+            now_value=pd.Timestamp("2026-04-03T12:00:00+02:00"),
+            input_payload={"source": "observed_state", "timestamp": pd.Timestamp("2026-04-03T11:59:55+02:00")},
+            run_payload={
+                "requested_timestamp_local": "2026-04-03T12:00:00+02:00",
+                "power_flow_result": {
+                    "selected_timestamp_local": "2026-04-03T12:00:00+02:00",
+                    "selected_timestamp_utc": "2026-04-03T10:00:00+00:00",
+                    "used_previous_hour_fallback": False,
+                },
+                "battery_input_p_kw": 10.0,
+                "battery_input_q_kvar": 2.0,
+                "battery_input_p_mw": -0.01,
+                "battery_input_q_mvar": 0.002,
+            },
+            summary={"min_voltage_pu": 0.98},
+            dynamic_payload={"bus": {"1": {"vm_pu": 0.98}}},
+        )
+        runtime_state = gmr.snapshot_grid_map_runtime(shared_data)
+
+        self.assertEqual(runtime_state["state"], "ok")
+        self.assertIsNone(runtime_state["last_error"])
 
     def test_build_power_flow_summary_and_dynamic_payload_extract_expected_values(self):
         topology_cache = {
