@@ -1643,121 +1643,136 @@ def write_grid_map_optional_voltage_point(
             "state": "skipped",
             "message": "voltage_unavailable",
             "transport_mode": None,
-            "host": None,
-            "port": None,
             "value_kv": None,
+            "targets": [],
         }
 
     with shared_data["lock"]:
         transport_mode = str(shared_data.get("transport_mode", "local") or "local")
 
-    endpoint = resolve_modbus_endpoint(config, "lib", transport_mode)
-    points = dict(endpoint.get("points", {}) or {})
-    point_spec = points.get("v_poi_write")
-    if point_spec is None:
-        logging.debug(
-            "Grid map: optional voltage write skipped (transport=%s reason=point_not_configured).",
-            transport_mode,
-        )
-        return {
-            "state": "skipped",
-            "message": "point_not_configured",
-            "transport_mode": transport_mode,
+    plant_ids = tuple(config.get("PLANT_IDS") or tuple((config.get("PLANTS", {}) or {}).keys()))
+    targets = []
+
+    for plant_id in plant_ids:
+        endpoint = resolve_modbus_endpoint(config, plant_id, transport_mode)
+        points = dict(endpoint.get("points", {}) or {})
+        point_spec = points.get("v_poi_write")
+        if point_spec is None:
+            continue
+
+        target_result = {
+            "plant_id": plant_id,
             "host": endpoint.get("host"),
             "port": endpoint.get("port"),
+            "state": "skipped",
+            "message": None,
             "value_kv": voltage_kv,
         }
 
-    access = str(point_spec.get("access", "")).strip().lower()
-    if "w" not in access:
-        logging.warning(
-            "Grid map: optional voltage write skipped (transport=%s host=%s port=%s reason=point_not_write_capable access=%s).",
-            transport_mode,
-            endpoint.get("host"),
-            endpoint.get("port"),
-            access or "unknown",
-        )
-        return {
-            "state": "skipped",
-            "message": "point_not_write_capable",
-            "transport_mode": transport_mode,
-            "host": endpoint.get("host"),
-            "port": endpoint.get("port"),
-            "value_kv": voltage_kv,
-        }
-
-    client = ModbusClient(host=endpoint["host"], port=endpoint["port"])
-    try:
-        if not client.open():
+        access = str(point_spec.get("access", "")).strip().lower()
+        if "w" not in access:
             logging.warning(
-                "Grid map: optional voltage write failed (transport=%s host=%s port=%s reason=connect_failed).",
+                "Grid map: optional voltage write skipped (plant=%s transport=%s host=%s port=%s reason=point_not_write_capable access=%s).",
+                plant_id,
                 transport_mode,
                 endpoint.get("host"),
                 endpoint.get("port"),
+                access or "unknown",
             )
-            return {
-                "state": "failed",
-                "message": "connect_failed",
-                "transport_mode": transport_mode,
-                "host": endpoint.get("host"),
-                "port": endpoint.get("port"),
-                "value_kv": voltage_kv,
-            }
+            target_result["message"] = "point_not_write_capable"
+            targets.append(target_result)
+            continue
 
-        ok = bool(write_point_internal(client, endpoint, "v_poi_write", voltage_kv))
-        if ok:
-            logging.debug(
-                "Grid map: optional voltage write ok (transport=%s host=%s port=%s value_kv=%.6f).",
+        client = ModbusClient(host=endpoint["host"], port=endpoint["port"])
+        try:
+            if not client.open():
+                logging.warning(
+                    "Grid map: optional voltage write failed (plant=%s transport=%s host=%s port=%s reason=connect_failed).",
+                    plant_id,
+                    transport_mode,
+                    endpoint.get("host"),
+                    endpoint.get("port"),
+                )
+                target_result["state"] = "failed"
+                target_result["message"] = "connect_failed"
+                targets.append(target_result)
+                continue
+
+            ok = bool(write_point_internal(client, endpoint, "v_poi_write", voltage_kv))
+            if ok:
+                logging.debug(
+                    "Grid map: optional voltage write ok (plant=%s transport=%s host=%s port=%s value_kv=%.6f).",
+                    plant_id,
+                    transport_mode,
+                    endpoint.get("host"),
+                    endpoint.get("port"),
+                    voltage_kv,
+                )
+                target_result["state"] = "ok"
+                targets.append(target_result)
+                continue
+
+            logging.warning(
+                "Grid map: optional voltage write failed (plant=%s transport=%s host=%s port=%s reason=write_failed value_kv=%.6f).",
+                plant_id,
                 transport_mode,
                 endpoint.get("host"),
                 endpoint.get("port"),
                 voltage_kv,
             )
-            return {
-                "state": "ok",
-                "message": None,
-                "transport_mode": transport_mode,
-                "host": endpoint.get("host"),
-                "port": endpoint.get("port"),
-                "value_kv": voltage_kv,
-            }
+            target_result["state"] = "failed"
+            target_result["message"] = "write_failed"
+            targets.append(target_result)
+        except Exception as exc:
+            logging.warning(
+                "Grid map: optional voltage write failed (plant=%s transport=%s host=%s port=%s error=%s).",
+                plant_id,
+                transport_mode,
+                endpoint.get("host"),
+                endpoint.get("port"),
+                exc,
+            )
+            target_result["state"] = "failed"
+            target_result["message"] = str(exc)
+            targets.append(target_result)
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
 
-        logging.warning(
-            "Grid map: optional voltage write failed (transport=%s host=%s port=%s reason=write_failed value_kv=%.6f).",
-            transport_mode,
-            endpoint.get("host"),
-            endpoint.get("port"),
-            voltage_kv,
-        )
+    if not targets:
         return {
-            "state": "failed",
-            "message": "write_failed",
+            "state": "skipped",
+            "message": "point_not_configured",
             "transport_mode": transport_mode,
-            "host": endpoint.get("host"),
-            "port": endpoint.get("port"),
             "value_kv": voltage_kv,
+            "targets": [],
         }
-    except Exception as exc:
-        logging.warning(
-            "Grid map: optional voltage write failed (transport=%s host=%s port=%s error=%s).",
-            transport_mode,
-            endpoint.get("host"),
-            endpoint.get("port"),
-            exc,
-        )
-        return {
-            "state": "failed",
-            "message": str(exc),
-            "transport_mode": transport_mode,
-            "host": endpoint.get("host"),
-            "port": endpoint.get("port"),
-            "value_kv": voltage_kv,
-        }
-    finally:
-        try:
-            client.close()
-        except Exception:
-            pass
+
+    ok_count = sum(1 for target in targets if target.get("state") == "ok")
+    failed_count = sum(1 for target in targets if target.get("state") == "failed")
+
+    if ok_count and failed_count:
+        state = "partial"
+        message = "partial_failure"
+    elif ok_count:
+        state = "ok"
+        message = None
+    elif failed_count:
+        state = "failed"
+        message = "write_failed"
+    else:
+        state = "skipped"
+        message = "point_not_write_capable"
+
+    return {
+        "state": state,
+        "message": message,
+        "transport_mode": transport_mode,
+        "value_kv": voltage_kv,
+        "targets": targets,
+    }
 
 
 def publish_grid_map_topology(shared_data: dict[str, Any], *, topology_cache: dict[str, Any]) -> None:

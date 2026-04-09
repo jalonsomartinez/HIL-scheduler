@@ -5,7 +5,7 @@ import unittest
 import pandas as pd
 
 from config_loader import load_config
-from modbus.codec import read_point_internal
+from modbus.codec import read_point_internal, write_point_internal
 from plant_agent import plant_agent
 from tests.test_local_runtime_smoke import _FakeModbusClient, _FakeModbusRegistry, _FakeModbusServer
 
@@ -185,6 +185,79 @@ class PlantAgentSocSeedRequestTests(unittest.TestCase):
                 soc_pu = read_point_internal(client, config["PLANTS"]["lib"]["modbus"]["local"], "soc")
                 self.assertIsNotNone(soc_pu)
                 self.assertAlmostEqual(float(soc_pu), 0.63, places=4)
+        finally:
+            shared_data["shutdown_event"].set()
+            if thread is not None:
+                thread.join(timeout=2)
+
+
+class PlantAgentVoltageMirroringTests(unittest.TestCase):
+    def setUp(self):
+        _FakeModbusRegistry.clear()
+
+    def test_local_voltage_mirrors_v_poi_write_when_configured(self):
+        config = load_config("config.yaml")
+        config["PLANT_PERIOD_S"] = 0.05
+        config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["lib"]["modbus"]["local"]["port"] = 5160
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["port"] = 5161
+        shared_data = _build_shared_data(config)
+
+        thread = None
+        try:
+            from unittest.mock import patch
+
+            with patch("plant_agent.ModbusServer", _FakeModbusServer), patch(
+                "plant_agent.find_latest_persisted_soc_for_plant",
+                return_value=None,
+            ):
+                thread = threading.Thread(target=plant_agent, args=(config, shared_data), daemon=True)
+                thread.start()
+                time.sleep(0.2)
+
+                client = _FakeModbusClient("127.0.0.1", 5161)
+                self.assertTrue(client.open())
+                vrfb_endpoint = config["PLANTS"]["vrfb"]["modbus"]["local"]
+                self.assertTrue(write_point_internal(client, vrfb_endpoint, "v_poi_write", 19.93))
+
+                time.sleep(0.15)
+
+                voltage_kv = read_point_internal(client, vrfb_endpoint, "v_poi")
+                self.assertIsNotNone(voltage_kv)
+                self.assertAlmostEqual(float(voltage_kv), 19.93, places=3)
+        finally:
+            shared_data["shutdown_event"].set()
+            if thread is not None:
+                thread.join(timeout=2)
+
+    def test_local_voltage_defaults_to_rated_value_without_v_poi_write(self):
+        config = load_config("config.yaml")
+        config["PLANT_PERIOD_S"] = 0.05
+        config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["lib"]["modbus"]["local"]["port"] = 5170
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["port"] = 5171
+        shared_data = _build_shared_data(config)
+
+        thread = None
+        try:
+            from unittest.mock import patch
+
+            with patch("plant_agent.ModbusServer", _FakeModbusServer), patch(
+                "plant_agent.find_latest_persisted_soc_for_plant",
+                return_value=None,
+            ):
+                thread = threading.Thread(target=plant_agent, args=(config, shared_data), daemon=True)
+                thread.start()
+                time.sleep(0.2)
+
+                client = _FakeModbusClient("127.0.0.1", 5170)
+                self.assertTrue(client.open())
+                lib_endpoint = config["PLANTS"]["lib"]["modbus"]["local"]
+                voltage_kv = read_point_internal(client, lib_endpoint, "v_poi")
+                self.assertIsNotNone(voltage_kv)
+                self.assertAlmostEqual(float(voltage_kv), 20.0, places=3)
         finally:
             shared_data["shutdown_event"].set()
             if thread is not None:

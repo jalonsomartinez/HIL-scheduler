@@ -81,6 +81,12 @@ def plant_agent(config, shared_data):
         words = encode_engineering_value(endpoint_cfg, point, external_value)
         db.set_holding_registers(int(point["address"]), [int(word) for word in words])
 
+    def _resolve_local_v_poi_kv(db, endpoint_cfg, default_kv):
+        points = dict(endpoint_cfg.get("points", {}) or {})
+        if "v_poi_write" in points:
+            return db_read_point_eng(db, endpoint_cfg, "v_poi_write")
+        return default_kv
+
     def _clamp_soc_pu(value, fallback):
         try:
             soc_value = float(value)
@@ -149,7 +155,9 @@ def plant_agent(config, shared_data):
             db_write_point_eng(db, local_cfg, "q_battery", 0.0)
             db_write_point_eng(db, local_cfg, "p_poi", 0.0)
             db_write_point_eng(db, local_cfg, "q_poi", 0.0)
-            db_write_point_eng(db, local_cfg, "v_poi", states[plant_id]["poi_voltage_kv"])
+            initial_v_poi_kv = _resolve_local_v_poi_kv(db, local_cfg, states[plant_id]["poi_voltage_kv"])
+            if initial_v_poi_kv is not None:
+                db_write_point_eng(db, local_cfg, "v_poi", initial_v_poi_kv)
 
             startup_seed_source = str(startup_soc_seed.get("source", "unknown"))
             startup_seed_path = startup_soc_seed.get("file_path")
@@ -251,14 +259,15 @@ def plant_agent(config, shared_data):
 
                     p_poi_kw = p_act_kw
                     q_poi_kvar = q_act_kvar
-                    v_poi_kv = st["poi_voltage_kv"]
+                    v_poi_kv = _resolve_local_v_poi_kv(db, endpoint_cfg, st["poi_voltage_kv"])
 
                     db_write_point_eng(db, endpoint_cfg, "p_battery", p_act_kw)
                     db_write_point_eng(db, endpoint_cfg, "q_battery", q_act_kvar)
                     db_write_point_eng(db, endpoint_cfg, "soc", soc_pu)
                     db_write_point_eng(db, endpoint_cfg, "p_poi", p_poi_kw)
                     db_write_point_eng(db, endpoint_cfg, "q_poi", q_poi_kvar)
-                    db_write_point_eng(db, endpoint_cfg, "v_poi", v_poi_kv)
+                    if v_poi_kv is not None:
+                        db_write_point_eng(db, endpoint_cfg, "v_poi", v_poi_kv)
 
                 except Exception as exc:
                     logging.error("Plant agent error (%s): %s", plant_id.upper(), exc)

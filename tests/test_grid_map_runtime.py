@@ -220,6 +220,7 @@ def _grid_map_write_config():
     }
     return {
         "TIMEZONE_NAME": "Europe/Madrid",
+        "PLANT_IDS": ("lib", "vrfb"),
         "PLANTS": {
             "lib": {
                 "modbus": {
@@ -238,7 +239,25 @@ def _grid_map_write_config():
                         "points": {"v_poi_write": dict(point, address=500)},
                     },
                 }
-            }
+            },
+            "vrfb": {
+                "modbus": {
+                    "local": {
+                        "host": "127.0.0.1",
+                        "port": 15021,
+                        "byte_order": "big",
+                        "word_order": "msw_first",
+                        "points": {"v_poi_write": dict(point, address=401)},
+                    },
+                    "remote": {
+                        "host": "10.0.0.22",
+                        "port": 503,
+                        "byte_order": "big",
+                        "word_order": "msw_first",
+                        "points": {"v_poi_write": dict(point, address=501)},
+                    },
+                }
+            },
         },
     }
 
@@ -332,6 +351,7 @@ class GridMapRuntimeTests(unittest.TestCase):
     def test_write_grid_map_optional_voltage_point_skips_when_not_configured(self):
         config = _grid_map_write_config()
         config["PLANTS"]["lib"]["modbus"]["local"]["points"] = {}
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["points"] = {}
         shared_data = {"lock": threading.Lock(), "transport_mode": "local"}
 
         with patch.object(gmr, "ModbusClient") as client_cls:
@@ -343,13 +363,14 @@ class GridMapRuntimeTests(unittest.TestCase):
 
         self.assertEqual(result["state"], "skipped")
         self.assertEqual(result["message"], "point_not_configured")
+        self.assertEqual(result["targets"], [])
         client_cls.assert_not_called()
 
-    def test_write_grid_map_optional_voltage_point_writes_to_active_local_endpoint(self):
+    def test_write_grid_map_optional_voltage_point_writes_to_all_active_local_endpoints(self):
         config = _grid_map_write_config()
         shared_data = {"lock": threading.Lock(), "transport_mode": "local"}
         client_events = []
-        write_call = {}
+        write_calls = []
 
         class _FakeClient:
             def __init__(self, host, port):
@@ -365,7 +386,7 @@ class GridMapRuntimeTests(unittest.TestCase):
                 client_events.append(("close", self.host, self.port))
 
         def _fake_write(client, endpoint, point_name, value):
-            write_call.update(
+            write_calls.append(
                 {
                     "host": client.host,
                     "port": client.port,
@@ -387,18 +408,20 @@ class GridMapRuntimeTests(unittest.TestCase):
             )
 
         self.assertEqual(result["state"], "ok")
-        self.assertEqual(write_call["host"], "127.0.0.1")
-        self.assertEqual(write_call["port"], 15020)
-        self.assertEqual(write_call["endpoint_host"], "127.0.0.1")
-        self.assertEqual(write_call["endpoint_port"], 15020)
-        self.assertEqual(write_call["point_name"], "v_poi_write")
-        self.assertAlmostEqual(write_call["value"], 0.42, places=6)
+        self.assertEqual(len(write_calls), 2)
+        self.assertEqual(
+            {(call["host"], call["port"]) for call in write_calls},
+            {("127.0.0.1", 15020), ("127.0.0.1", 15021)},
+        )
+        self.assertTrue(all(call["point_name"] == "v_poi_write" for call in write_calls))
+        self.assertTrue(all(abs(call["value"] - 0.42) < 1e-6 for call in write_calls))
         self.assertEqual(client_events[0], ("init", "127.0.0.1", 15020))
 
-    def test_write_grid_map_optional_voltage_point_uses_active_remote_transport(self):
+    def test_write_grid_map_optional_voltage_point_skips_plants_without_configured_point(self):
         config = _grid_map_write_config()
-        shared_data = {"lock": threading.Lock(), "transport_mode": "remote"}
-        write_call = {}
+        config["PLANTS"]["lib"]["modbus"]["local"]["points"] = {}
+        shared_data = {"lock": threading.Lock(), "transport_mode": "local"}
+        write_calls = []
 
         class _FakeClient:
             def __init__(self, host, port):
@@ -412,7 +435,42 @@ class GridMapRuntimeTests(unittest.TestCase):
                 return None
 
         def _fake_write(client, endpoint, point_name, value):
-            write_call.update(
+            write_calls.append((client.host, client.port, endpoint.get("host"), endpoint.get("port"), point_name, value))
+            return True
+
+        with patch.object(gmr, "ModbusClient", _FakeClient), patch.object(
+            gmr, "write_point_internal", side_effect=_fake_write
+        ):
+            result = gmr.write_grid_map_optional_voltage_point(
+                config,
+                shared_data,
+                {"power_flow_result": {"battery_bus_vm_kv": 0.42}},
+            )
+
+        self.assertEqual(result["state"], "ok")
+        self.assertEqual(len(write_calls), 1)
+        self.assertEqual(write_calls[0][0:2], ("127.0.0.1", 15021))
+        self.assertEqual(write_calls[0][4], "v_poi_write")
+        self.assertAlmostEqual(write_calls[0][5], 0.42, places=6)
+
+    def test_write_grid_map_optional_voltage_point_uses_active_remote_transport(self):
+        config = _grid_map_write_config()
+        shared_data = {"lock": threading.Lock(), "transport_mode": "remote"}
+        write_calls = []
+
+        class _FakeClient:
+            def __init__(self, host, port):
+                self.host = host
+                self.port = port
+
+            def open(self):
+                return True
+
+            def close(self):
+                return None
+
+        def _fake_write(client, endpoint, point_name, value):
+            write_calls.append(
                 {
                     "host": client.host,
                     "port": client.port,
@@ -434,12 +492,13 @@ class GridMapRuntimeTests(unittest.TestCase):
             )
 
         self.assertEqual(result["state"], "ok")
-        self.assertEqual(write_call["host"], "10.0.0.21")
-        self.assertEqual(write_call["port"], 502)
-        self.assertEqual(write_call["endpoint_host"], "10.0.0.21")
-        self.assertEqual(write_call["endpoint_port"], 502)
-        self.assertEqual(write_call["point_name"], "v_poi_write")
-        self.assertAlmostEqual(write_call["value"], 19.8, places=6)
+        self.assertEqual(len(write_calls), 2)
+        self.assertEqual(
+            {(call["host"], call["port"]) for call in write_calls},
+            {("10.0.0.21", 502), ("10.0.0.22", 503)},
+        )
+        self.assertTrue(all(call["point_name"] == "v_poi_write" for call in write_calls))
+        self.assertTrue(all(abs(call["value"] - 19.8) < 1e-6 for call in write_calls))
 
     def test_write_grid_map_optional_voltage_point_failure_is_nonfatal_to_runtime_state(self):
         config = _grid_map_write_config()
@@ -467,6 +526,7 @@ class GridMapRuntimeTests(unittest.TestCase):
 
         self.assertEqual(result["state"], "failed")
         self.assertEqual(result["message"], "write_failed")
+        self.assertEqual(len(result["targets"]), 2)
 
         gmr.publish_grid_map_success(
             shared_data,
