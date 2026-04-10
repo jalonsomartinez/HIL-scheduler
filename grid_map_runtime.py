@@ -139,6 +139,73 @@ def _series_from_results(results_tables: dict[str, Any], table_name: str, column
     return series
 
 
+def _derive_battery_bus_voltage_kv(
+    simulator_module: Any,
+    power_flow_result: dict[str, Any],
+) -> float | None:
+    voltage_kv = _coerce_float((power_flow_result or {}).get("battery_bus_vm_kv"))
+    if voltage_kv is not None:
+        return voltage_kv
+
+    assets = None
+    try:
+        if hasattr(simulator_module, "_load_assets"):
+            loaded_assets = simulator_module._load_assets()
+            if isinstance(loaded_assets, dict):
+                assets = loaded_assets
+
+        metadata = {}
+        if hasattr(simulator_module, "get_metadata"):
+            loaded_metadata = simulator_module.get_metadata()
+            if isinstance(loaded_metadata, dict):
+                metadata = dict(loaded_metadata)
+        elif isinstance(assets, dict):
+            metadata = dict((assets.get("metadata") or {}))
+
+        battery_bus_raw = metadata.get("battery_bus")
+        if battery_bus_raw is None:
+            return None
+        battery_bus = int(battery_bus_raw)
+
+        battery_bus_vm_pu = _coerce_float((power_flow_result or {}).get("battery_bus_vm_pu"))
+        if battery_bus_vm_pu is None:
+            results_tables = dict((power_flow_result or {}).get("results_tables", {}) or {})
+            vm_series = _series_from_results(results_tables, "res_bus", "vm_pu")
+            battery_bus_vm_pu = _coerce_float(vm_series.get(battery_bus))
+        if battery_bus_vm_pu is None:
+            return None
+
+        base_net = None
+        if hasattr(simulator_module, "get_base_network_copy"):
+            base_net = simulator_module.get_base_network_copy()
+        elif isinstance(assets, dict):
+            base_net = assets.get("base_net")
+
+        bus_table = getattr(base_net, "bus", None)
+        if not isinstance(bus_table, pd.DataFrame) or battery_bus not in bus_table.index or "vn_kv" not in bus_table.columns:
+            return None
+
+        nominal_kv = _coerce_float(bus_table.at[battery_bus, "vn_kv"])
+        if nominal_kv is None:
+            return None
+
+        return float(battery_bus_vm_pu) * float(nominal_kv)
+    except Exception as exc:
+        logging.debug("Grid map: failed to derive battery_bus_vm_kv from simulator assets: %s", exc)
+        return None
+
+
+def _normalize_power_flow_result(
+    simulator_module: Any,
+    power_flow_result: dict[str, Any],
+) -> dict[str, Any]:
+    normalized = dict(power_flow_result or {})
+    battery_bus_vm_kv = _derive_battery_bus_voltage_kv(simulator_module, normalized)
+    if battery_bus_vm_kv is not None:
+        normalized["battery_bus_vm_kv"] = battery_bus_vm_kv
+    return normalized
+
+
 def _parse_bus_geodata(net: Any) -> dict[int, tuple[float, float]]:
     coords: dict[int, tuple[float, float]] = {}
 
@@ -1621,6 +1688,7 @@ def run_grid_map_power_flow(input_payload: dict[str, Any], config: dict[str, Any
         battery_q_mvar=q_mvar,
         timestamp_iso=timestamp_iso,
     )
+    result = _normalize_power_flow_result(simulator_module, result)
     return {
         "power_flow_result": result,
         "requested_timestamp_local": timestamp_iso,

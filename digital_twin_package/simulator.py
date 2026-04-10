@@ -43,7 +43,7 @@ Returned data
   ``converged``, ``requested_timestamp_utc``, ``selected_timestamp_utc``,
   ``selected_timestamp_local``, ``used_previous_hour_fallback``.
 - KPI fields:
-  ``battery_bus_vm_pu``, ``battery_bus_vm_kv``, ``num_overloaded_lines``,
+  ``battery_bus_vm_pu``, ``num_overloaded_lines``,
   ``num_voltage_violations``, ``max_voltage_pu``, ``min_voltage_pu``,
   ``max_line_loading_pct``.
 - Full pandapower output tables in ``results_tables`` (all ``res_*`` DataFrames).
@@ -311,7 +311,6 @@ def run_power_flow(
         - ``used_previous_hour_fallback`` (bool): ``True`` when previous-hour
           selection was applied.
         - ``battery_bus_vm_pu`` (float): voltage magnitude at package battery bus.
-        - ``battery_bus_vm_kv`` (float): absolute voltage magnitude at package battery bus.
         - ``num_overloaded_lines`` (int): count of lines with loading > 100%.
         - ``num_voltage_violations`` (int): count of buses outside 0.95..1.05 pu.
         - ``max_voltage_pu`` / ``min_voltage_pu`` / ``max_line_loading_pct``.
@@ -375,17 +374,11 @@ def run_power_flow(
     battery_bus = int(assets["metadata"]["battery_bus"])
     res_bus = getattr(net, "res_bus", pd.DataFrame())
     res_line = getattr(net, "res_line", pd.DataFrame())
-    bus_table = getattr(net, "bus", pd.DataFrame())
 
     vm_series = _safe_numeric_series(res_bus, "vm_pu")
     line_loading = _safe_numeric_series(res_line, "loading_percent")
-    nominal_kv_series = _safe_numeric_series(bus_table, "vn_kv")
 
     battery_bus_vm = _safe_float_from_series(vm_series, battery_bus)
-    battery_bus_vm_kv = float("nan")
-    nominal_kv = _safe_float_from_series(nominal_kv_series, battery_bus)
-    if nominal_kv == nominal_kv and battery_bus_vm == battery_bus_vm:
-        battery_bus_vm_kv = battery_bus_vm * nominal_kv
     num_overloaded_lines = int((line_loading > 100.0).sum()) if not line_loading.empty else 0
     if vm_series.empty:
         num_voltage_violations = 0
@@ -405,7 +398,6 @@ def run_power_flow(
         "selected_timestamp_local": selected_utc.tz_convert("Europe/Madrid").isoformat(),
         "used_previous_hour_fallback": not exact_match,
         "battery_bus_vm_pu": battery_bus_vm,
-        "battery_bus_vm_kv": battery_bus_vm_kv,
         "num_overloaded_lines": num_overloaded_lines,
         "num_voltage_violations": num_voltage_violations,
         "max_voltage_pu": max_voltage,

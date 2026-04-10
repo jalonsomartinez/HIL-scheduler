@@ -14,6 +14,7 @@ class _FakeNet:
         self.bus = pd.DataFrame(
             {
                 "name": ["B1", "B2", "B3"],
+                "vn_kv": [20.0, 20.0, 20.0],
                 "geo": (
                     [
                         '{"coordinates":[482068.167,4071882.831], "type":"Point"}',
@@ -55,9 +56,10 @@ class _FakeFigure:
 
 
 class _FakeSimulatorModule:
-    def __init__(self, *, with_projected_geo=False):
+    def __init__(self, *, with_projected_geo=False, include_voltage_kv=True):
         self.calls = []
         self.with_projected_geo = with_projected_geo
+        self.include_voltage_kv = include_voltage_kv
 
     def get_base_network_copy(self):
         return _FakeNet(with_projected_geo=self.with_projected_geo)
@@ -67,17 +69,19 @@ class _FakeSimulatorModule:
 
     def run_power_flow(self, **kwargs):
         self.calls.append(dict(kwargs))
-        return {
+        result = {
             "selected_timestamp_local": kwargs["timestamp_iso"],
             "selected_timestamp_utc": "2026-04-03T10:00:00+00:00",
             "used_previous_hour_fallback": False,
             "battery_bus_vm_pu": 1.02,
-            "battery_bus_vm_kv": 20.4,
             "results_tables": {
                 "res_bus": pd.DataFrame({"vm_pu": [0.96, 1.02, 1.06]}, index=[1, 2, 3]),
                 "res_line": pd.DataFrame({"loading_percent": [55.0, 110.0]}, index=[11, 12]),
             },
         }
+        if self.include_voltage_kv:
+            result["battery_bus_vm_kv"] = 20.4
+        return result
 
 
 class _FakeAssetsOnlySimulatorModule:
@@ -328,8 +332,8 @@ class GridMapRuntimeTests(unittest.TestCase):
         self.assertEqual(payload["p_kw"], 7.5)
         self.assertEqual(payload["q_kvar"], 0.8)
 
-    def test_run_grid_map_power_flow_inverts_active_power_and_converts_units(self):
-        fake_simulator = _FakeSimulatorModule()
+    def test_run_grid_map_power_flow_inverts_active_power_and_derives_absolute_voltage_when_missing(self):
+        fake_simulator = _FakeSimulatorModule(include_voltage_kv=False)
         gmr._SIMULATOR_MODULE = fake_simulator
 
         payload = {
@@ -347,6 +351,22 @@ class GridMapRuntimeTests(unittest.TestCase):
         self.assertEqual(result["battery_input_p_mw"], -0.25)
         self.assertEqual(result["battery_input_q_mvar"], -0.05)
         self.assertEqual(result["power_flow_result"]["battery_bus_vm_kv"], 20.4)
+
+    def test_write_grid_map_optional_voltage_point_skips_when_voltage_unavailable(self):
+        config = _grid_map_write_config()
+        shared_data = {"lock": threading.Lock(), "transport_mode": "local"}
+
+        with patch.object(gmr, "ModbusClient") as client_cls:
+            result = gmr.write_grid_map_optional_voltage_point(
+                config,
+                shared_data,
+                {"power_flow_result": {}},
+            )
+
+        self.assertEqual(result["state"], "skipped")
+        self.assertEqual(result["message"], "voltage_unavailable")
+        self.assertEqual(result["targets"], [])
+        client_cls.assert_not_called()
 
     def test_write_grid_map_optional_voltage_point_skips_when_not_configured(self):
         config = _grid_map_write_config()
