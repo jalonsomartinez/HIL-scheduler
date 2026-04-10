@@ -346,10 +346,10 @@ class GridMapRuntimeTests(unittest.TestCase):
         self.assertEqual(len(fake_simulator.calls), 1)
         call = fake_simulator.calls[0]
         self.assertEqual(call["battery_p_mw"], -0.25)
-        self.assertEqual(call["battery_q_mvar"], -0.05)
+        self.assertEqual(call["battery_q_mvar"], 0.05)
         self.assertIn("+02:00", call["timestamp_iso"])
         self.assertEqual(result["battery_input_p_mw"], -0.25)
-        self.assertEqual(result["battery_input_q_mvar"], -0.05)
+        self.assertEqual(result["battery_input_q_mvar"], 0.05)
         self.assertEqual(result["power_flow_result"]["battery_bus_vm_kv"], 20.4)
 
     def test_write_grid_map_optional_voltage_point_skips_when_voltage_unavailable(self):

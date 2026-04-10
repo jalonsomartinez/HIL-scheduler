@@ -1680,7 +1680,7 @@ def run_grid_map_power_flow(input_payload: dict[str, Any], config: dict[str, Any
         raise ValueError("LIB power-flow inputs are incomplete.")
 
     p_mw = -float(p_kw) / 1000.0
-    q_mvar = float(q_kvar) / 1000.0
+    q_mvar = -float(q_kvar) / 1000.0
     timestamp_iso = serialize_iso_with_tz(timestamp, tz=tz)
 
     result = simulator_module.run_power_flow(
@@ -1947,7 +1947,7 @@ def publish_grid_map_error(
             p_kw = _coerce_float(input_payload.get("p_kw"))
             q_kvar = _coerce_float(input_payload.get("q_kvar"))
             runtime_state["battery_input_p_mw"] = None if p_kw is None else -float(p_kw) / 1000.0
-            runtime_state["battery_input_q_mvar"] = None if q_kvar is None else float(q_kvar) / 1000.0
+            runtime_state["battery_input_q_mvar"] = None if q_kvar is None else -float(q_kvar) / 1000.0
         runtime_state["stale"] = _compute_stale_flag(
             runtime_state.get("last_success_at"),
             now_value,
