@@ -6,6 +6,7 @@
 - Ensure historical and live plots/CSV exports remain backward-compatible while exposing schedule components.
 - Continue remote Modbus reliability work without regressing schedule/measurement behavior.
 - Keep the new menu-only dashboard navigation stable across private/public routes and mobile drawer behavior.
+- Preserve a clear audit trail for the dashboard grid-map digital-twin model while transformer-header line geometry/length issues are being investigated.
 
 ## Open Decisions and Risks
 - Whether mFRR API should eventually be polled/retained with adaptive windows if provider payload shape changes.
@@ -13,8 +14,26 @@
 - Fake-client local smoke tests still need adaptation to pooled-client semantics.
 - API password remains process-memory only (no secure at-rest persistence).
 - Full lockfile/transitive pin strategy remains undecided.
+- The April 2026 local pandapower model patches for lines `841-848` are investigative and may need technical-team review before being treated as canonical network data.
 
 ## Rolling Change Log (Compressed, 30-Day Window)
+- 2026-04-10:
+  - Corrected LIB battery reactive-power sign inversion in `grid_map_runtime.py` so runtime battery `q_kvar` matches the active-power reference swap before entering the pandapower battery `asymmetric_load`.
+  - Investigated dashboard grid-map voltage-drop anomalies around:
+    - line `831` = `L01 DEL CT ALBUÑO0340 CT-1`,
+    - line `843` = `CT Albuño340 - L01`,
+    - buses `841`, `553`, `89`, and the unrelated `843` bus naming confusion.
+  - Wrote technical audit note `docs/audits/20260410_grid_map_geometry_findings.md` documenting:
+    - model-vs-coordinate line-length mismatches,
+    - the transformer-header family `841-848`,
+    - other overloaded lines and per-line voltage-drop checks.
+  - Added backup copies of the original line-843 pandapower model pickle at:
+    - `grid_map_digital_twin/net_digital_twin.p.backup_line843_original_20260410`,
+    - `digital_twin_package/net_digital_twin.p.backup_line843_original_20260410`.
+  - Applied mirrored investigative patches to `grid_map_digital_twin/net_digital_twin.p` and `digital_twin_package/net_digital_twin.p`:
+    - lines `841-847` set to coordinate-derived lengths with `10 m` minimum,
+    - line `848` set to coordinate-derived length (`105.707 m`),
+    - line `843` restored to original impedance-per-km values while keeping `10 m` length and raised `max_i_ka=0.24`.
 - 2026-03-27:
   - Replaced private/public dashboard tab components with menu-only route sections.
   - Private routes now map to section visibility: `/status`, `/plots`, `/manual-schedule`, `/api-schedule`, `/logs`.

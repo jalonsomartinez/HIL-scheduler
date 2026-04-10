@@ -5,6 +5,7 @@
 - Confirming API tab mFRR polling telemetry reflects real poll state transitions.
 - Validating that VRFB mFRR index now follows LIB response window and no longer expands to synthetic 2-day grids.
 - Stabilizing menu-only route navigation in private/public dashboards after full tab removal.
+- Capturing and preserving the current grid-map pandapower model edits and audit context for future technical review.
 
 ## In Progress
 1. Schedule model rollout:
@@ -23,6 +24,10 @@
    - remove tab components,
    - route-drive section visibility,
    - preserve existing control and plotting component IDs.
+6. Grid-map model audit follow-up:
+   - keep mirrored digital-twin pickle copies in sync,
+   - document temporary transformer-header line patches and backups,
+   - hand off geometry/length discrepancies to the technical team.
 
 ## Next
 1. Run full dependency-enabled test suite in target environments (`pytest`, `pandas`, `dash` installed).
@@ -30,6 +35,7 @@
 3. Continue remote Modbus reliability hardening and pooled-client smoke-test adaptation.
 4. Evaluate API credential hardening options beyond process-memory storage.
 5. Run dependency-enabled dashboard tests in an environment with `dash` and `pandas` installed to validate new layout/navigation tests.
+6. Confirm with the technical team whether the transformer-header family (`841-848`) should remain coordinate-length based or be replaced with corrected canonical asset data.
 
 ## Known Issues / Gaps
 1. No persistent durability for measurement-post retry queue across process restarts.
@@ -39,6 +45,7 @@
 5. API password is process-memory only (env/bootstrap or dashboard save); no encrypted persistence layer.
 6. `tests.test_local_runtime_smoke` currently fails with pooled Modbus client semantics under fake-client patching.
 7. Current local shell may lack Python deps for full test execution (`pytest`, `pandas`, `dash`).
+8. The current grid-map pandapower pickle contains local investigative edits for transformer-header lines `841-848`; these are documented but not yet validated as final network parameters.
 
 ## Current Project Phase
-Schedule-model expansion and observability hardening, alongside continued remote reliability stabilization.
+Schedule-model expansion and observability hardening, alongside continued remote reliability stabilization and grid-map digital-twin audit follow-up.

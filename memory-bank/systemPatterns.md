@@ -107,6 +107,10 @@ Key maps:
   - tab components were removed from both dashboards,
   - section visibility is route-driven (`page-section` / `page-section--active`),
   - menu drawer toggle state is callback-controlled and auto-closes on non-toggle triggers.
+- Digital-twin model mirror pattern:
+  - the dashboard grid-map power-flow assets are mirrored in both `grid_map_digital_twin/` and `digital_twin_package/`,
+  - `net_digital_twin.p` edits must be applied to both copies to preserve the sync invariant checked by `tests/test_grid_map_digital_twin_sync.py`,
+  - when model surgery is performed for investigation, keep an explicit backup of the original pickle next to each edited copy.
 
 ## Time and Timestamp Conventions
 - Runtime timestamps are timezone-aware in configured timezone.

@@ -15,6 +15,7 @@ Increase operational confidence by stabilizing multi-market schedule composition
 - Keep mFRR logging high-signal (transition INFO, steady-state DEBUG, failure ERROR).
 - Continue remote endpoint stability checks after pooled-session rollout.
 - Decide scheduler readback grouping scope (grouped vs point-wise).
+- Reconcile grid-map pandapower model geometry with electrical lengths, especially transformer-header lines `841-848`, before treating investigative local patches as permanent.
 
 3. UX and observability
 - Add lightweight visual regression checks for schedule traces (`Pref`, `day-ahead`, `mfrr`).

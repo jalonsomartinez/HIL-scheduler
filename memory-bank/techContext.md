@@ -12,6 +12,9 @@
 ## Repository Runtime Modules
 - `hil_scheduler.py`: process entrypoint, shared-state init, thread startup/shutdown.
 - `config_loader.py`: strict schema normalization and runtime config map.
+- `grid_map_runtime.py`: grid-map runtime packaging, power-flow summary extraction, and dashboard-facing digital-twin state.
+- `grid_map_digital_twin/`: packaged pandapower model, time-series assets, and simulator entrypoint used by the dashboard grid-map.
+- `digital_twin_package/`: mirrored copy of packaged digital-twin assets kept in sync with `grid_map_digital_twin/`.
 - `dashboard/`: layout, route/menu callbacks, plotting helpers, history helpers, logs page.
 - `dashboard/navigation.py`: route normalization and shared menu/page-section state helpers.
 - `control/`: command intents and execution flows (safe-stop, transport switch, fleet actions).
@@ -82,3 +85,12 @@ Important normalized keys include:
 - Grouped reads are static/planned, not dynamically re-optimized per cycle.
 - Cross-origin dashboard comparisons are sensitive to environment drift: even with identical browser/version, mismatched server dependency versions can produce different Dash component rendering.
 - mFRR API window may not cover full 2-day horizon; runtime now treats returned LIB mFRR timestamps as authoritative and aligns VRFB mFRR to that index.
+- The grid-map pandapower model is stored as pickled DataFrame payloads; direct edits are effectively binary edits and should preserve both mirrored copies.
+- 2026-04-10 investigation note:
+  - LIB reactive-power sign into the battery `asymmetric_load` was corrected in runtime to match the active-power sign inversion.
+  - Transformer-to-feeder header lines `841-848` were reviewed against bus-coordinate geometry.
+  - Current local model patches retained in both mirrored `net_digital_twin.p` copies:
+    - lines `841-847` now use coordinate-derived lengths with a `10 m` minimum,
+    - line `848` now uses its coordinate-derived length (`105.707 m`),
+    - line `843` keeps the original impedance-per-km values (`r=1.15`, `x=0.105`, `r0=3.45`, `x0=0.315`) but a shortened `10 m` length and higher `max_i_ka=0.24`,
+    - original pre-patch line-843 model snapshots were backed up as `net_digital_twin.p.backup_line843_original_20260410` in both mirrored directories.
