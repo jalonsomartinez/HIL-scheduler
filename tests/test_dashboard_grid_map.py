@@ -42,7 +42,7 @@ class DashboardGridMapTests(unittest.TestCase):
                 "topology_ready": True,
                 "stale": False,
                 "coordinate_mode": "geographic",
-                "map_background_enabled": True,
+                "map_background_mode": "street",
                 "refresh_paused": False,
             }
         )
@@ -52,11 +52,13 @@ class DashboardGridMapTests(unittest.TestCase):
                 "topology_ready": True,
                 "stale": False,
                 "coordinate_mode": "geographic",
-                "map_background_enabled": True,
+                "map_background_mode": "satellite",
                 "refresh_paused": True,
             }
         )
 
+        self.assertIn("background=street", live_text)
+        self.assertIn("background=satellite", paused_text)
         self.assertIn("map_refresh=live", live_text)
         self.assertIn("map_refresh=paused", paused_text)
 

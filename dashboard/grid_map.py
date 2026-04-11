@@ -108,12 +108,12 @@ def build_grid_map_status_text(runtime_state):
     topology_ready = bool(runtime_state.get("topology_ready", False))
     stale = bool(runtime_state.get("stale", True))
     coordinate_mode = str(runtime_state.get("coordinate_mode") or "schematic")
-    map_background_enabled = bool(runtime_state.get("map_background_enabled", False))
+    map_background_mode = str(runtime_state.get("map_background_mode") or "none")
     refresh_paused = bool(runtime_state.get("refresh_paused", False))
     error_text = str(runtime_state.get("last_error") or runtime_state.get("topology_error") or "").strip()
     status_text = (
         f"Grid Map Runtime: state={state} | topology_ready={topology_ready} | "
-        f"stale={stale} | mode={coordinate_mode} | basemap={map_background_enabled} | "
+        f"stale={stale} | mode={coordinate_mode} | background={map_background_mode} | "
         f"map_refresh={'paused' if refresh_paused else 'live'}"
     )
     if error_text:

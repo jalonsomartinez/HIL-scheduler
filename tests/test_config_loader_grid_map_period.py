@@ -25,6 +25,7 @@ class ConfigLoaderGridMapPeriodTests(unittest.TestCase):
     def test_load_config_exposes_grid_map_period(self):
         config = load_config("config.yaml")
         self.assertEqual(float(config["GRID_MAP_PERIOD_S"]), 10.0)
+        self.assertEqual(str(config["GRID_MAP_BACKGROUND_MODE"]), "street")
 
     def test_accepts_custom_grid_map_period(self):
         payload = _load_yaml("config.yaml")
@@ -47,6 +48,28 @@ class ConfigLoaderGridMapPeriodTests(unittest.TestCase):
                 finally:
                     os.unlink(path)
                 self.assertEqual(float(config["GRID_MAP_PERIOD_S"]), 10.0)
+
+    def test_accepts_grid_map_background_mode_values(self):
+        for background_mode in ("none", "street", "satellite"):
+            with self.subTest(background_mode=background_mode):
+                payload = _load_yaml("config.yaml")
+                payload.setdefault("dashboard", {}).setdefault("grid_map", {})["background_mode"] = background_mode
+                path = _write_temp_yaml(payload)
+                try:
+                    config = load_config(path)
+                finally:
+                    os.unlink(path)
+                self.assertEqual(str(config["GRID_MAP_BACKGROUND_MODE"]), background_mode)
+
+    def test_rejects_invalid_grid_map_background_mode(self):
+        payload = _load_yaml("config.yaml")
+        payload.setdefault("dashboard", {}).setdefault("grid_map", {})["background_mode"] = "terrain"
+        path = _write_temp_yaml(payload)
+        try:
+            with self.assertRaises(ValueError):
+                load_config(path)
+        finally:
+            os.unlink(path)
 
 
 if __name__ == "__main__":

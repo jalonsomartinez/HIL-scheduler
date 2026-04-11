@@ -30,7 +30,7 @@ def grid_map_agent(config, shared_data):
     ensure_grid_map_runtime(shared_data, period_s)
 
     try:
-        topology_cache = build_topology_cache()
+        topology_cache = build_topology_cache(config)
         publish_grid_map_topology(shared_data, topology_cache=topology_cache)
         logging.info(
             "Grid map: topology ready (buses=%s lines=%s trafos=%s).",

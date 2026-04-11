@@ -27,18 +27,27 @@ from time_utils import get_config_tz, normalize_datetime_series, normalize_times
 GRID_MAP_VOLTAGE_MIN_PU = 0.95
 GRID_MAP_VOLTAGE_MAX_PU = 1.05
 GRID_MAP_LINE_LOADING_LIMIT_PCT = 100.0
-GRID_MAP_VOLTAGE_COLOR_RED = "#d93838"
-GRID_MAP_VOLTAGE_COLOR_AMBER = "#d28c00"
-GRID_MAP_VOLTAGE_COLOR_YELLOW_GREEN = "#76a83a"
-GRID_MAP_VOLTAGE_COLOR_GREEN = "#00945a"
-GRID_MAP_VOLTAGE_COLOR_DARK_CYAN_GREEN = "#007d78"
-GRID_MAP_VOLTAGE_COLOR_LIGHT_BLUE_GREEN = "#4aa8c8"
-GRID_MAP_VOLTAGE_COLOR_BLUE = "#2f6fd6"
+GRID_MAP_VOLTAGE_COLOR_RED = "#c83b3b"
+GRID_MAP_VOLTAGE_COLOR_AMBER = "#d97a1f"
+GRID_MAP_VOLTAGE_COLOR_YELLOW_GREEN = "#d7b62a"
+GRID_MAP_VOLTAGE_COLOR_GREEN = "#7fae45"
+GRID_MAP_VOLTAGE_COLOR_DARK_CYAN_GREEN = "#2e8f85"
+GRID_MAP_VOLTAGE_COLOR_LIGHT_BLUE_GREEN = "#5d97c9"
+GRID_MAP_VOLTAGE_COLOR_BLUE = "#446fbe"
 GRID_MAP_VOLTAGE_COLOR_MISSING = "#9ca7a2"
 GRID_MAP_STATUS_KEY = "grid_map_runtime"
 GRID_MAP_SOURCE_CRS = "EPSG:32630"
 GRID_MAP_TARGET_CRS = "EPSG:4326"
-GRID_MAP_MAP_STYLE = "open-street-map"
+GRID_MAP_BACKGROUND_MODE_NONE = "none"
+GRID_MAP_BACKGROUND_MODE_STREET = "street"
+GRID_MAP_BACKGROUND_MODE_SATELLITE = "satellite"
+GRID_MAP_DEFAULT_BACKGROUND_MODE = GRID_MAP_BACKGROUND_MODE_STREET
+GRID_MAP_BACKGROUND_STYLE_BY_MODE = {
+    GRID_MAP_BACKGROUND_MODE_NONE: "white-bg",
+    GRID_MAP_BACKGROUND_MODE_STREET: "open-street-map",
+    GRID_MAP_BACKGROUND_MODE_SATELLITE: "satellite",
+}
+GRID_MAP_MAP_STYLE = GRID_MAP_BACKGROUND_STYLE_BY_MODE[GRID_MAP_DEFAULT_BACKGROUND_MODE]
 GRID_MAP_LINE_WARNING_LIMIT_PCT = 80.0
 GRID_MAP_LINE_HOVER_MARKER_SIZE = 16
 GRID_MAP_LINE_HOVER_MARKER_COLOR = "rgba(47,91,78,0.12)"
@@ -53,6 +62,28 @@ GRID_MAP_TRACE_ROLE_BUS = "bus"
 GRID_MAP_LINE_BUCKETS = ("normal", "warning", "overloaded")
 
 _SIMULATOR_MODULE = None
+
+
+def _normalize_background_mode(value: Any) -> str:
+    normalized = str(value or GRID_MAP_DEFAULT_BACKGROUND_MODE).strip().lower()
+    if normalized in GRID_MAP_BACKGROUND_STYLE_BY_MODE:
+        return normalized
+    return GRID_MAP_DEFAULT_BACKGROUND_MODE
+
+
+def _requested_background_mode_from_config(config: dict[str, Any] | None) -> str:
+    if isinstance(config, dict):
+        return _normalize_background_mode(config.get("GRID_MAP_BACKGROUND_MODE"))
+    return GRID_MAP_DEFAULT_BACKGROUND_MODE
+
+
+def _map_style_for_background_mode(background_mode: Any) -> str:
+    normalized_mode = _normalize_background_mode(background_mode)
+    return GRID_MAP_BACKGROUND_STYLE_BY_MODE[normalized_mode]
+
+
+def _render_on_map(topology_cache: dict[str, Any]) -> bool:
+    return str(topology_cache.get("coordinate_mode") or "schematic") == "geographic"
 
 
 def default_grid_map_runtime(period_s: float) -> dict[str, Any]:
@@ -91,6 +122,7 @@ def default_grid_map_runtime(period_s: float) -> dict[str, Any]:
         "coordinate_mode": "schematic",
         "source_crs": None,
         "target_crs": None,
+        "map_background_mode": GRID_MAP_BACKGROUND_MODE_NONE,
         "map_background_enabled": False,
         "map_background_reason": "topology_unavailable",
         "stale": True,
@@ -799,27 +831,27 @@ def _apply_dynamic_payload_to_figure_dict(
 
 
 def _render_primary_key(topology_cache: dict[str, Any]) -> str:
-    return "lon" if bool(topology_cache.get("map_background_enabled", False)) else "x"
+    return "lon" if _render_on_map(topology_cache) else "x"
 
 
 def _render_secondary_key(topology_cache: dict[str, Any]) -> str:
-    return "lat" if bool(topology_cache.get("map_background_enabled", False)) else "y"
+    return "lat" if _render_on_map(topology_cache) else "y"
 
 
 def _render_bus_points(topology_cache: dict[str, Any]) -> dict[str, list[float]]:
-    if bool(topology_cache.get("map_background_enabled", False)):
+    if _render_on_map(topology_cache):
         return dict(topology_cache.get("geographic_bus_coords", {}) or {})
     return dict(topology_cache.get("bus_coords", {}) or {})
 
 
 def _render_line_paths(topology_cache: dict[str, Any]) -> dict[str, list[list[float]]]:
-    if bool(topology_cache.get("map_background_enabled", False)):
+    if _render_on_map(topology_cache):
         return dict(topology_cache.get("geographic_line_paths", {}) or {})
     return dict(topology_cache.get("line_paths", {}) or {})
 
 
 def _render_trafo_paths(topology_cache: dict[str, Any]) -> dict[str, list[list[float]]]:
-    if bool(topology_cache.get("map_background_enabled", False)):
+    if _render_on_map(topology_cache):
         return dict(topology_cache.get("geographic_trafo_paths", {}) or {})
     return dict(topology_cache.get("trafo_paths", {}) or {})
 
@@ -868,7 +900,7 @@ def _line_bucket_style(bucket_name: str) -> dict[str, Any]:
 
 def _bus_marker_size(bus_index: int, topology_cache: dict[str, Any]) -> float:
     battery_bus = ((topology_cache.get("metadata", {}) or {}).get("battery_bus"))
-    if bool(topology_cache.get("map_background_enabled", False)):
+    if _render_on_map(topology_cache):
         return 14.0 if int(bus_index) == battery_bus else 10.0
     return 10.0 if int(bus_index) == battery_bus else 7.0
 
@@ -972,7 +1004,7 @@ def _build_static_trace_dicts(topology_cache: dict[str, Any], dynamic_payload: d
     bus_trace = dict(dynamic_payload.get("bus_trace", {}) or {})
     hover_trace = dict(dynamic_payload.get("line_hover_trace", {}) or {})
 
-    line_trace_type = "scattermap" if bool(topology_cache.get("map_background_enabled", False)) else "scatter"
+    line_trace_type = "scattermap" if _render_on_map(topology_cache) else "scatter"
     bus_marker = dict(size=list(bus_trace.get("size", []) or []), color=list(bus_trace.get("color", []) or []))
     if line_trace_type == "scatter":
         bus_marker["line"] = dict(color="#ffffff", width=1)
@@ -1074,10 +1106,10 @@ def _build_low_trace_figure_dict(
             "grid_map_dynamic_revision": int(dynamic_revision or 0),
         },
     }
-    if bool(topology_cache.get("map_background_enabled", False)):
+    if _render_on_map(topology_cache):
         center = dict(topology_cache.get("geographic_center", {}) or {})
         layout["map"] = {
-            "style": GRID_MAP_MAP_STYLE,
+            "style": _map_style_for_background_mode(topology_cache.get("map_background_mode")),
             "center": {
                 "lon": _coerce_float(center.get("lon")) or 0.0,
                 "lat": _coerce_float(center.get("lat")) or 0.0,
@@ -1270,10 +1302,10 @@ def _build_pandapower_figure_dict(
             "showlegend": False,
             "filename": None,
             "auto_open": False,
-            "on_map": bool(topology_cache.get("map_background_enabled", False)),
+            "on_map": _render_on_map(topology_cache),
         }
-        if bool(topology_cache.get("map_background_enabled", False)):
-            draw_kwargs["map_style"] = GRID_MAP_MAP_STYLE
+        if _render_on_map(topology_cache):
+            draw_kwargs["map_style"] = _map_style_for_background_mode(topology_cache.get("map_background_mode"))
             draw_kwargs["zoomlevel"] = _map_zoom_for_bounds(dict(topology_cache.get("geographic_bounds", {}) or {}))
         map_loggers = [
             logging.getLogger("pandapower.plotting.plotly.mapbox_plot"),
@@ -1281,13 +1313,13 @@ def _build_pandapower_figure_dict(
             logging.getLogger("pandapower.plotting.plotly.draw_layers"),
         ]
         previous_map_logger_levels = [logger.level for logger in map_loggers]
-        if bool(topology_cache.get("map_background_enabled", False)):
+        if _render_on_map(topology_cache):
             for logger, previous_level in zip(map_loggers, previous_map_logger_levels):
                 logger.setLevel(max(logging.ERROR, previous_level))
         try:
             fig = draw_traces(traces, **draw_kwargs)
         finally:
-            if bool(topology_cache.get("map_background_enabled", False)):
+            if _render_on_map(topology_cache):
                 for logger, previous_level in zip(map_loggers, previous_map_logger_levels):
                     logger.setLevel(previous_level)
         fig_dict = fig.to_dict() if hasattr(fig, "to_dict") else go.Figure(fig).to_dict()
@@ -1312,10 +1344,10 @@ def _build_pandapower_figure_dict(
         "grid_map_topology_revision": topology_revision,
         "grid_map_dynamic_revision": int(dynamic_revision or 0),
     }
-    if bool(topology_cache.get("map_background_enabled", False)):
+    if _render_on_map(topology_cache):
         map_layout = dict(layout.get("map", {}) or {})
         center = dict(topology_cache.get("geographic_center", {}) or {})
-        map_layout["style"] = GRID_MAP_MAP_STYLE
+        map_layout["style"] = _map_style_for_background_mode(topology_cache.get("map_background_mode"))
         map_layout["center"] = {
             "lon": _coerce_float(center.get("lon")) or 0.0,
             "lat": _coerce_float(center.get("lat")) or 0.0,
@@ -1326,8 +1358,9 @@ def _build_pandapower_figure_dict(
     return fig_dict
 
 
-def build_topology_cache() -> dict[str, Any]:
+def build_topology_cache(config: dict[str, Any] | None = None) -> dict[str, Any]:
     simulator_module = _import_simulator_module()
+    requested_background_mode = _requested_background_mode_from_config(config)
     assets = None
     if hasattr(simulator_module, "get_base_network_copy"):
         net = simulator_module.get_base_network_copy()
@@ -1371,6 +1404,7 @@ def build_topology_cache() -> dict[str, Any]:
     coordinate_mode = "schematic"
     source_crs = None
     target_crs = None
+    map_background_mode = GRID_MAP_BACKGROUND_MODE_NONE
     map_background_enabled = False
     map_background_reason = "generated_coordinates" if generated_coordinates else "no_geographic_coordinates"
     geographic_bus_coords: dict[int, tuple[float, float]] = {}
@@ -1395,7 +1429,8 @@ def build_topology_cache() -> dict[str, Any]:
                 coordinate_mode = "geographic"
                 source_crs = GRID_MAP_SOURCE_CRS
                 target_crs = GRID_MAP_TARGET_CRS
-                map_background_enabled = True
+                map_background_mode = requested_background_mode
+                map_background_enabled = map_background_mode != GRID_MAP_BACKGROUND_MODE_NONE
                 map_background_reason = None
             else:
                 map_background_reason = "coordinate_conversion_empty"
@@ -1403,8 +1438,9 @@ def build_topology_cache() -> dict[str, Any]:
             logging.warning("Grid map: pandapower CRS conversion failed: %s", exc)
             map_background_reason = f"coordinate_conversion_failed:{exc}"
 
-    plot_bus_coords = geographic_bus_coords if map_background_enabled and geographic_bus_coords else bus_coords
-    plot_line_paths = geographic_line_paths if map_background_enabled and geographic_line_paths else line_paths
+    render_geographic = coordinate_mode == "geographic"
+    plot_bus_coords = geographic_bus_coords if render_geographic and geographic_bus_coords else bus_coords
+    plot_line_paths = geographic_line_paths if render_geographic and geographic_line_paths else line_paths
     plot_net = _prepare_plot_net(net, bus_coords=plot_bus_coords, line_paths=plot_line_paths)
     topology_revision = int(pd.Timestamp.utcnow().value)
     render_line_paths = plot_line_paths
@@ -1419,7 +1455,12 @@ def build_topology_cache() -> dict[str, Any]:
         "bus_order": [int(index) for index in sorted(bus_coords.keys())],
         "line_order": [int(index) for index in sorted(line_paths.keys())],
         "trafo_order": [int(index) for index in sorted(trafo_paths.keys())],
+        "coordinate_mode": coordinate_mode,
+        "source_crs": source_crs,
+        "target_crs": target_crs,
+        "map_background_mode": map_background_mode,
         "map_background_enabled": map_background_enabled,
+        "map_background_reason": map_background_reason,
         "bounds": dict(bounds or {}),
         "bus_coords": {str(index): [float(point[0]), float(point[1])] for index, point in bus_coords.items()},
         "line_paths": {
@@ -1468,6 +1509,7 @@ def build_topology_cache() -> dict[str, Any]:
         "coordinate_mode": coordinate_mode,
         "source_crs": source_crs,
         "target_crs": target_crs,
+        "map_background_mode": map_background_mode,
         "map_background_enabled": map_background_enabled,
         "map_background_reason": map_background_reason,
         "bounds": dict(bounds or {}),
@@ -1514,6 +1556,7 @@ def summarize_topology_cache(topology_cache: dict[str, Any] | None) -> dict[str,
         "coordinate_mode": str(topology_cache.get("coordinate_mode") or "schematic"),
         "source_crs": topology_cache.get("source_crs"),
         "target_crs": topology_cache.get("target_crs"),
+        "map_background_mode": str(topology_cache.get("map_background_mode") or GRID_MAP_BACKGROUND_MODE_NONE),
         "map_background_enabled": bool(topology_cache.get("map_background_enabled", False)),
         "map_background_reason": topology_cache.get("map_background_reason"),
         "metadata": dict(topology_cache.get("metadata", {}) or {}),
@@ -1865,6 +1908,9 @@ def publish_grid_map_topology(shared_data: dict[str, Any], *, topology_cache: di
         runtime_state["coordinate_mode"] = str((topology_meta or {}).get("coordinate_mode") or "schematic")
         runtime_state["source_crs"] = (topology_meta or {}).get("source_crs")
         runtime_state["target_crs"] = (topology_meta or {}).get("target_crs")
+        runtime_state["map_background_mode"] = str(
+            (topology_meta or {}).get("map_background_mode") or GRID_MAP_BACKGROUND_MODE_NONE
+        )
         runtime_state["map_background_enabled"] = bool((topology_meta or {}).get("map_background_enabled", False))
         runtime_state["map_background_reason"] = (topology_meta or {}).get("map_background_reason")
 
@@ -1883,6 +1929,7 @@ def publish_grid_map_topology_error(shared_data: dict[str, Any], *, error_text: 
         runtime_state["coordinate_mode"] = "schematic"
         runtime_state["source_crs"] = None
         runtime_state["target_crs"] = None
+        runtime_state["map_background_mode"] = GRID_MAP_BACKGROUND_MODE_NONE
         runtime_state["map_background_enabled"] = False
         runtime_state["map_background_reason"] = "topology_error"
         runtime_state["stale"] = True
@@ -2333,7 +2380,7 @@ def _build_geographic_grid_map_figure(
         font=dict(color=plot_theme["text"], family=plot_theme["font_family"], size=12),
         uirevision=uirevision_key,
         map=dict(
-            style=GRID_MAP_MAP_STYLE,
+            style=_map_style_for_background_mode(topology_cache.get("map_background_mode")),
             center=map_center,
             zoom=_map_zoom_for_bounds(bounds),
         ),
@@ -2478,6 +2525,7 @@ def build_grid_map_meta_lines(runtime_state: dict[str, Any], config: dict[str, A
     coordinate_mode = str(runtime_state.get("coordinate_mode") or "schematic")
     source_crs = runtime_state.get("source_crs") or "n/a"
     target_crs = runtime_state.get("target_crs") or "n/a"
+    map_background_mode = str(runtime_state.get("map_background_mode") or GRID_MAP_BACKGROUND_MODE_NONE)
     map_background_enabled = bool(runtime_state.get("map_background_enabled", False))
     map_background_reason = str(runtime_state.get("map_background_reason") or "").strip()
     input_p = _coerce_float(runtime_state.get("battery_input_p_kw"))
@@ -2487,7 +2535,7 @@ def build_grid_map_meta_lines(runtime_state: dict[str, Any], config: dict[str, A
     lines = [
         f"Last Success: {last_success} | Input Source: {source} | Stale: {stale}",
         (
-            f"Map Mode: {coordinate_mode} | Background: {map_background_enabled} | "
+            f"Map Mode: {coordinate_mode} | Background: {map_background_mode} | Tiles Enabled: {map_background_enabled} | "
             f"CRS: {source_crs} -> {target_crs}"
         ),
         "Map Refresh: static during stabilization pass | summary values remain live",

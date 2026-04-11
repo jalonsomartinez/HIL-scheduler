@@ -118,6 +118,7 @@ class SharedStateContractTests(unittest.TestCase):
                 "coordinate_mode",
                 "source_crs",
                 "target_crs",
+                "map_background_mode",
                 "map_background_enabled",
                 "map_background_reason",
                 "stale",
@@ -141,6 +142,7 @@ class SharedStateContractTests(unittest.TestCase):
         self.assertEqual(float(grid_map_runtime.get("poll_period_s")), 10.0)
         self.assertEqual(int(grid_map_runtime.get("dynamic_revision", 0)), 0)
         self.assertEqual(str(grid_map_runtime.get("coordinate_mode")), "schematic")
+        self.assertEqual(str(grid_map_runtime.get("map_background_mode")), "none")
         self.assertFalse(bool(grid_map_runtime.get("map_background_enabled", False)))
         self.assertTrue(bool(grid_map_runtime.get("stale", True)))
         self.assertTrue(

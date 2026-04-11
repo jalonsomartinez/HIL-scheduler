@@ -25,6 +25,7 @@ DEFAULT_DASHBOARD_PUBLIC_READONLY_ENABLED = False
 DEFAULT_DASHBOARD_PUBLIC_READONLY_HOST = "127.0.0.1"
 DEFAULT_DASHBOARD_PUBLIC_READONLY_PORT = 8060
 DEFAULT_DASHBOARD_PUBLIC_READONLY_AUTH_MODE = "basic"
+DEFAULT_DASHBOARD_GRID_MAP_BACKGROUND_MODE = "street"
 DEFAULT_MODEL = {
     "capacity_kwh": 50.0,
     "power_limits": {
@@ -120,12 +121,14 @@ def _parse_choice_required(value, allowed_values, key_name):
     return normalized
 
 
-def _parse_choice(value, allowed_values, default, key_name):
+def _parse_choice(value, allowed_values, default, key_name, *, strict=False):
     if value is None:
         return default
     normalized = str(value).strip().lower()
     if normalized not in allowed_values:
         allowed_text = ", ".join(sorted(allowed_values))
+        if strict:
+            raise ValueError(f"Invalid {key_name}='{value}'. Allowed values: {allowed_text}.")
         logging.warning(
             "Invalid %s='%s'. Using default '%s'. Allowed values: %s.",
             key_name,
@@ -527,6 +530,7 @@ def load_config(config_path="config.yaml"):
     dashboard_private_cfg = dashboard_cfg.get("private", {})
     dashboard_public_cfg = dashboard_cfg.get("public_readonly", {})
     dashboard_public_auth_cfg = dashboard_public_cfg.get("auth", {})
+    dashboard_grid_map_cfg = dashboard_cfg.get("grid_map", {})
 
     config["DASHBOARD_PRIVATE_HOST"] = _parse_host(
         dashboard_private_cfg.get("host", DEFAULT_DASHBOARD_PRIVATE_HOST),
@@ -559,6 +563,13 @@ def load_config(config_path="config.yaml"):
         {"basic", "none"},
         DEFAULT_DASHBOARD_PUBLIC_READONLY_AUTH_MODE,
         "dashboard.public_readonly.auth.mode",
+    )
+    config["GRID_MAP_BACKGROUND_MODE"] = _parse_choice(
+        dashboard_grid_map_cfg.get("background_mode", DEFAULT_DASHBOARD_GRID_MAP_BACKGROUND_MODE),
+        {"none", "street", "satellite"},
+        DEFAULT_DASHBOARD_GRID_MAP_BACKGROUND_MODE,
+        "dashboard.grid_map.background_mode",
+        strict=True,
     )
 
     recording_cfg = yaml_config.get("recording", {})

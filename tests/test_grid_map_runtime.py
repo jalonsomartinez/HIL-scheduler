@@ -266,6 +266,10 @@ def _grid_map_write_config():
     }
 
 
+def _grid_map_background_config(background_mode="street"):
+    return {"GRID_MAP_BACKGROUND_MODE": background_mode}
+
+
 class GridMapRuntimeTests(unittest.TestCase):
     def setUp(self):
         gmr._SIMULATOR_MODULE = None
@@ -283,6 +287,12 @@ class GridMapRuntimeTests(unittest.TestCase):
         self.assertEqual(gmr._voltage_color(1.025), gmr.GRID_MAP_VOLTAGE_COLOR_DARK_CYAN_GREEN)
         self.assertEqual(gmr._voltage_color(1.05), gmr.GRID_MAP_VOLTAGE_COLOR_LIGHT_BLUE_GREEN)
         self.assertEqual(gmr._voltage_color(1.075), gmr.GRID_MAP_VOLTAGE_COLOR_BLUE)
+
+    def test_voltage_color_palette_matches_contrast_friendly_progression(self):
+        self.assertEqual(gmr.GRID_MAP_VOLTAGE_COLOR_YELLOW_GREEN, "#d7b62a")
+        self.assertEqual(gmr.GRID_MAP_VOLTAGE_COLOR_GREEN, "#7fae45")
+        self.assertEqual(gmr.GRID_MAP_VOLTAGE_COLOR_DARK_CYAN_GREEN, "#2e8f85")
+        self.assertEqual(gmr.GRID_MAP_VOLTAGE_COLOR_LIGHT_BLUE_GREEN, "#5d97c9")
 
     def test_select_lib_power_inputs_prefers_fresh_observed_state(self):
         shared_data = {
@@ -737,15 +747,40 @@ class GridMapRuntimeTests(unittest.TestCase):
                 "pandapower.plotting.geo": fake_geo,
             },
         ):
-            topology = gmr.build_topology_cache()
+            topology = gmr.build_topology_cache(_grid_map_background_config())
 
         self.assertEqual(topology["coordinate_mode"], "geographic")
         self.assertEqual(topology["source_crs"], gmr.GRID_MAP_SOURCE_CRS)
         self.assertEqual(topology["target_crs"], gmr.GRID_MAP_TARGET_CRS)
+        self.assertEqual(topology["map_background_mode"], "street")
         self.assertTrue(topology["map_background_enabled"])
         self.assertIn("1", topology["geographic_bus_coords"])
         self.assertIn("11", topology["geographic_line_paths"])
         self.assertIn("21", topology["geographic_trafo_paths"])
+
+    def test_build_topology_cache_keeps_geographic_mode_without_tiles_when_background_is_none(self):
+        fake_simulator = _FakeSimulatorModule(with_projected_geo=True)
+        gmr._SIMULATOR_MODULE = fake_simulator
+
+        fake_plotting = types.ModuleType("pandapower.plotting")
+        fake_plotting.create_generic_coordinates = _fake_create_generic_coordinates
+        fake_geo = types.ModuleType("pandapower.plotting.geo")
+        fake_geo.convert_crs = _fake_convert_crs
+
+        with patch.dict(
+            sys.modules,
+            {
+                "pandapower.plotting": fake_plotting,
+                "pandapower.plotting.geo": fake_geo,
+            },
+        ):
+            topology = gmr.build_topology_cache(_grid_map_background_config("none"))
+
+        self.assertEqual(topology["coordinate_mode"], "geographic")
+        self.assertEqual(topology["map_background_mode"], "none")
+        self.assertFalse(topology["map_background_enabled"])
+        self.assertIsNone(topology["map_background_reason"])
+        self.assertEqual(topology["initial_figure"]["layout"]["map"]["style"], gmr.GRID_MAP_BACKGROUND_STYLE_BY_MODE["none"])
 
     def test_normalize_geojson_components_for_convert_crs_clears_nullable_geo_columns(self):
         net = _FakeNet(with_projected_geo=True)
@@ -799,9 +834,10 @@ class GridMapRuntimeTests(unittest.TestCase):
                 "pandapower.plotting.geo": fake_geo,
             },
         ):
-            topology = gmr.build_topology_cache()
+            topology = gmr.build_topology_cache(_grid_map_background_config("satellite"))
 
         self.assertEqual(topology["coordinate_mode"], "schematic")
+        self.assertEqual(topology["map_background_mode"], "none")
         self.assertFalse(topology["map_background_enabled"])
         self.assertIn("coordinate_conversion_failed", str(topology["map_background_reason"]))
 
@@ -821,6 +857,8 @@ class GridMapRuntimeTests(unittest.TestCase):
 
     def test_build_grid_map_figure_reuses_topology_structure(self):
         topology_cache = {
+            "coordinate_mode": "schematic",
+            "map_background_mode": "none",
             "map_background_enabled": False,
             "bus_order": [1, 2, 3],
             "line_order": [11, 12],
@@ -861,8 +899,10 @@ class GridMapRuntimeTests(unittest.TestCase):
             ],
         )
 
-    def test_build_grid_map_figure_uses_geographic_basemap_when_available(self):
+    def test_build_grid_map_figure_uses_geographic_background_style_when_available(self):
         topology_cache = {
+            "coordinate_mode": "geographic",
+            "map_background_mode": "street",
             "map_background_enabled": True,
             "geographic_bounds": {"x_min": -5.18, "x_max": -5.17, "y_min": 40.71, "y_max": 40.72},
             "geographic_center": {"lon": -5.175, "lat": 40.715},
@@ -888,10 +928,95 @@ class GridMapRuntimeTests(unittest.TestCase):
             fig = gmr.build_grid_map_figure(topology_cache, payload, uirevision_key="geo-key")
 
         self.assertEqual(fig.layout.uirevision, "geo-key")
-        self.assertEqual(fig.layout.map.style, gmr.GRID_MAP_MAP_STYLE)
+        self.assertEqual(fig.layout.map.style, gmr.GRID_MAP_BACKGROUND_STYLE_BY_MODE["street"])
         self.assertEqual(fig.layout.map.center.lon, -5.175)
         self.assertEqual(fig.layout.map.center.lat, 40.715)
         self.assertGreater(len(fig.data), 0)
+
+    def test_build_grid_map_figure_uses_white_bg_for_none_mode_on_geographic_render(self):
+        topology_cache = {
+            "coordinate_mode": "geographic",
+            "map_background_mode": "none",
+            "map_background_enabled": False,
+            "geographic_bounds": {"x_min": -5.18, "x_max": -5.17, "y_min": 40.71, "y_max": 40.72},
+            "geographic_center": {"lon": -5.175, "lat": 40.715},
+            "bus_order": [1, 2, 3],
+            "line_order": [11, 12],
+            "trafo_order": [21],
+            "plot_net": _FakeNet(with_projected_geo=True),
+            "topology_revision": 2003,
+            "initial_figure": {"data": [{"name": "placeholder"}], "layout": {"meta": {}}},
+        }
+        payload = {
+            "bus": {"1": {"vm_pu": 0.98}, "2": {"vm_pu": 1.0}, "3": {"vm_pu": 1.02}},
+            "line": {"11": {"loading_pct": 40.0}, "12": {"loading_pct": 90.0}},
+        }
+
+        fake_plotly = types.ModuleType("pandapower.plotting.plotly")
+        fake_plotly.create_bus_trace = _fake_bus_trace
+        fake_plotly.create_line_trace = _fake_line_trace
+        fake_plotly.create_trafo_trace = _fake_trafo_trace
+        fake_plotly.draw_traces = _fake_draw_traces
+
+        with patch.dict(sys.modules, {"pandapower.plotting.plotly": fake_plotly}):
+            fig = gmr.build_grid_map_figure(topology_cache, payload, uirevision_key="geo-none-key")
+
+        self.assertEqual(fig.layout.map.style, gmr.GRID_MAP_BACKGROUND_STYLE_BY_MODE["none"])
+        self.assertGreater(len(fig.data), 0)
+
+    def test_build_grid_map_figure_uses_satellite_style_when_requested(self):
+        topology_cache = {
+            "coordinate_mode": "geographic",
+            "map_background_mode": "satellite",
+            "map_background_enabled": True,
+            "geographic_bounds": {"x_min": -5.18, "x_max": -5.17, "y_min": 40.71, "y_max": 40.72},
+            "geographic_center": {"lon": -5.175, "lat": 40.715},
+            "bus_order": [1, 2, 3],
+            "line_order": [11, 12],
+            "trafo_order": [21],
+            "plot_net": _FakeNet(with_projected_geo=True),
+            "topology_revision": 2004,
+            "initial_figure": {"data": [{"name": "placeholder"}], "layout": {"meta": {}}},
+        }
+        payload = {
+            "bus": {"1": {"vm_pu": 0.98}, "2": {"vm_pu": 1.0}, "3": {"vm_pu": 1.02}},
+            "line": {"11": {"loading_pct": 40.0}, "12": {"loading_pct": 90.0}},
+        }
+
+        fake_plotly = types.ModuleType("pandapower.plotting.plotly")
+        fake_plotly.create_bus_trace = _fake_bus_trace
+        fake_plotly.create_line_trace = _fake_line_trace
+        fake_plotly.create_trafo_trace = _fake_trafo_trace
+        fake_plotly.draw_traces = _fake_draw_traces
+
+        with patch.dict(sys.modules, {"pandapower.plotting.plotly": fake_plotly}):
+            fig = gmr.build_grid_map_figure(topology_cache, payload, uirevision_key="geo-satellite-key")
+
+        self.assertEqual(fig.layout.map.style, gmr.GRID_MAP_BACKGROUND_STYLE_BY_MODE["satellite"])
+        self.assertGreater(len(fig.data), 0)
+
+    def test_build_grid_map_meta_lines_include_effective_background_mode(self):
+        lines = gmr.build_grid_map_meta_lines(
+            {
+                "last_success_at": "2026-04-03T12:00:00+02:00",
+                "input_source": "observed_state",
+                "stale": False,
+                "coordinate_mode": "geographic",
+                "source_crs": gmr.GRID_MAP_SOURCE_CRS,
+                "target_crs": gmr.GRID_MAP_TARGET_CRS,
+                "map_background_mode": "satellite",
+                "map_background_enabled": True,
+                "requested_timestamp_local": "2026-04-03T12:00:00+02:00",
+                "selected_timestamp_local": "2026-04-03T12:00:00+02:00",
+                "used_previous_hour_fallback": False,
+                "battery_input_p_kw": 10.0,
+                "battery_input_q_kvar": 2.0,
+            },
+            {"TIMEZONE_NAME": "Europe/Madrid"},
+        )
+
+        self.assertIn("Background: satellite", lines[1])
+        self.assertIn("Tiles Enabled: True", lines[1])
 
     def test_build_grid_map_figure_update_reuses_prerendered_initial_figure_on_first_load(self):
         initial_figure = {
@@ -945,6 +1070,8 @@ class GridMapRuntimeTests(unittest.TestCase):
     def test_build_grid_map_figure_update_low_trace_first_render_keeps_grouped_lines(self):
         topology_cache = {
             "figure_renderer": "low-trace",
+            "coordinate_mode": "schematic",
+            "map_background_mode": "none",
             "map_background_enabled": False,
             "metadata": {"battery_bus": 2},
             "bounds": {"x_min": 0.0, "x_max": 2.0, "y_min": 0.0, "y_max": 1.0},
@@ -1001,6 +1128,8 @@ class GridMapRuntimeTests(unittest.TestCase):
     def test_build_grid_map_figure_update_low_trace_returns_new_figure_when_dynamic_revision_changes(self):
         topology_cache = {
             "figure_renderer": "low-trace",
+            "coordinate_mode": "schematic",
+            "map_background_mode": "none",
             "map_background_enabled": False,
             "metadata": {"battery_bus": 2},
             "bounds": {"x_min": 0.0, "x_max": 2.0, "y_min": 0.0, "y_max": 1.0},
@@ -1042,6 +1171,7 @@ class GridMapRuntimeTests(unittest.TestCase):
         self.assertEqual(len(figure.data), 6)
         self.assertEqual(list(figure.data[4].text), ["Line 11<br>Loading=20.0%", "Line 12<br>Loading=120.0%"])
         self.assertEqual(list(figure.data[5].text), ["Bus 1<br>Voltage=0.9400 pu", "Bus 2<br>Voltage=1.0000 pu", "Bus 3<br>Voltage=1.0600 pu"])
+
 
 
 if __name__ == "__main__":

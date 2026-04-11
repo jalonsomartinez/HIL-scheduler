@@ -37,6 +37,8 @@ timing:
   grid_map_period_s: 10
 
 dashboard:
+  grid_map:
+    background_mode: "satellite"  # none | street | satellite
   private:
     host: "127.0.0.1"
     port: 8050
