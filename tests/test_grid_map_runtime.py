@@ -928,6 +928,7 @@ class GridMapRuntimeTests(unittest.TestCase):
             fig = gmr.build_grid_map_figure(topology_cache, payload, uirevision_key="geo-key")
 
         self.assertEqual(fig.layout.uirevision, "geo-key")
+        self.assertFalse(bool(getattr(fig.layout.title, "text", None)))
         self.assertEqual(fig.layout.map.style, gmr.GRID_MAP_BACKGROUND_STYLE_BY_MODE["street"])
         self.assertEqual(fig.layout.map.center.lon, -5.175)
         self.assertEqual(fig.layout.map.center.lat, 40.715)

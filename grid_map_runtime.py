@@ -1095,9 +1095,8 @@ def _build_low_trace_figure_dict(
     plot_theme = dict(DEFAULT_PLOT_THEME)
     data = _build_static_trace_dicts(topology_cache, dynamic_payload)
     layout = {
-        "title": {"text": title},
         "height": 720,
-        "margin": {"l": 20, "r": 20, "t": 50, "b": 20},
+        "margin": {"l": 20, "r": 20, "t": 20, "b": 20},
         "paper_bgcolor": plot_theme["paper_bg"],
         "font": {"color": plot_theme["text"], "family": plot_theme["font_family"], "size": 12},
         "uirevision": uirevision_key,
@@ -1149,12 +1148,11 @@ def _build_empty_grid_map_figure_dict(*, title: str, uirevision_key: str, topolo
     return {
         "data": [],
         "layout": {
-            "title": {"text": title},
             "height": 720,
             "paper_bgcolor": plot_theme["paper_bg"],
             "plot_bgcolor": plot_theme["paper_bg"],
             "font": {"color": plot_theme["text"], "family": plot_theme["font_family"]},
-            "margin": {"l": 20, "r": 20, "t": 50, "b": 20},
+            "margin": {"l": 20, "r": 20, "t": 20, "b": 20},
             "uirevision": uirevision_key,
             "meta": {
                 "grid_map_topology_revision": topology_revision,
@@ -1334,9 +1332,9 @@ def _build_pandapower_figure_dict(
 
     plot_theme = dict(DEFAULT_PLOT_THEME)
     layout = dict(fig_dict.get("layout", {}) or {})
-    layout["title"] = {"text": title}
+    layout.pop("title", None)
     layout["height"] = 720
-    layout["margin"] = dict(l=20, r=20, t=50, b=20)
+    layout["margin"] = dict(l=20, r=20, t=20, b=20)
     layout["paper_bgcolor"] = plot_theme["paper_bg"]
     layout["font"] = dict(color=plot_theme["text"], family=plot_theme["font_family"], size=12)
     layout["uirevision"] = uirevision_key
@@ -2138,11 +2136,10 @@ def _build_schematic_grid_map_figure(
         fig.add_annotation(text="Grid topology unavailable.", x=0.5, y=0.5, xref="paper", yref="paper", showarrow=False)
         fig.update_layout(
             height=720,
-            title=title,
             paper_bgcolor=plot_theme["paper_bg"],
             plot_bgcolor=plot_theme["paper_bg"],
             font=dict(color=plot_theme["text"], family=plot_theme["font_family"]),
-            margin=dict(l=20, r=20, t=50, b=20),
+            margin=dict(l=20, r=20, t=20, b=20),
             uirevision=uirevision_key,
         )
         fig.update_xaxes(visible=False)
@@ -2246,9 +2243,8 @@ def _build_schematic_grid_map_figure(
     y_pad = y_span * 0.05
 
     fig.update_layout(
-        title=title,
         height=720,
-        margin=dict(l=20, r=20, t=50, b=20),
+        margin=dict(l=20, r=20, t=20, b=20),
         paper_bgcolor=plot_theme["paper_bg"],
         plot_bgcolor="#f8fcfa",
         font=dict(color=plot_theme["text"], family=plot_theme["font_family"], size=12),
@@ -2373,9 +2369,8 @@ def _build_geographic_grid_map_figure(
         "lat": _coerce_float(center.get("lat")) or 0.0,
     }
     fig.update_layout(
-        title=title,
         height=720,
-        margin=dict(l=20, r=20, t=50, b=20),
+        margin=dict(l=20, r=20, t=20, b=20),
         paper_bgcolor=plot_theme["paper_bg"],
         font=dict(color=plot_theme["text"], family=plot_theme["font_family"], size=12),
         uirevision=uirevision_key,

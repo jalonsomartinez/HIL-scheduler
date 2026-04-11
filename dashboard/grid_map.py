@@ -20,13 +20,17 @@ def build_grid_map_page(*, prefix: str, title: str = "Grid Map"):
     return html.Div(
         className="card",
         children=[
-            html.H3(title),
             dcc.Store(id=render_state_id, data=None),
             dcc.Store(id=interaction_state_id, data=None),
-            html.Div(id=status_id, className="status-text"),
             html.Div(id=summary_id, className="grid-map-summary-grid"),
-            html.Div(id=meta_id, className="grid-map-meta-block"),
             dcc.Graph(id=graph_id, className="plot-graph grid-map-graph"),
+            html.Div(
+                className="grid-map-meta-block",
+                children=[
+                    html.Div(id=status_id, className="status-text"),
+                    html.Div(id=meta_id),
+                ],
+            ),
         ],
     )
 

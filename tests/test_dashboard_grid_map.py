@@ -2,6 +2,7 @@ import unittest
 
 from dashboard.grid_map import (
     GRID_MAP_INTERACTION_PAUSE_WINDOW_S,
+    build_grid_map_page,
     build_grid_map_status_text,
     is_grid_map_refresh_paused,
     register_grid_map_interaction,
@@ -61,6 +62,21 @@ class DashboardGridMapTests(unittest.TestCase):
         self.assertIn("background=satellite", paused_text)
         self.assertIn("map_refresh=live", live_text)
         self.assertIn("map_refresh=paused", paused_text)
+
+    def test_build_grid_map_page_places_status_below_graph(self):
+        page = build_grid_map_page(prefix="", title="Grid Map")
+        children = list(page.children)
+        graph_index = next(index for index, child in enumerate(children) if getattr(child, "id", None) == "grid-map-figure")
+        meta_block_index = next(
+            index for index, child in enumerate(children) if "grid-map-meta-block" in str(getattr(child, "className", ""))
+        )
+        meta_block = children[meta_block_index]
+        meta_children = list(meta_block.children)
+        status_index = next(index for index, child in enumerate(meta_children) if getattr(child, "id", None) == "grid-map-status")
+        meta_index = next(index for index, child in enumerate(meta_children) if getattr(child, "id", None) == "grid-map-meta")
+
+        self.assertGreater(meta_block_index, graph_index)
+        self.assertLess(status_index, meta_index)
 
 if __name__ == "__main__":
     unittest.main()
