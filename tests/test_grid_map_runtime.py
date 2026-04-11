@@ -194,6 +194,14 @@ def _fake_draw_traces(traces, on_map=False, map_style="basic", **_kwargs):
     return _FakeFigure(data=normalized, layout=layout)
 
 
+def _style_to_plain_dict(style):
+    if hasattr(style, "to_plotly_json"):
+        return style.to_plotly_json()
+    if isinstance(style, dict):
+        return dict(style)
+    return style
+
+
 class _FakeTransformer:
     def transform(self, x, y):
         return (float(x) / 100000.0) - 10.0, float(y) / 100000.0
@@ -1045,8 +1053,24 @@ class GridMapRuntimeTests(unittest.TestCase):
         with patch.dict(sys.modules, {"pandapower.plotting.plotly": fake_plotly}):
             fig = gmr.build_grid_map_figure(topology_cache, payload, uirevision_key="geo-satellite-key")
 
-        self.assertEqual(fig.layout.map.style, gmr.GRID_MAP_BACKGROUND_STYLE_BY_MODE["satellite"])
+        style = _style_to_plain_dict(fig.layout.map.style)
+        self.assertIsInstance(style, dict)
+        self.assertEqual(style["name"], "orto")
+        self.assertEqual(style["sources"]["ortoICGC"]["maxzoom"], 20)
+        ortho_layers = {layer["id"]: layer for layer in style["layers"]}
+        self.assertNotIn("maxzoom", ortho_layers["ortoEsri"])
+        self.assertNotIn("maxzoom", ortho_layers["ortoICGC"])
+        self.assertNotIn("maxzoom", ortho_layers["ortoInstaMaps"])
+        self.assertEqual(ortho_layers["ortoICGC"]["minzoom"], 13.1)
         self.assertGreater(len(fig.data), 0)
+
+    def test_satellite_map_style_returns_deep_copy(self):
+        first_style = gmr._map_style_for_background_mode("satellite")
+        second_style = gmr._map_style_for_background_mode("satellite")
+
+        self.assertIsNot(first_style, second_style)
+        first_style["layers"][2]["layout"]["visibility"] = "none"
+        self.assertEqual(second_style["layers"][2]["layout"]["visibility"], "visible")
 
     def test_build_grid_map_meta_lines_include_effective_background_mode(self):
         lines = gmr.build_grid_map_meta_lines(

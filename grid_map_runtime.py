@@ -42,10 +42,81 @@ GRID_MAP_BACKGROUND_MODE_NONE = "none"
 GRID_MAP_BACKGROUND_MODE_STREET = "street"
 GRID_MAP_BACKGROUND_MODE_SATELLITE = "satellite"
 GRID_MAP_DEFAULT_BACKGROUND_MODE = GRID_MAP_BACKGROUND_MODE_STREET
+GRID_MAP_SATELLITE_STYLE = {
+    "version": 8,
+    "name": "orto",
+    "metadata": {},
+    "center": [1.537786, 41.837539],
+    "zoom": 12,
+    "bearing": 0,
+    "pitch": 0,
+    "light": {
+        "anchor": "viewport",
+        "color": "white",
+        "intensity": 0.4,
+        "position": [1.15, 45, 30],
+    },
+    "sources": {
+        "ortoEsri": {
+            "type": "raster",
+            "tiles": [
+                "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+            ],
+            "tileSize": 256,
+            "maxzoom": 18,
+            "attribution": "ESRI &copy; <a href='http://www.esri.com'>ESRI</a>",
+        },
+        "ortoInstaMaps": {
+            "type": "raster",
+            "tiles": ["https://tilemaps.icgc.cat/mapfactory/wmts/orto_8_12/CAT3857/{z}/{x}/{y}.png"],
+            "tileSize": 256,
+            "maxzoom": 13,
+        },
+        "ortoICGC": {
+            "type": "raster",
+            "tiles": ["https://geoserveis.icgc.cat/icc_mapesmultibase/noutm/wmts/orto/GRID3857/{z}/{x}/{y}.jpeg"],
+            "tileSize": 256,
+            "minzoom": 13.1,
+            "maxzoom": 20,
+        },
+        "openmaptiles": {
+            "type": "vector",
+            "url": "https://geoserveis.icgc.cat/contextmaps/basemap.json",
+        },
+    },
+    "sprite": "https://geoserveis.icgc.cat/contextmaps/sprites/sprite@1",
+    "glyphs": "https://geoserveis.icgc.cat/contextmaps/glyphs/{fontstack}/{range}.pbf",
+    "layers": [
+        {
+            "id": "background",
+            "type": "background",
+            "paint": {"background-color": "#F4F9F4"},
+        },
+        {
+            "id": "ortoEsri",
+            "type": "raster",
+            "source": "ortoEsri",
+            "layout": {"visibility": "visible"},
+        },
+        {
+            "id": "ortoICGC",
+            "type": "raster",
+            "source": "ortoICGC",
+            "minzoom": 13.1,
+            "layout": {"visibility": "visible"},
+        },
+        {
+            "id": "ortoInstaMaps",
+            "type": "raster",
+            "source": "ortoInstaMaps",
+            "layout": {"visibility": "visible"},
+        },
+    ],
+}
 GRID_MAP_BACKGROUND_STYLE_BY_MODE = {
     GRID_MAP_BACKGROUND_MODE_NONE: "white-bg",
     GRID_MAP_BACKGROUND_MODE_STREET: "open-street-map",
-    GRID_MAP_BACKGROUND_MODE_SATELLITE: "satellite",
+    GRID_MAP_BACKGROUND_MODE_SATELLITE: GRID_MAP_SATELLITE_STYLE,
 }
 GRID_MAP_MAP_STYLE = GRID_MAP_BACKGROUND_STYLE_BY_MODE[GRID_MAP_DEFAULT_BACKGROUND_MODE]
 GRID_MAP_STARTUP_FIT_PADDING_PX = 32
@@ -83,9 +154,12 @@ def _requested_background_mode_from_config(config: dict[str, Any] | None) -> str
     return GRID_MAP_DEFAULT_BACKGROUND_MODE
 
 
-def _map_style_for_background_mode(background_mode: Any) -> str:
+def _map_style_for_background_mode(background_mode: Any) -> Any:
     normalized_mode = _normalize_background_mode(background_mode)
-    return GRID_MAP_BACKGROUND_STYLE_BY_MODE[normalized_mode]
+    style = GRID_MAP_BACKGROUND_STYLE_BY_MODE[normalized_mode]
+    if isinstance(style, dict):
+        return copy.deepcopy(style)
+    return style
 
 
 def _render_on_map(topology_cache: dict[str, Any]) -> bool:
