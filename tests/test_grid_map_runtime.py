@@ -274,6 +274,16 @@ class GridMapRuntimeTests(unittest.TestCase):
     def tearDown(self):
         gmr._SIMULATOR_MODULE = None
 
+    def test_voltage_color_uses_new_discrete_buckets(self):
+        self.assertEqual(gmr._voltage_color(None), gmr.GRID_MAP_VOLTAGE_COLOR_MISSING)
+        self.assertEqual(gmr._voltage_color(0.9249), gmr.GRID_MAP_VOLTAGE_COLOR_RED)
+        self.assertEqual(gmr._voltage_color(0.925), gmr.GRID_MAP_VOLTAGE_COLOR_AMBER)
+        self.assertEqual(gmr._voltage_color(0.95), gmr.GRID_MAP_VOLTAGE_COLOR_YELLOW_GREEN)
+        self.assertEqual(gmr._voltage_color(0.975), gmr.GRID_MAP_VOLTAGE_COLOR_GREEN)
+        self.assertEqual(gmr._voltage_color(1.025), gmr.GRID_MAP_VOLTAGE_COLOR_DARK_CYAN_GREEN)
+        self.assertEqual(gmr._voltage_color(1.05), gmr.GRID_MAP_VOLTAGE_COLOR_LIGHT_BLUE_GREEN)
+        self.assertEqual(gmr._voltage_color(1.075), gmr.GRID_MAP_VOLTAGE_COLOR_BLUE)
+
     def test_select_lib_power_inputs_prefers_fresh_observed_state(self):
         shared_data = {
             "lock": threading.Lock(),
@@ -600,6 +610,25 @@ class GridMapRuntimeTests(unittest.TestCase):
         self.assertEqual(dynamic["line"]["12"]["status"], "overloaded")
         self.assertEqual(dynamic["trafo"]["21"]["status"], "ok")
 
+    def test_build_dynamic_payload_keeps_operational_voltage_violation_limits(self):
+        topology_cache = {
+            "bus_order": [1, 2, 3, 4],
+            "line_order": [],
+            "trafo_order": [],
+        }
+        result = {
+            "results_tables": {
+                "res_bus": pd.DataFrame({"vm_pu": [0.94, 0.96, 1.04, 1.06]}, index=[1, 2, 3, 4]),
+            },
+        }
+
+        dynamic = gmr.build_dynamic_payload(result, topology_cache)
+
+        self.assertEqual(dynamic["bus"]["1"]["status"], "violation")
+        self.assertEqual(dynamic["bus"]["2"]["status"], "ok")
+        self.assertEqual(dynamic["bus"]["3"]["status"], "ok")
+        self.assertEqual(dynamic["bus"]["4"]["status"], "violation")
+
     def test_publish_grid_map_error_preserves_last_successful_payload(self):
         shared_data = {"lock": threading.Lock(), gmr.GRID_MAP_STATUS_KEY: gmr.default_grid_map_runtime(5.0)}
         shared_data[gmr.GRID_MAP_STATUS_KEY]["topology_cache"] = {"bus_order": [1], "line_order": [], "trafo_order": []}
@@ -823,6 +852,14 @@ class GridMapRuntimeTests(unittest.TestCase):
         self.assertEqual(fig_a.layout.uirevision, "same-key")
         self.assertEqual(fig_b.layout.uirevision, "same-key")
         self.assertEqual(fig_a.layout.meta["grid_map_topology_revision"], 1001)
+        self.assertEqual(
+            list(fig_b.data[-1].marker.color),
+            [
+                gmr.GRID_MAP_VOLTAGE_COLOR_AMBER,
+                gmr.GRID_MAP_VOLTAGE_COLOR_GREEN,
+                gmr.GRID_MAP_VOLTAGE_COLOR_LIGHT_BLUE_GREEN,
+            ],
+        )
 
     def test_build_grid_map_figure_uses_geographic_basemap_when_available(self):
         topology_cache = {
@@ -899,7 +936,10 @@ class GridMapRuntimeTests(unittest.TestCase):
         self.assertEqual(list(figure.data[1].text), ["Line 11<br>Loading=120.0%"])
         self.assertEqual(figure.data[2].line.color, "#d28c00")
         self.assertEqual(list(figure.data[3].text), ["Transformer 21<br>Loading=85.0%"])
-        self.assertEqual(list(figure.data[4].marker.color), ["#d93838", "#00945a"])
+        self.assertEqual(
+            list(figure.data[4].marker.color),
+            [gmr.GRID_MAP_VOLTAGE_COLOR_AMBER, gmr.GRID_MAP_VOLTAGE_COLOR_GREEN],
+        )
         self.assertEqual(list(figure.data[4].text), ["Bus 1<br>Voltage=0.9400 pu", "Bus 2<br>Voltage=1.0100 pu"])
 
     def test_build_grid_map_figure_update_low_trace_first_render_keeps_grouped_lines(self):

@@ -27,6 +27,14 @@ from time_utils import get_config_tz, normalize_datetime_series, normalize_times
 GRID_MAP_VOLTAGE_MIN_PU = 0.95
 GRID_MAP_VOLTAGE_MAX_PU = 1.05
 GRID_MAP_LINE_LOADING_LIMIT_PCT = 100.0
+GRID_MAP_VOLTAGE_COLOR_RED = "#d93838"
+GRID_MAP_VOLTAGE_COLOR_AMBER = "#d28c00"
+GRID_MAP_VOLTAGE_COLOR_YELLOW_GREEN = "#76a83a"
+GRID_MAP_VOLTAGE_COLOR_GREEN = "#00945a"
+GRID_MAP_VOLTAGE_COLOR_DARK_CYAN_GREEN = "#007d78"
+GRID_MAP_VOLTAGE_COLOR_LIGHT_BLUE_GREEN = "#4aa8c8"
+GRID_MAP_VOLTAGE_COLOR_BLUE = "#2f6fd6"
+GRID_MAP_VOLTAGE_COLOR_MISSING = "#9ca7a2"
 GRID_MAP_STATUS_KEY = "grid_map_runtime"
 GRID_MAP_SOURCE_CRS = "EPSG:32630"
 GRID_MAP_TARGET_CRS = "EPSG:4326"
@@ -1170,7 +1178,8 @@ def _build_pandapower_traces(
         index=bus_order,
         dtype=object,
     )
-    bus_vals = [_coerce_float(dict(bus_dynamic.get(str(index), {}) or {}).get("vm_pu")) or 1.0 for index in bus_order]
+    bus_voltage_values = [_coerce_float(dict(bus_dynamic.get(str(index), {}) or {}).get("vm_pu")) for index in bus_order]
+    bus_colors = [_voltage_color(value) for value in bus_voltage_values]
 
     traces: list[Any] = []
     if line_order:
@@ -1215,12 +1224,10 @@ def _build_pandapower_traces(
             buses=bus_order,
             infofunc=bus_info,
             trace_name="Buses",
-            cmap=True,
-            cmap_vals=bus_vals,
-            cmin=GRID_MAP_VOLTAGE_MIN_PU,
-            cmax=GRID_MAP_VOLTAGE_MAX_PU,
+            cmap=False,
             size=8,
         )
+        _apply_marker_colors(bus_trace, bus_colors)
         if isinstance(bus_trace, list):
             traces.extend(bus_trace)
         elif bus_trace is not None:
@@ -1976,12 +1983,43 @@ def snapshot_grid_map_runtime(shared_data: dict[str, Any]) -> dict[str, Any]:
 
 def _voltage_color(vm_pu: float | None) -> str:
     if vm_pu is None:
-        return "#9ca7a2"
-    if vm_pu < GRID_MAP_VOLTAGE_MIN_PU or vm_pu > GRID_MAP_VOLTAGE_MAX_PU:
-        return "#d93838"
-    if vm_pu < 0.98 or vm_pu > 1.02:
-        return "#d28c00"
-    return "#00945a"
+        return GRID_MAP_VOLTAGE_COLOR_MISSING
+    if vm_pu < 0.925:
+        return GRID_MAP_VOLTAGE_COLOR_RED
+    if vm_pu < 0.95:
+        return GRID_MAP_VOLTAGE_COLOR_AMBER
+    if vm_pu < 0.975:
+        return GRID_MAP_VOLTAGE_COLOR_YELLOW_GREEN
+    if vm_pu < 1.025:
+        return GRID_MAP_VOLTAGE_COLOR_GREEN
+    if vm_pu < 1.05:
+        return GRID_MAP_VOLTAGE_COLOR_DARK_CYAN_GREEN
+    if vm_pu < 1.075:
+        return GRID_MAP_VOLTAGE_COLOR_LIGHT_BLUE_GREEN
+    return GRID_MAP_VOLTAGE_COLOR_BLUE
+
+
+def _apply_marker_colors(trace_or_traces: Any, colors: list[str]) -> None:
+    for trace in list(trace_or_traces) if isinstance(trace_or_traces, list) else [trace_or_traces]:
+        if isinstance(trace, dict):
+            marker = dict(trace.get("marker", {}) or {})
+            marker["color"] = list(colors)
+            marker.pop("colorscale", None)
+            marker.pop("colorbar", None)
+            marker["showscale"] = False
+            trace["marker"] = marker
+            continue
+        marker = getattr(trace, "marker", None)
+        if marker is None:
+            continue
+        try:
+            marker.color = list(colors)
+            if hasattr(marker, "showscale"):
+                marker.showscale = False
+            if hasattr(marker, "colorscale"):
+                marker.colorscale = None
+        except Exception:
+            continue
 
 
 def _line_color(loading_pct: float | None) -> str:
