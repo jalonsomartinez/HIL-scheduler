@@ -86,6 +86,7 @@ plants:
           q_poi: {address: 292, format: int16, access: r, unit: kvar, eng_per_count: 0.1}
           q_battery: {address: 272, format: int16, access: r, unit: kvar, eng_per_count: 0.1}
           v_poi: {address: 296, format: uint16, access: r, unit: V, eng_per_count: 1.0}
+          v_poi_write: {address: 297, format: uint16, access: rw, unit: V, eng_per_count: 1.0}
           enable: {address: 1, format: uint16, access: rw, unit: raw, eng_per_count: 1.0}
           soc: {address: 281, format: uint16, access: r, unit: pu, eng_per_count: 0.0001} # pc is percentage
           stop_command: {address: 85, format: uint16, access: w, unit: raw, eng_per_count: 1.0}

@@ -60,6 +60,5 @@ class DashboardGridMapTests(unittest.TestCase):
         self.assertIn("map_refresh=live", live_text)
         self.assertIn("map_refresh=paused", paused_text)
 
-
 if __name__ == "__main__":
     unittest.main()
