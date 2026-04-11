@@ -48,6 +48,12 @@ GRID_MAP_BACKGROUND_STYLE_BY_MODE = {
     GRID_MAP_BACKGROUND_MODE_SATELLITE: "satellite",
 }
 GRID_MAP_MAP_STYLE = GRID_MAP_BACKGROUND_STYLE_BY_MODE[GRID_MAP_DEFAULT_BACKGROUND_MODE]
+GRID_MAP_STARTUP_FIT_PADDING_PX = 32
+GRID_MAP_FALLBACK_VIEWPORT_WIDTH_PX = 960
+GRID_MAP_FALLBACK_VIEWPORT_HEIGHT_PX = 680
+GRID_MAP_MIN_ZOOM = 0.0
+GRID_MAP_MAX_ZOOM = 24.0
+GRID_MAP_DEGENERATE_BOUNDS_ZOOM = 20.0
 GRID_MAP_LINE_WARNING_LIMIT_PCT = 80.0
 GRID_MAP_LINE_HOVER_MARKER_SIZE = 16
 GRID_MAP_LINE_HOVER_MARKER_COLOR = "rgba(47,91,78,0.12)"
@@ -84,6 +90,44 @@ def _map_style_for_background_mode(background_mode: Any) -> str:
 
 def _render_on_map(topology_cache: dict[str, Any]) -> bool:
     return str(topology_cache.get("coordinate_mode") or "schematic") == "geographic"
+
+
+def _clip_latitude_for_mercator(lat: Any) -> float | None:
+    latitude = _coerce_float(lat)
+    if latitude is None:
+        return None
+    return float(min(85.05112878, max(-85.05112878, latitude)))
+
+
+def _mercator_world_y_fraction(lat: Any) -> float | None:
+    latitude = _clip_latitude_for_mercator(lat)
+    if latitude is None:
+        return None
+    sine = min(max(math.sin(math.radians(latitude)), -0.9999), 0.9999)
+    return float(0.5 - (math.log((1.0 + sine) / (1.0 - sine)) / (4.0 * math.pi)))
+
+
+def _grid_map_fit_meta(topology_cache: dict[str, Any] | None, topology_revision: Any) -> dict[str, Any]:
+    topology_cache = dict(topology_cache or {})
+    meta = {
+        "grid_map_coordinate_mode": str(topology_cache.get("coordinate_mode") or "schematic"),
+        "grid_map_topology_revision": topology_revision,
+    }
+    if _render_on_map(topology_cache):
+        bounds = dict(topology_cache.get("geographic_bounds", {}) or {})
+        west = _coerce_float(bounds.get("x_min"))
+        east = _coerce_float(bounds.get("x_max"))
+        south = _coerce_float(bounds.get("y_min"))
+        north = _coerce_float(bounds.get("y_max"))
+        if None not in (west, east, south, north):
+            meta["grid_map_fit_bounds"] = {
+                "west": float(west),
+                "east": float(east),
+                "south": float(south),
+                "north": float(north),
+            }
+            meta["grid_map_fit_padding_px"] = GRID_MAP_STARTUP_FIT_PADDING_PX
+    return meta
 
 
 def default_grid_map_runtime(period_s: float) -> dict[str, Any]:
@@ -1094,16 +1138,17 @@ def _build_low_trace_figure_dict(
 ) -> dict[str, Any]:
     plot_theme = dict(DEFAULT_PLOT_THEME)
     data = _build_static_trace_dicts(topology_cache, dynamic_payload)
+    layout_meta = {
+        "grid_map_dynamic_revision": int(dynamic_revision or 0),
+        **_grid_map_fit_meta(topology_cache, topology_revision),
+    }
     layout = {
         "height": 720,
         "margin": {"l": 20, "r": 20, "t": 20, "b": 20},
         "paper_bgcolor": plot_theme["paper_bg"],
         "font": {"color": plot_theme["text"], "family": plot_theme["font_family"], "size": 12},
         "uirevision": uirevision_key,
-        "meta": {
-            "grid_map_topology_revision": topology_revision,
-            "grid_map_dynamic_revision": int(dynamic_revision or 0),
-        },
+        "meta": layout_meta,
     }
     if _render_on_map(topology_cache):
         center = dict(topology_cache.get("geographic_center", {}) or {})
@@ -1113,7 +1158,12 @@ def _build_low_trace_figure_dict(
                 "lon": _coerce_float(center.get("lon")) or 0.0,
                 "lat": _coerce_float(center.get("lat")) or 0.0,
             },
-            "zoom": _map_zoom_for_bounds(dict(topology_cache.get("geographic_bounds", {}) or {})),
+            "zoom": _map_zoom_for_bounds(
+                dict(topology_cache.get("geographic_bounds", {}) or {}),
+                viewport_width_px=GRID_MAP_FALLBACK_VIEWPORT_WIDTH_PX,
+                viewport_height_px=GRID_MAP_FALLBACK_VIEWPORT_HEIGHT_PX,
+                padding_px=GRID_MAP_STARTUP_FIT_PADDING_PX,
+            ),
         }
     else:
         bounds = dict(topology_cache.get("bounds", {}) or {})
@@ -1157,6 +1207,7 @@ def _build_empty_grid_map_figure_dict(*, title: str, uirevision_key: str, topolo
             "meta": {
                 "grid_map_topology_revision": topology_revision,
                 "grid_map_dynamic_revision": int(dynamic_revision or 0),
+                "grid_map_coordinate_mode": "schematic",
             },
             "annotations": [
                 {
@@ -1304,7 +1355,12 @@ def _build_pandapower_figure_dict(
         }
         if _render_on_map(topology_cache):
             draw_kwargs["map_style"] = _map_style_for_background_mode(topology_cache.get("map_background_mode"))
-            draw_kwargs["zoomlevel"] = _map_zoom_for_bounds(dict(topology_cache.get("geographic_bounds", {}) or {}))
+            draw_kwargs["zoomlevel"] = _map_zoom_for_bounds(
+                dict(topology_cache.get("geographic_bounds", {}) or {}),
+                viewport_width_px=GRID_MAP_FALLBACK_VIEWPORT_WIDTH_PX,
+                viewport_height_px=GRID_MAP_FALLBACK_VIEWPORT_HEIGHT_PX,
+                padding_px=GRID_MAP_STARTUP_FIT_PADDING_PX,
+            )
         map_loggers = [
             logging.getLogger("pandapower.plotting.plotly.mapbox_plot"),
             logging.getLogger("pandapower.plotting.plotly.traces"),
@@ -1339,8 +1395,8 @@ def _build_pandapower_figure_dict(
     layout["font"] = dict(color=plot_theme["text"], family=plot_theme["font_family"], size=12)
     layout["uirevision"] = uirevision_key
     layout["meta"] = {
-        "grid_map_topology_revision": topology_revision,
         "grid_map_dynamic_revision": int(dynamic_revision or 0),
+        **_grid_map_fit_meta(topology_cache, topology_revision),
     }
     if _render_on_map(topology_cache):
         map_layout = dict(layout.get("map", {}) or {})
@@ -1350,7 +1406,12 @@ def _build_pandapower_figure_dict(
             "lon": _coerce_float(center.get("lon")) or 0.0,
             "lat": _coerce_float(center.get("lat")) or 0.0,
         }
-        map_layout["zoom"] = _map_zoom_for_bounds(dict(topology_cache.get("geographic_bounds", {}) or {}))
+        map_layout["zoom"] = _map_zoom_for_bounds(
+            dict(topology_cache.get("geographic_bounds", {}) or {}),
+            viewport_width_px=GRID_MAP_FALLBACK_VIEWPORT_WIDTH_PX,
+            viewport_height_px=GRID_MAP_FALLBACK_VIEWPORT_HEIGHT_PX,
+            padding_px=GRID_MAP_STARTUP_FIT_PADDING_PX,
+        )
         layout["map"] = map_layout
     fig_dict["layout"] = layout
     return fig_dict
@@ -2089,31 +2150,45 @@ def _format_metric(value: float | None, *, decimals: int, unit: str) -> str:
     return f"{float(value):.{int(decimals)}f} {unit}".strip()
 
 
-def _map_zoom_for_bounds(bounds: dict[str, float] | None) -> float:
+def _map_zoom_for_bounds(
+    bounds: dict[str, float] | None,
+    *,
+    viewport_width_px: Any = GRID_MAP_FALLBACK_VIEWPORT_WIDTH_PX,
+    viewport_height_px: Any = GRID_MAP_FALLBACK_VIEWPORT_HEIGHT_PX,
+    padding_px: Any = GRID_MAP_STARTUP_FIT_PADDING_PX,
+) -> float:
     if not isinstance(bounds, dict):
-        return 12.0
+        return 13.0
     lon_min = _coerce_float(bounds.get("x_min"))
     lon_max = _coerce_float(bounds.get("x_max"))
     lat_min = _coerce_float(bounds.get("y_min"))
     lat_max = _coerce_float(bounds.get("y_max"))
     if None in (lon_min, lon_max, lat_min, lat_max):
-        return 12.0
-    lon_span = max(1e-9, abs(lon_max - lon_min))
-    lat_span = max(1e-9, abs(lat_max - lat_min))
-    span = max(lon_span, lat_span)
-    if span < 0.002:
-        return 17.0
-    if span < 0.005:
-        return 16.0
-    if span < 0.01:
-        return 15.0
-    if span < 0.02:
-        return 14.0
-    if span < 0.05:
         return 13.0
-    if span < 0.1:
-        return 12.0
-    return 11.0
+    view_width = _coerce_float(viewport_width_px) or float(GRID_MAP_FALLBACK_VIEWPORT_WIDTH_PX)
+    view_height = _coerce_float(viewport_height_px) or float(GRID_MAP_FALLBACK_VIEWPORT_HEIGHT_PX)
+    padding = max(0.0, _coerce_float(padding_px) or float(GRID_MAP_STARTUP_FIT_PADDING_PX))
+    available_width = max(1.0, view_width - (2.0 * padding))
+    available_height = max(1.0, view_height - (2.0 * padding))
+
+    lon_span = abs(lon_max - lon_min)
+    lon_fraction = lon_span / 360.0
+    y_min = _mercator_world_y_fraction(lat_min)
+    y_max = _mercator_world_y_fraction(lat_max)
+    if y_min is None or y_max is None:
+        return 13.0
+    lat_fraction = abs(y_max - y_min)
+
+    if lon_fraction < 1e-12 and lat_fraction < 1e-12:
+        return float(GRID_MAP_DEGENERATE_BOUNDS_ZOOM)
+
+    tile_size = 512.0
+    zoom_x = float("inf") if lon_fraction < 1e-12 else math.log2(available_width / (tile_size * lon_fraction))
+    zoom_y = float("inf") if lat_fraction < 1e-12 else math.log2(available_height / (tile_size * lat_fraction))
+    zoom = min(zoom_x, zoom_y)
+    if not math.isfinite(zoom):
+        zoom = float(GRID_MAP_DEGENERATE_BOUNDS_ZOOM)
+    return float(min(GRID_MAP_MAX_ZOOM, max(GRID_MAP_MIN_ZOOM, zoom)))
 
 
 def _build_schematic_grid_map_figure(
@@ -2374,10 +2449,19 @@ def _build_geographic_grid_map_figure(
         paper_bgcolor=plot_theme["paper_bg"],
         font=dict(color=plot_theme["text"], family=plot_theme["font_family"], size=12),
         uirevision=uirevision_key,
+        meta={
+            "grid_map_dynamic_revision": int(bool(dynamic_payload)),
+            **_grid_map_fit_meta(topology_cache, topology_cache.get("topology_revision")),
+        },
         map=dict(
             style=_map_style_for_background_mode(topology_cache.get("map_background_mode")),
             center=map_center,
-            zoom=_map_zoom_for_bounds(bounds),
+            zoom=_map_zoom_for_bounds(
+                bounds,
+                viewport_width_px=GRID_MAP_FALLBACK_VIEWPORT_WIDTH_PX,
+                viewport_height_px=GRID_MAP_FALLBACK_VIEWPORT_HEIGHT_PX,
+                padding_px=GRID_MAP_STARTUP_FIT_PADDING_PX,
+            ),
         ),
     )
     return fig

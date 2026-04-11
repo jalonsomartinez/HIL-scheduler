@@ -32,6 +32,7 @@ from dashboard.grid_map import (
     build_grid_map_meta_children,
     build_grid_map_status_text,
     build_grid_map_summary_cards,
+    grid_map_startup_fit_clientside_js,
     is_grid_map_refresh_paused,
     register_grid_map_interaction,
 )
@@ -657,6 +658,17 @@ def dashboard_agent(config, shared_data):
         Output("plots-vrfb-png-noop", "children"),
         [Input("plots-download-png-vrfb-btn", "n_clicks"), Input("plots-range-meta-store", "data")],
         [State("plots-graph-vrfb", "figure")],
+        prevent_initial_call=True,
+    )
+
+    app.clientside_callback(
+        grid_map_startup_fit_clientside_js("grid-map-figure"),
+        [
+            Output("grid-map-figure", "figure", allow_duplicate=True),
+            Output("grid-map-startup-fit-state", "data"),
+        ],
+        [Input("grid-map-render-state", "data")],
+        [State("grid-map-figure", "figure"), State("grid-map-startup-fit-state", "data")],
         prevent_initial_call=True,
     )
 

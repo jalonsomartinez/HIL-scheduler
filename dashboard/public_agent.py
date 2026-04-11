@@ -21,6 +21,7 @@ from dashboard.grid_map import (
     build_grid_map_page,
     build_grid_map_status_text,
     build_grid_map_summary_cards,
+    grid_map_startup_fit_clientside_js,
     is_grid_map_refresh_paused,
     register_grid_map_interaction,
 )
@@ -643,6 +644,17 @@ def build_public_readonly_app(config, shared_data):
         brand_logo_src=app.get_asset_url("brand/Logotype i-STENTORE.png"),
         measurement_period_s=config.get("MEASUREMENT_PERIOD_S", 5.0),
         grid_map_period_s=config.get("GRID_MAP_PERIOD_S", 10.0),
+    )
+
+    app.clientside_callback(
+        grid_map_startup_fit_clientside_js("public-grid-map-figure"),
+        [
+            Output("public-grid-map-figure", "figure", allow_duplicate=True),
+            Output("public-grid-map-startup-fit-state", "data"),
+        ],
+        [Input("public-grid-map-render-state", "data")],
+        [State("public-grid-map-figure", "figure"), State("public-grid-map-startup-fit-state", "data")],
+        prevent_initial_call=True,
     )
 
     def _nav_link_class(route, active_route):

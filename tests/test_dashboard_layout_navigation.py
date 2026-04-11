@@ -80,6 +80,7 @@ class DashboardLayoutNavigationTests(unittest.TestCase):
             "grid-map-figure",
             "grid-map-render-state",
             "grid-map-interaction-state",
+            "grid-map-startup-fit-state",
         ]
         for component_id in expected_ids:
             self.assertIn(component_id, by_id)
@@ -112,6 +113,7 @@ class DashboardLayoutNavigationTests(unittest.TestCase):
             "public-grid-map-figure",
             "public-grid-map-render-state",
             "public-grid-map-interaction-state",
+            "public-grid-map-startup-fit-state",
         ]
         for component_id in expected_ids:
             self.assertIn(component_id, by_id)

@@ -66,6 +66,7 @@ class DashboardGridMapTests(unittest.TestCase):
     def test_build_grid_map_page_places_status_below_graph(self):
         page = build_grid_map_page(prefix="", title="Grid Map")
         children = list(page.children)
+        child_ids = {getattr(child, "id", None) for child in children}
         graph_index = next(index for index, child in enumerate(children) if getattr(child, "id", None) == "grid-map-figure")
         meta_block_index = next(
             index for index, child in enumerate(children) if "grid-map-meta-block" in str(getattr(child, "className", ""))
@@ -77,6 +78,7 @@ class DashboardGridMapTests(unittest.TestCase):
 
         self.assertGreater(meta_block_index, graph_index)
         self.assertLess(status_index, meta_index)
+        self.assertIn("grid-map-startup-fit-state", child_ids)
 
 if __name__ == "__main__":
     unittest.main()

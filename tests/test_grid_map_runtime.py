@@ -278,6 +278,51 @@ class GridMapRuntimeTests(unittest.TestCase):
     def tearDown(self):
         gmr._SIMULATOR_MODULE = None
 
+    def test_map_zoom_for_bounds_returns_continuous_float_zoom(self):
+        zoom = gmr._map_zoom_for_bounds(
+            {"x_min": -5.18, "x_max": -5.17, "y_min": 40.71, "y_max": 40.72},
+            viewport_width_px=960,
+            viewport_height_px=680,
+            padding_px=32,
+        )
+
+        self.assertIsInstance(zoom, float)
+        self.assertNotEqual(zoom, float(int(zoom)))
+
+    def test_map_zoom_for_bounds_increases_for_smaller_bounds(self):
+        wide_zoom = gmr._map_zoom_for_bounds(
+            {"x_min": -5.20, "x_max": -5.10, "y_min": 40.70, "y_max": 40.80},
+            viewport_width_px=960,
+            viewport_height_px=680,
+            padding_px=32,
+        )
+        tight_zoom = gmr._map_zoom_for_bounds(
+            {"x_min": -5.180, "x_max": -5.175, "y_min": 40.710, "y_max": 40.715},
+            viewport_width_px=960,
+            viewport_height_px=680,
+            padding_px=32,
+        )
+
+        self.assertGreater(tight_zoom, wide_zoom)
+
+    def test_map_zoom_for_bounds_accounts_for_viewport_shape(self):
+        bounds = {"x_min": -5.18, "x_max": -5.17, "y_min": 40.71, "y_max": 40.72}
+
+        wide_zoom = gmr._map_zoom_for_bounds(bounds, viewport_width_px=1200, viewport_height_px=680, padding_px=32)
+        narrow_zoom = gmr._map_zoom_for_bounds(bounds, viewport_width_px=480, viewport_height_px=680, padding_px=32)
+
+        self.assertGreater(wide_zoom, narrow_zoom)
+
+    def test_map_zoom_for_bounds_caps_degenerate_bounds(self):
+        zoom = gmr._map_zoom_for_bounds(
+            {"x_min": -5.18, "x_max": -5.18, "y_min": 40.71, "y_max": 40.71},
+            viewport_width_px=960,
+            viewport_height_px=680,
+            padding_px=32,
+        )
+
+        self.assertEqual(zoom, gmr.GRID_MAP_DEGENERATE_BOUNDS_ZOOM)
+
     def test_voltage_color_uses_new_discrete_buckets(self):
         self.assertEqual(gmr._voltage_color(None), gmr.GRID_MAP_VOLTAGE_COLOR_MISSING)
         self.assertEqual(gmr._voltage_color(0.9249), gmr.GRID_MAP_VOLTAGE_COLOR_RED)
@@ -932,6 +977,13 @@ class GridMapRuntimeTests(unittest.TestCase):
         self.assertEqual(fig.layout.map.style, gmr.GRID_MAP_BACKGROUND_STYLE_BY_MODE["street"])
         self.assertEqual(fig.layout.map.center.lon, -5.175)
         self.assertEqual(fig.layout.map.center.lat, 40.715)
+        self.assertEqual(fig.layout.meta["grid_map_coordinate_mode"], "geographic")
+        self.assertEqual(fig.layout.meta["grid_map_fit_padding_px"], gmr.GRID_MAP_STARTUP_FIT_PADDING_PX)
+        self.assertEqual(
+            fig.layout.meta["grid_map_fit_bounds"],
+            {"west": -5.18, "east": -5.17, "south": 40.71, "north": 40.72},
+        )
+        self.assertIsInstance(fig.layout.map.zoom, float)
         self.assertGreater(len(fig.data), 0)
 
     def test_build_grid_map_figure_uses_white_bg_for_none_mode_on_geographic_render(self):

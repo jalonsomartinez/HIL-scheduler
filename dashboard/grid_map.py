@@ -14,6 +14,7 @@ def build_grid_map_page(*, prefix: str, title: str = "Grid Map"):
     graph_id = f"{prefix}-grid-map-figure" if prefix else "grid-map-figure"
     render_state_id = f"{prefix}-grid-map-render-state" if prefix else "grid-map-render-state"
     interaction_state_id = f"{prefix}-grid-map-interaction-state" if prefix else "grid-map-interaction-state"
+    startup_fit_state_id = f"{prefix}-grid-map-startup-fit-state" if prefix else "grid-map-startup-fit-state"
     summary_id = f"{prefix}-grid-map-summary" if prefix else "grid-map-summary"
     meta_id = f"{prefix}-grid-map-meta" if prefix else "grid-map-meta"
     status_id = f"{prefix}-grid-map-status" if prefix else "grid-map-status"
@@ -22,6 +23,7 @@ def build_grid_map_page(*, prefix: str, title: str = "Grid Map"):
         children=[
             dcc.Store(id=render_state_id, data=None),
             dcc.Store(id=interaction_state_id, data=None),
+            dcc.Store(id=startup_fit_state_id, data=None),
             html.Div(id=summary_id, className="grid-map-summary-grid"),
             dcc.Graph(id=graph_id, className="plot-graph grid-map-graph"),
             html.Div(
@@ -123,3 +125,107 @@ def build_grid_map_status_text(runtime_state):
     if error_text:
         status_text += f" | error={error_text}"
     return status_text
+
+
+def grid_map_startup_fit_clientside_js(graph_id: str) -> str:
+    return f"""
+    function(renderState, currentFigure, fitState) {{
+        var noUpdate = (window.dash_clientside && window.dash_clientside.no_update)
+            ? window.dash_clientside.no_update
+            : null;
+        if (!renderState || !currentFigure || !currentFigure.layout) {{
+            return [noUpdate, noUpdate];
+        }}
+        var layout = currentFigure.layout || {{}};
+        var meta = layout.meta || {{}};
+        var topologyRevision = meta.grid_map_topology_revision;
+        if (topologyRevision === undefined || topologyRevision === null) {{
+            topologyRevision = renderState.grid_map_topology_revision;
+        }}
+        if (!topologyRevision) {{
+            return [noUpdate, noUpdate];
+        }}
+        if (fitState && fitState.last_topology_revision === topologyRevision) {{
+            return [noUpdate, noUpdate];
+        }}
+        if ((meta.grid_map_coordinate_mode || "schematic") !== "geographic") {{
+            return [noUpdate, {{
+                last_topology_revision: topologyRevision,
+                coordinate_mode: meta.grid_map_coordinate_mode || "schematic",
+                applied: false
+            }}];
+        }}
+        var fitBounds = meta.grid_map_fit_bounds || null;
+        if (!fitBounds) {{
+            return [noUpdate, noUpdate];
+        }}
+        var west = Number(fitBounds.west);
+        var east = Number(fitBounds.east);
+        var south = Number(fitBounds.south);
+        var north = Number(fitBounds.north);
+        if (![west, east, south, north].every(Number.isFinite)) {{
+            return [noUpdate, noUpdate];
+        }}
+        var wrapper = document.getElementById("{graph_id}");
+        var gd = wrapper ? (wrapper.querySelector(".js-plotly-plot") || wrapper) : null;
+        if (!gd) {{
+            return [noUpdate, noUpdate];
+        }}
+        var margin = layout.margin || {{}};
+        var graphWidth = gd.clientWidth || gd.offsetWidth || 0;
+        var graphHeight = gd.clientHeight || gd.offsetHeight || Number(layout.height || 0);
+        var viewportWidth = Math.max(
+            1,
+            graphWidth - Number(margin.l || 0) - Number(margin.r || 0)
+        );
+        var viewportHeight = Math.max(
+            1,
+            graphHeight - Number(margin.t || 0) - Number(margin.b || 0)
+        );
+        var padding = Math.max(0, Number(meta.grid_map_fit_padding_px || 32));
+        var availableWidth = Math.max(1, viewportWidth - (2 * padding));
+        var availableHeight = Math.max(1, viewportHeight - (2 * padding));
+
+        function mercatorY(lat) {{
+            var clipped = Math.max(-85.05112878, Math.min(85.05112878, Number(lat)));
+            var sin = Math.sin(clipped * Math.PI / 180);
+            sin = Math.max(-0.9999, Math.min(0.9999, sin));
+            return 0.5 - (Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI));
+        }}
+
+        var lonFraction = Math.abs(east - west) / 360.0;
+        var latFraction = Math.abs(mercatorY(north) - mercatorY(south));
+        var zoom;
+        if (lonFraction < 1e-12 && latFraction < 1e-12) {{
+            zoom = 20.0;
+        }} else {{
+            var tileSize = 512.0;
+            var zoomX = lonFraction < 1e-12
+                ? Infinity
+                : Math.log2(availableWidth / (tileSize * lonFraction));
+            var zoomY = latFraction < 1e-12
+                ? Infinity
+                : Math.log2(availableHeight / (tileSize * latFraction));
+            zoom = Math.min(zoomX, zoomY);
+            if (!Number.isFinite(zoom)) {{
+                zoom = 20.0;
+            }}
+            zoom = Math.max(0.0, Math.min(24.0, zoom));
+        }}
+
+        var nextFigure = JSON.parse(JSON.stringify(currentFigure));
+        nextFigure.layout = nextFigure.layout || {{}};
+        nextFigure.layout.map = nextFigure.layout.map || {{}};
+        nextFigure.layout.map.center = {{
+            lon: (west + east) / 2.0,
+            lat: (south + north) / 2.0
+        }};
+        nextFigure.layout.map.zoom = zoom;
+        return [nextFigure, {{
+            last_topology_revision: topologyRevision,
+            coordinate_mode: "geographic",
+            applied: true,
+            zoom: zoom
+        }}];
+    }}
+    """
