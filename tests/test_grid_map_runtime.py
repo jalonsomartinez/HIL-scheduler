@@ -290,7 +290,7 @@ class GridMapRuntimeTests(unittest.TestCase):
 
     def test_voltage_color_palette_matches_contrast_friendly_progression(self):
         self.assertEqual(gmr.GRID_MAP_VOLTAGE_COLOR_YELLOW_GREEN, "#d7b62a")
-        self.assertEqual(gmr.GRID_MAP_VOLTAGE_COLOR_GREEN, "#7fae45")
+        self.assertEqual(gmr.GRID_MAP_VOLTAGE_COLOR_GREEN, "#96cc56")
         self.assertEqual(gmr.GRID_MAP_VOLTAGE_COLOR_DARK_CYAN_GREEN, "#2e8f85")
         self.assertEqual(gmr.GRID_MAP_VOLTAGE_COLOR_LIGHT_BLUE_GREEN, "#5d97c9")
 
