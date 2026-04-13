@@ -26,7 +26,12 @@ from control.modbus_io import (
 from runtime.engine_command_cycle_runtime import run_command_with_lifecycle
 from runtime.engine_status_runtime import default_engine_status, update_engine_status
 from modbus.grouped_reads import build_read_groups, read_points_internal_grouped
-from runtime.contracts import resolve_modbus_endpoint, sanitize_plant_name
+from runtime.contracts import (
+    clamp_dispatch_setpoints,
+    resolve_modbus_endpoint,
+    resolve_plant_power_limits,
+    sanitize_plant_name,
+)
 from runtime.paths import get_data_dir
 from runtime.soc_estimation import clamp_soc_pu, resolve_startup_soc_seed
 from scheduling.runtime import build_effective_schedule_frame, resolve_schedule_setpoint
@@ -54,6 +59,7 @@ def _get_plant_modbus_config(config, shared_data, plant_id, transport_mode=None)
         "port": int(endpoint.get("port", 5020 if plant_id == "lib" else 5021)),
         "byte_order": endpoint.get("byte_order"),
         "word_order": endpoint.get("word_order"),
+        "power_limits": endpoint.get("power_limits", {}),
         "points": endpoint.get("points", {}),
     }
 
@@ -459,6 +465,7 @@ def _safe_stop_plant(config, shared_data, plant_id, *, threshold_kw=1.0, timeout
     stop_command_result = {"ok": True, "details": []}
 
     def _send_and_publish(pid, p_kw, q_kvar):
+        limit_result = clamp_dispatch_setpoints(p_kw, q_kvar, resolve_plant_power_limits(config, pid))
         ok = bool(_send_setpoints(config, shared_data, pid, p_kw, q_kvar))
         gate = snapshot_locked(shared_data, lambda data: bool((data.get("scheduler_running_by_plant", {}) or {}).get(pid, False)))
         publish_dispatch_write_status(
@@ -466,11 +473,20 @@ def _safe_stop_plant(config, shared_data, plant_id, *, threshold_kw=1.0, timeout
             pid,
             sending_enabled=gate,
             attempted_at=now_tz(config),
-            p_kw=p_kw,
-            q_kvar=q_kvar,
+            p_kw=limit_result["applied_p_kw"],
+            q_kvar=limit_result["applied_q_kvar"],
             source="control_engine.safe_stop",
             status="ok" if ok else "failed",
             error=None if ok else "setpoint_write_failed",
+            scheduler_context={
+                "requested_p_kw": limit_result["requested_p_kw"],
+                "requested_q_kvar": limit_result["requested_q_kvar"],
+                "applied_p_kw": limit_result["applied_p_kw"],
+                "applied_q_kvar": limit_result["applied_q_kvar"],
+                "p_clamped": bool(limit_result["p_clamped"]),
+                "q_clamped": bool(limit_result["q_clamped"]),
+                "any_clamped": bool(limit_result["any_clamped"]),
+            },
         )
         return ok
 
@@ -623,6 +639,9 @@ def _start_one_plant(
         }
 
     p_kw, q_kvar = get_latest_schedule_setpoint_fn(plant_id)
+    limit_result = clamp_dispatch_setpoints(p_kw, q_kvar, resolve_plant_power_limits(config, plant_id))
+    applied_p_kw = float(limit_result["applied_p_kw"])
+    applied_q_kvar = float(limit_result["applied_q_kvar"])
     if dispatch_enabled:
         send_ok = bool(send_setpoints_fn(plant_id, p_kw, q_kvar))
         publish_dispatch_write_status(
@@ -630,25 +649,34 @@ def _start_one_plant(
             plant_id,
             sending_enabled=True,
             attempted_at=now_fn(config),
-            p_kw=p_kw,
-            q_kvar=q_kvar,
+            p_kw=applied_p_kw,
+            q_kvar=applied_q_kvar,
             source="control_engine.start",
             status="ok" if send_ok else "failed",
             error=None if send_ok else "setpoint_write_failed",
+            scheduler_context={
+                "requested_p_kw": limit_result["requested_p_kw"],
+                "requested_q_kvar": limit_result["requested_q_kvar"],
+                "applied_p_kw": applied_p_kw,
+                "applied_q_kvar": applied_q_kvar,
+                "p_clamped": bool(limit_result["p_clamped"]),
+                "q_clamped": bool(limit_result["q_clamped"]),
+                "any_clamped": bool(limit_result["any_clamped"]),
+            },
         )
         if send_ok:
             logging.info(
                 "ControlEngine: %s initial setpoints sent (P=%.3f kW Q=%.3f kvar).",
                 plant_id.upper(),
-                p_kw,
-                q_kvar,
+                applied_p_kw,
+                applied_q_kvar,
             )
         else:
             logging.warning(
                 "ControlEngine: %s initial setpoint write failed (P=%.3f kW Q=%.3f kvar).",
                 plant_id.upper(),
-                p_kw,
-                q_kvar,
+                applied_p_kw,
+                applied_q_kvar,
             )
     else:
         send_ok = False
@@ -657,17 +685,26 @@ def _start_one_plant(
             plant_id,
             sending_enabled=False,
             attempted_at=now_fn(config),
-            p_kw=p_kw,
-            q_kvar=q_kvar,
+            p_kw=applied_p_kw,
+            q_kvar=applied_q_kvar,
             source="control_engine.start",
             status="skipped",
             error="dispatch_paused",
+            scheduler_context={
+                "requested_p_kw": limit_result["requested_p_kw"],
+                "requested_q_kvar": limit_result["requested_q_kvar"],
+                "applied_p_kw": applied_p_kw,
+                "applied_q_kvar": applied_q_kvar,
+                "p_clamped": bool(limit_result["p_clamped"]),
+                "q_clamped": bool(limit_result["q_clamped"]),
+                "any_clamped": bool(limit_result["any_clamped"]),
+            },
         )
         logging.info(
             "ControlEngine: %s initial setpoint write skipped because dispatch is paused (P=%.3f kW Q=%.3f kvar).",
             plant_id.upper(),
-            p_kw,
-            q_kvar,
+            applied_p_kw,
+            applied_q_kvar,
         )
 
     with shared_data["lock"]:
@@ -681,8 +718,8 @@ def _start_one_plant(
             "command_prepare_detail": command_prepare_detail,
             "enable_ok": True,
             "initial_setpoint_write_ok": bool(send_ok),
-            "initial_p_kw": float(p_kw),
-            "initial_q_kvar": float(q_kvar),
+            "initial_p_kw": applied_p_kw,
+            "initial_q_kvar": applied_q_kvar,
             "seed_result": seed_result,
             "dispatch_enabled": bool(dispatch_enabled),
             "initial_setpoint_write_skipped": (not bool(dispatch_enabled)),

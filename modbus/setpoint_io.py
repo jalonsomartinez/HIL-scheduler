@@ -4,6 +4,7 @@ import logging
 import time
 
 from modbus.codec import encode_point_internal_words, read_point_words, write_point_internal
+from runtime.contracts import clamp_dispatch_setpoints
 
 AGGREGATE_SETPOINT_MODE = "aggregate"
 PER_PHASE_SETPOINT_MODE = "per_phase"
@@ -55,10 +56,16 @@ def _quantity_targets(endpoint_cfg, quantity, total_internal_value):
 
 
 def build_setpoint_write_plan(endpoint_cfg, p_kw, q_kvar):
+    limit_result = clamp_dispatch_setpoints(
+        p_kw,
+        q_kvar,
+        (endpoint_cfg or {}).get("power_limits"),
+    )
     return {
         "mode": resolve_setpoint_mode(endpoint_cfg),
-        "p_targets": _quantity_targets(endpoint_cfg, "p", p_kw),
-        "q_targets": _quantity_targets(endpoint_cfg, "q", q_kvar),
+        "limit_result": limit_result,
+        "p_targets": _quantity_targets(endpoint_cfg, "p", limit_result["applied_p_kw"]),
+        "q_targets": _quantity_targets(endpoint_cfg, "q", limit_result["applied_q_kvar"]),
     }
 
 

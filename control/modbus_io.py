@@ -91,6 +91,16 @@ def send_setpoints(endpoint_cfg, plant_label, p_kw, q_kvar):
             )
             return False
         write_plan = build_setpoint_write_plan(endpoint_cfg, p_kw, q_kvar)
+        limit_result = dict((write_plan or {}).get("limit_result") or {})
+        if bool(limit_result.get("any_clamped")):
+            logging.warning(
+                "Control I/O: %s setpoints clamped before write (requested P=%.3f Q=%.3f, applied P=%.3f Q=%.3f).",
+                plant_label,
+                float(limit_result.get("requested_p_kw", 0.0)),
+                float(limit_result.get("requested_q_kvar", 0.0)),
+                float(limit_result.get("applied_p_kw", 0.0)),
+                float(limit_result.get("applied_q_kvar", 0.0)),
+            )
         apply_result = write_setpoint_plan_with_optional_trigger(client, endpoint_cfg, write_plan)
         trigger_result = dict(apply_result.get("trigger_result") or {})
         if str(trigger_result.get("state")) == "ok":

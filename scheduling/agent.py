@@ -122,7 +122,7 @@ def scheduler_agent(config, shared_data):
                     continue
 
                 api_schedule_df = api_map.get(plant_id)
-                p_setpoint, q_setpoint, is_stale = resolve_schedule_setpoint(
+                requested_p_setpoint, requested_q_setpoint, is_stale = resolve_schedule_setpoint(
                     api_schedule_df,
                     loop_now,
                     tz,
@@ -150,7 +150,7 @@ def scheduler_agent(config, shared_data):
                     and manual_p_has
                     and (manual_p_end_time is None or pd.Timestamp(loop_now) < pd.Timestamp(manual_p_end_time))
                 ):
-                    p_setpoint = manual_p_value
+                    requested_p_setpoint = manual_p_value
                     manual_p_applied = True
                 else:
                     manual_p_applied = False
@@ -159,7 +159,7 @@ def scheduler_agent(config, shared_data):
                     and manual_q_has
                     and (manual_q_end_time is None or pd.Timestamp(loop_now) < pd.Timestamp(manual_q_end_time))
                 ):
-                    q_setpoint = manual_q_value
+                    requested_q_setpoint = manual_q_value
                     manual_q_applied = True
                 else:
                     manual_q_applied = False
@@ -169,7 +169,10 @@ def scheduler_agent(config, shared_data):
                 trigger_write_ok = None
                 attempted_any = False
 
-                write_plan = build_setpoint_write_plan(endpoint, p_setpoint, q_setpoint)
+                write_plan = build_setpoint_write_plan(endpoint, requested_p_setpoint, requested_q_setpoint)
+                limit_result = dict((write_plan or {}).get("limit_result") or {})
+                applied_p_setpoint = float(limit_result.get("applied_p_kw", requested_p_setpoint))
+                applied_q_setpoint = float(limit_result.get("applied_q_kvar", requested_q_setpoint))
 
                 try:
                     p_actual_words = read_setpoint_target_words(client, endpoint, write_plan["p_targets"])
@@ -200,13 +203,13 @@ def scheduler_agent(config, shared_data):
 
                 if not p_readback_ok:
                     p_compare_source = "cache_fallback"
-                    p_should_write = previous_p[plant_id] != p_setpoint
+                    p_should_write = previous_p[plant_id] != applied_p_setpoint
                 else:
                     p_compare_source = "readback"
                     p_should_write = bool(p_readback_mismatch)
                 if not q_readback_ok:
                     q_compare_source = "cache_fallback"
-                    q_should_write = previous_q[plant_id] != q_setpoint
+                    q_should_write = previous_q[plant_id] != applied_q_setpoint
                 else:
                     q_compare_source = "readback"
                     q_should_write = bool(q_readback_mismatch)
@@ -214,14 +217,23 @@ def scheduler_agent(config, shared_data):
                 should_apply = bool(force_setpoint_retry[plant_id] or p_should_write or q_should_write)
                 if should_apply:
                     attempted_any = True
+                    if bool(limit_result.get("any_clamped")):
+                        logging.warning(
+                            "Scheduler: %s setpoints clamped before write (requested P=%.3f Q=%.3f, applied P=%.3f Q=%.3f).",
+                            plant_id.upper(),
+                            float(limit_result.get("requested_p_kw", requested_p_setpoint)),
+                            float(limit_result.get("requested_q_kvar", requested_q_setpoint)),
+                            applied_p_setpoint,
+                            applied_q_setpoint,
+                        )
                     apply_result = write_setpoint_plan_with_optional_trigger(client, endpoint, write_plan)
                     p_write_ok = bool((apply_result.get("p_result") or {}).get("ok"))
                     q_write_ok = bool((apply_result.get("q_result") or {}).get("ok"))
                     trigger_result = dict(apply_result.get("trigger_result") or {})
                     trigger_write_ok = str(trigger_result.get("state")) in {"ok", "skipped"}
                     if bool(apply_result.get("ok")):
-                        previous_p[plant_id] = p_setpoint
-                        previous_q[plant_id] = q_setpoint
+                        previous_p[plant_id] = applied_p_setpoint
+                        previous_q[plant_id] = applied_q_setpoint
                         force_setpoint_retry[plant_id] = False
                     else:
                         force_setpoint_retry[plant_id] = True
@@ -247,8 +259,8 @@ def scheduler_agent(config, shared_data):
                         plant_id,
                         sending_enabled=True,
                         attempted_at=loop_now,
-                        p_kw=p_setpoint,
-                        q_kvar=q_setpoint,
+                        p_kw=applied_p_setpoint,
+                        q_kvar=applied_q_setpoint,
                         source="scheduler",
                         status=attempt_status,
                         error=error_text,
@@ -264,6 +276,13 @@ def scheduler_agent(config, shared_data):
                             "q_readback_ok": bool(q_readback_ok),
                             "p_readback_mismatch": p_readback_mismatch,
                             "q_readback_mismatch": q_readback_mismatch,
+                            "requested_p_kw": float(limit_result.get("requested_p_kw", requested_p_setpoint)),
+                            "requested_q_kvar": float(limit_result.get("requested_q_kvar", requested_q_setpoint)),
+                            "applied_p_kw": applied_p_setpoint,
+                            "applied_q_kvar": applied_q_setpoint,
+                            "p_clamped": bool(limit_result.get("p_clamped", False)),
+                            "q_clamped": bool(limit_result.get("q_clamped", False)),
+                            "any_clamped": bool(limit_result.get("any_clamped", False)),
                         },
                     )
                     if fail_count > 0:
@@ -271,9 +290,9 @@ def scheduler_agent(config, shared_data):
                             "Scheduler: %s setpoint write %s (P=%s ok=%s, Q=%s ok=%s, trigger_ok=%s).",
                             plant_id.upper(),
                             attempt_status,
-                            f"{p_setpoint:.3f}",
+                            f"{applied_p_setpoint:.3f}",
                             p_write_ok,
-                            f"{q_setpoint:.3f}",
+                            f"{applied_q_setpoint:.3f}",
                             q_write_ok,
                             trigger_write_ok,
                         )
@@ -281,8 +300,8 @@ def scheduler_agent(config, shared_data):
                         logging.warning(
                             "Scheduler: %s trigger pulse failed after setpoint write (P=%.3f Q=%.3f).",
                             plant_id.upper(),
-                            p_setpoint,
-                            q_setpoint,
+                            applied_p_setpoint,
+                            applied_q_setpoint,
                         )
 
             except Exception as exc:

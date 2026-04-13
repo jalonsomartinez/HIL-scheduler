@@ -201,6 +201,52 @@ class ControlEngineAgentTests(unittest.TestCase):
         self.assertEqual(calls[0], ("enable", "lib", 1))
         self.assertEqual(calls[1], ("setpoints", "lib", 12.5, -3.0))
 
+    def test_start_one_plant_publishes_clamped_initial_setpoint_status(self):
+        shared_data = _shared_data()
+        calls = []
+        shared_data["scheduler_running_by_plant"]["lib"] = True
+        config = {
+            "STARTUP_INITIAL_SOC_PU": 0.5,
+            "PLANTS": {
+                "lib": {
+                    "model": {
+                        "power_limits": {
+                            "p_max_kw": 10.0,
+                            "p_min_kw": -10.0,
+                            "q_max_kvar": 2.0,
+                            "q_min_kvar": -2.0,
+                        }
+                    }
+                }
+            },
+        }
+
+        result = _start_one_plant(
+            config,
+            shared_data,
+            "lib",
+            tz=timezone.utc,
+            set_enable_fn=lambda plant_id, value: True,
+            send_setpoints_fn=lambda plant_id, p_kw, q_kvar: calls.append(("setpoints", plant_id, p_kw, q_kvar)) or True,
+            get_latest_schedule_setpoint_fn=lambda plant_id: (12.5, -3.0),
+        )
+
+        self.assertEqual(result["state"], "succeeded")
+        self.assertEqual(calls[0], ("setpoints", "lib", 12.5, -3.0))
+        self.assertAlmostEqual(result["result"]["initial_p_kw"], 10.0, places=6)
+        self.assertAlmostEqual(result["result"]["initial_q_kvar"], -2.0, places=6)
+        dispatch_state = dict(shared_data["dispatch_write_status_by_plant"]["lib"])
+        self.assertAlmostEqual(float(dispatch_state["last_attempt_p_kw"]), 10.0, places=6)
+        self.assertAlmostEqual(float(dispatch_state["last_attempt_q_kvar"]), -2.0, places=6)
+        scheduler_ctx = dict(dispatch_state.get("last_scheduler_context") or {})
+        self.assertTrue(scheduler_ctx.get("any_clamped"))
+        self.assertTrue(scheduler_ctx.get("p_clamped"))
+        self.assertTrue(scheduler_ctx.get("q_clamped"))
+        self.assertAlmostEqual(float(scheduler_ctx.get("requested_p_kw")), 12.5, places=6)
+        self.assertAlmostEqual(float(scheduler_ctx.get("requested_q_kvar")), -3.0, places=6)
+        self.assertAlmostEqual(float(scheduler_ctx.get("applied_p_kw")), 10.0, places=6)
+        self.assertAlmostEqual(float(scheduler_ctx.get("applied_q_kvar")), -2.0, places=6)
+
     def test_start_one_plant_resets_trigger_before_prepare_enable_and_setpoints(self):
         shared_data = _shared_data()
         calls = []

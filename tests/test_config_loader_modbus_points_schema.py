@@ -225,6 +225,17 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
         self.assertEqual(point["unit"], "raw")
         self.assertEqual(point["word_count"], 1)
 
+    def test_rejects_inverted_power_limits(self):
+        payload = _load_yaml("config.yaml")
+        payload["plants"]["lib"]["model"]["power_limits"]["p_min_kw"] = 10.0
+        payload["plants"]["lib"]["model"]["power_limits"]["p_max_kw"] = 5.0
+        path = _write_temp_yaml(payload)
+        try:
+            with self.assertRaisesRegex(ValueError, "p_min_kw must be <= p_max_kw"):
+                load_config(path)
+        finally:
+            os.unlink(path)
+
     def test_accepts_missing_soc_point_for_one_endpoint(self):
         payload = _load_yaml("config.yaml")
         payload["plants"]["lib"]["modbus"]["remote"]["points"].pop("soc", None)

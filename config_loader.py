@@ -302,6 +302,15 @@ def _normalize_model(raw_model, prefix):
             min_value=0.0,
         ),
     }
+    power_limits = model["power_limits"]
+    if float(power_limits["p_min_kw"]) > float(power_limits["p_max_kw"]):
+        raise ValueError(
+            f"Invalid {prefix}.model.power_limits: p_min_kw must be <= p_max_kw."
+        )
+    if float(power_limits["q_min_kvar"]) > float(power_limits["q_max_kvar"]):
+        raise ValueError(
+            f"Invalid {prefix}.model.power_limits: q_min_kvar must be <= q_max_kvar."
+        )
     return model
 
 
