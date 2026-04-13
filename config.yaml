@@ -160,9 +160,9 @@ plants:
           q_battery: {address: 26136, format: float32, access: r, unit: var, eng_per_count: 1.0}
           v_poi: {address: 26102, format: float32, access: r, unit: V, eng_per_count: 1.732}
           #v_poi_write: {address: 30, format: uint16, access: rw, unit: V, eng_per_count: 1.0}
-          enable: {address: 17000, format: uint32, access: rw, unit: raw, eng_per_count: 1.0}
+          enable: {address: 17002, format: uint32, access: rw, unit: raw, eng_per_count: 1.0}
           #soc: {address: 22, format: uint16, access: r, unit: pu, eng_per_count: 0.0001} 
-          start_command: {address: 17002, format: uint32, access: rw, unit: raw, eng_per_count: 1.0}
+          start_command: {address: 17000, format: uint32, access: rw, unit: raw, eng_per_count: 1.0}
           trigger: {address: 17020, format: uint32, access: rw, unit: raw, eng_per_count: 1.0}
     measurement_series:
       soc: 5
