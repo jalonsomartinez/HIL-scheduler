@@ -22,6 +22,29 @@ def _write_temp_yaml(data):
 
 
 class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
+    def test_accepts_full_per_phase_setpoint_endpoint(self):
+        payload = _load_yaml("config.yaml")
+        points = payload["plants"]["lib"]["modbus"]["local"]["points"]
+        points.pop("p_setpoint", None)
+        points.pop("q_setpoint", None)
+        points["p_u_setpoint"] = {"address": 86, "format": "int16", "access": "rw", "unit": "kW", "eng_per_count": 0.1}
+        points["p_v_setpoint"] = {"address": 87, "format": "int16", "access": "rw", "unit": "kW", "eng_per_count": 0.1}
+        points["p_w_setpoint"] = {"address": 88, "format": "int16", "access": "rw", "unit": "kW", "eng_per_count": 0.1}
+        points["q_u_setpoint"] = {"address": 89, "format": "int16", "access": "rw", "unit": "kvar", "eng_per_count": 0.1}
+        points["q_v_setpoint"] = {"address": 90, "format": "int16", "access": "rw", "unit": "kvar", "eng_per_count": 0.1}
+        points["q_w_setpoint"] = {"address": 91, "format": "int16", "access": "rw", "unit": "kvar", "eng_per_count": 0.1}
+        path = _write_temp_yaml(payload)
+        try:
+            config = load_config(path)
+        finally:
+            os.unlink(path)
+
+        point_map = config["PLANTS"]["lib"]["modbus"]["local"]["points"]
+        self.assertNotIn("p_setpoint", point_map)
+        self.assertNotIn("q_setpoint", point_map)
+        self.assertIn("p_u_setpoint", point_map)
+        self.assertIn("q_w_setpoint", point_map)
+
     def test_load_config_normalizes_endpoint_ordering_and_point_specs(self):
         payload = _load_yaml("config.yaml")
         lib_remote_payload = payload["plants"]["lib"]["modbus"]["remote"]
@@ -71,6 +94,72 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
         path = _write_temp_yaml(payload)
         try:
             with self.assertRaisesRegex(ValueError, "registers"):
+                load_config(path)
+        finally:
+            os.unlink(path)
+
+    def test_rejects_mixed_aggregate_and_per_phase_setpoint_points(self):
+        payload = _load_yaml("config.yaml")
+        payload["plants"]["lib"]["modbus"]["local"]["points"]["p_u_setpoint"] = {
+            "address": 400,
+            "format": "int16",
+            "access": "rw",
+            "unit": "kW",
+            "eng_per_count": 0.1,
+        }
+        payload["plants"]["lib"]["modbus"]["local"]["points"]["p_v_setpoint"] = {
+            "address": 401,
+            "format": "int16",
+            "access": "rw",
+            "unit": "kW",
+            "eng_per_count": 0.1,
+        }
+        payload["plants"]["lib"]["modbus"]["local"]["points"]["p_w_setpoint"] = {
+            "address": 402,
+            "format": "int16",
+            "access": "rw",
+            "unit": "kW",
+            "eng_per_count": 0.1,
+        }
+        payload["plants"]["lib"]["modbus"]["local"]["points"]["q_u_setpoint"] = {
+            "address": 403,
+            "format": "int16",
+            "access": "rw",
+            "unit": "kvar",
+            "eng_per_count": 0.1,
+        }
+        payload["plants"]["lib"]["modbus"]["local"]["points"]["q_v_setpoint"] = {
+            "address": 404,
+            "format": "int16",
+            "access": "rw",
+            "unit": "kvar",
+            "eng_per_count": 0.1,
+        }
+        payload["plants"]["lib"]["modbus"]["local"]["points"]["q_w_setpoint"] = {
+            "address": 405,
+            "format": "int16",
+            "access": "rw",
+            "unit": "kvar",
+            "eng_per_count": 0.1,
+        }
+        path = _write_temp_yaml(payload)
+        try:
+            with self.assertRaisesRegex(ValueError, "mutually exclusive"):
+                load_config(path)
+        finally:
+            os.unlink(path)
+
+    def test_rejects_partial_per_phase_setpoint_definition(self):
+        payload = _load_yaml("config.yaml")
+        points = payload["plants"]["lib"]["modbus"]["local"]["points"]
+        points.pop("p_setpoint", None)
+        points.pop("q_setpoint", None)
+        points["p_u_setpoint"] = {"address": 86, "format": "int16", "access": "rw", "unit": "kW", "eng_per_count": 0.1}
+        points["p_v_setpoint"] = {"address": 87, "format": "int16", "access": "rw", "unit": "kW", "eng_per_count": 0.1}
+        points["q_u_setpoint"] = {"address": 89, "format": "int16", "access": "rw", "unit": "kvar", "eng_per_count": 0.1}
+        path = _write_temp_yaml(payload)
+        try:
+            with self.assertRaisesRegex(ValueError, "per-phase Modbus setpoint points"):
                 load_config(path)
         finally:
             os.unlink(path)

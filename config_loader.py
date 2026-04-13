@@ -43,14 +43,21 @@ MODBUS_WORD_ORDERS = {"msw_first", "lsw_first"}
 MODBUS_POINT_FORMATS = {"int16", "uint16", "int32", "uint32", "float32"}
 MODBUS_POINT_ACCESS_VALUES = {"r", "w", "rw"}
 REQUIRED_MODBUS_POINT_NAMES = (
-    "p_setpoint",
     "p_battery",
-    "q_setpoint",
     "q_battery",
     "enable",
     "p_poi",
     "q_poi",
     "v_poi",
+)
+AGGREGATE_SETPOINT_POINT_NAMES = ("p_setpoint", "q_setpoint")
+PER_PHASE_SETPOINT_POINT_NAMES = (
+    "p_u_setpoint",
+    "p_v_setpoint",
+    "p_w_setpoint",
+    "q_u_setpoint",
+    "q_v_setpoint",
+    "q_w_setpoint",
 )
 
 
@@ -216,6 +223,34 @@ def _normalize_points(raw_points, prefix):
     missing = [name for name in REQUIRED_MODBUS_POINT_NAMES if name not in raw_points]
     if missing:
         raise ValueError(f"Missing required Modbus points at {prefix}.points: {', '.join(missing)}")
+
+    aggregate_present = [name for name in AGGREGATE_SETPOINT_POINT_NAMES if name in raw_points]
+    per_phase_present = [name for name in PER_PHASE_SETPOINT_POINT_NAMES if name in raw_points]
+
+    if aggregate_present and per_phase_present:
+        raise ValueError(
+            f"Invalid {prefix}.points: aggregate and per-phase setpoint points are mutually exclusive."
+        )
+
+    if aggregate_present:
+        missing_aggregate = [name for name in AGGREGATE_SETPOINT_POINT_NAMES if name not in raw_points]
+        if missing_aggregate:
+            raise ValueError(
+                f"Missing required aggregate Modbus setpoint points at {prefix}.points: "
+                f"{', '.join(missing_aggregate)}"
+            )
+    elif per_phase_present:
+        missing_per_phase = [name for name in PER_PHASE_SETPOINT_POINT_NAMES if name not in raw_points]
+        if missing_per_phase:
+            raise ValueError(
+                f"Missing required per-phase Modbus setpoint points at {prefix}.points: "
+                f"{', '.join(missing_per_phase)}"
+            )
+    else:
+        raise ValueError(
+            f"Missing required Modbus setpoint points at {prefix}.points: "
+            "provide either p_setpoint/q_setpoint or the full per-phase setpoint sextet."
+        )
 
     points = {}
     for point_name, raw_point in raw_points.items():

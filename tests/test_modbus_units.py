@@ -19,6 +19,12 @@ class ModbusUnitsTests(unittest.TestCase):
         self.assertAlmostEqual(external_to_internal("q_poi", "mvar", 0.0025), 2.5, places=6)
         self.assertAlmostEqual(internal_to_external("q_poi", "var", 2.5), 2500.0, places=6)
 
+    def test_per_phase_setpoint_units_share_power_quantity_rules(self):
+        self.assertAlmostEqual(external_to_internal("p_u_setpoint", "mw", 0.0015), 1.5, places=6)
+        self.assertAlmostEqual(internal_to_external("p_v_setpoint", "w", 1.5), 1500.0, places=6)
+        self.assertAlmostEqual(external_to_internal("q_w_setpoint", "mvar", 0.0025), 2.5, places=6)
+        self.assertAlmostEqual(internal_to_external("q_u_setpoint", "var", 2.5), 2500.0, places=6)
+
     def test_soc_pc_and_pu_convert_to_internal_pu(self):
         self.assertAlmostEqual(external_to_internal("soc", "pc", 50.0), 0.5, places=6)
         self.assertAlmostEqual(external_to_internal("soc", "%", 50.0), 0.5, places=6)

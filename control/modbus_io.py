@@ -6,6 +6,7 @@ import time
 from modbus.client import ModbusClient
 
 from modbus.codec import read_point_internal, write_point_internal
+from modbus.setpoint_io import build_setpoint_write_plan, write_setpoint_targets
 
 
 def write_optional_command_point(endpoint_cfg, plant_label, point_name, value):
@@ -89,9 +90,10 @@ def send_setpoints(endpoint_cfg, plant_label, p_kw, q_kvar):
                 endpoint_cfg["mode"],
             )
             return False
-        p_ok = write_point_internal(client, endpoint_cfg, "p_setpoint", p_kw)
-        q_ok = write_point_internal(client, endpoint_cfg, "q_setpoint", q_kvar)
-        return bool(p_ok and q_ok)
+        write_plan = build_setpoint_write_plan(endpoint_cfg, p_kw, q_kvar)
+        p_result = write_setpoint_targets(client, endpoint_cfg, write_plan["p_targets"])
+        q_result = write_setpoint_targets(client, endpoint_cfg, write_plan["q_targets"])
+        return bool(p_result["ok"] and q_result["ok"])
     except Exception as exc:
         logging.error("Control I/O: setpoint write error (%s): %s", plant_label, exc)
         return False

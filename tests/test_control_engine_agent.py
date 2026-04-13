@@ -2,15 +2,40 @@ import queue
 import threading
 import unittest
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 from control.command_runtime import enqueue_control_command
 from control.engine_agent import (
     _execute_command,
     _publish_observed_state,
     _run_single_engine_cycle,
+    _safe_stop_plant,
     _start_one_plant,
     _stop_one_plant,
 )
+from modbus.codec import read_point_internal
+
+
+class _MemoryModbusClient:
+    def __init__(self, host, port):
+        self.host = str(host)
+        self.port = int(port)
+        self.is_open = False
+        self.registers = {}
+
+    def open(self):
+        self.is_open = True
+        return True
+
+    def close(self):
+        self.is_open = False
+
+    def write_single_register(self, address, value):
+        self.registers[int(address)] = int(value)
+        return True
+
+    def read_holding_registers(self, address, count):
+        return [self.registers.get(int(address) + idx, 0) for idx in range(int(count))]
 
 
 def _shared_data():
@@ -87,6 +112,47 @@ def _shared_data():
 
 
 class ControlEngineAgentTests(unittest.TestCase):
+    @patch("control.modbus_io.ModbusClient")
+    def test_safe_stop_zero_writes_use_per_phase_endpoint_when_configured(self, client_cls):
+        client = _MemoryModbusClient("127.0.0.1", 502)
+        client_cls.return_value = client
+        shared_data = _shared_data()
+        shared_data["scheduler_running_by_plant"]["lib"] = True
+        endpoint_cfg = {
+            "host": "127.0.0.1",
+            "port": 502,
+            "mode": "remote",
+            "byte_order": "big",
+            "word_order": "msw_first",
+            "points": {
+                "p_u_setpoint": {"name": "p_u_setpoint", "address": 10, "format": "int16", "word_count": 1, "unit": "kW", "eng_per_count": 0.1},
+                "p_v_setpoint": {"name": "p_v_setpoint", "address": 11, "format": "int16", "word_count": 1, "unit": "kW", "eng_per_count": 0.1},
+                "p_w_setpoint": {"name": "p_w_setpoint", "address": 12, "format": "int16", "word_count": 1, "unit": "kW", "eng_per_count": 0.1},
+                "q_u_setpoint": {"name": "q_u_setpoint", "address": 20, "format": "int16", "word_count": 1, "unit": "kvar", "eng_per_count": 0.1},
+                "q_v_setpoint": {"name": "q_v_setpoint", "address": 21, "format": "int16", "word_count": 1, "unit": "kvar", "eng_per_count": 0.1},
+                "q_w_setpoint": {"name": "q_w_setpoint", "address": 22, "format": "int16", "word_count": 1, "unit": "kvar", "eng_per_count": 0.1},
+            },
+        }
+
+        with patch("control.engine_agent._get_plant_modbus_config", return_value=endpoint_cfg), patch(
+            "control.engine_agent._wait_until_battery_power_below_threshold", return_value=True
+        ), patch("control.engine_agent._set_enable", return_value=True), patch(
+            "control.engine_agent._run_stop_command_sequence", return_value={"ok": True, "details": []}
+        ):
+            result = _safe_stop_plant({"PLANT_IDS": ("lib", "vrfb")}, shared_data, "lib")
+
+        self.assertTrue(result["threshold_reached"])
+        self.assertTrue(result["disable_ok"])
+        for point_name in (
+            "p_u_setpoint",
+            "p_v_setpoint",
+            "p_w_setpoint",
+            "q_u_setpoint",
+            "q_v_setpoint",
+            "q_w_setpoint",
+        ):
+            self.assertAlmostEqual(read_point_internal(client, endpoint_cfg, point_name), 0.0, places=6)
+
     def test_start_one_plant_success_preserves_dispatch_gate_and_updates_transition(self):
         shared_data = _shared_data()
         calls = []

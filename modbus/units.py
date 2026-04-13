@@ -24,9 +24,9 @@ def infer_point_quantity(point_name):
     name = str(point_name or "").strip()
     if name == "soc":
         return "soc"
-    if name in {"p_setpoint", "p_battery", "p_poi"}:
+    if name in {"p_setpoint", "p_u_setpoint", "p_v_setpoint", "p_w_setpoint", "p_battery", "p_poi"}:
         return "p"
-    if name in {"q_setpoint", "q_battery", "q_poi"}:
+    if name in {"q_setpoint", "q_u_setpoint", "q_v_setpoint", "q_w_setpoint", "q_battery", "q_poi"}:
         return "q"
     if name in {"v_poi", "v_poi_write"}:
         return "v"

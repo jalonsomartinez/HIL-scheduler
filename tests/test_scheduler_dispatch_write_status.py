@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pandas as pd
 
 from config_loader import load_config
-from modbus.codec import encode_point_internal_words
+from modbus.codec import encode_point_internal_words, read_point_internal
 from scheduling.agent import scheduler_agent
 from time_utils import now_tz
 from modbus.legacy_scaling import hw_to_kw, uint16_to_int
@@ -45,6 +45,14 @@ class _Registry:
     def get(cls, host, port):
         with cls._lock:
             return cls._servers.get((str(host), int(port)))
+
+
+class _BankClient:
+    def __init__(self, bank):
+        self.bank = bank
+
+    def read_holding_registers(self, address, count):
+        return self.bank.get_holding_registers(address, count)
 
 
 class _FlakyOnceModbusClient:
@@ -177,7 +185,65 @@ def _seed_setpoints(bank, endpoint_cfg, p_kw, q_kvar):
     bank.set_holding_registers(q_reg, encode_point_internal_words(endpoint_cfg, "q_setpoint", q_kvar))
 
 
+def _read_point_internal_from_bank(bank, endpoint_cfg, point_name):
+    return read_point_internal(_BankClient(bank), endpoint_cfg, point_name)
+
+
 class SchedulerDispatchWriteStatusTests(unittest.TestCase):
+    def test_scheduler_writes_equal_phase_split_for_per_phase_endpoint(self):
+        _Registry.clear()
+        _CountingModbusClient.reset()
+        config = load_config("config.yaml")
+        config["SCHEDULER_PERIOD_S"] = 0.1
+        config["ISTENTORE_SCHEDULE_PERIOD_MINUTES"] = 15
+        config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["lib"]["modbus"]["local"]["port"] = 5020
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["port"] = 5021
+
+        lib_endpoint = config["PLANTS"]["lib"]["modbus"]["local"]
+        lib_points = lib_endpoint["points"]
+        lib_points.pop("p_setpoint", None)
+        lib_points.pop("q_setpoint", None)
+        lib_points["p_u_setpoint"] = {"name": "p_u_setpoint", "address": 86, "format": "int16", "word_count": 1, "byte_count": 2, "access": "rw", "unit": "kw", "eng_per_count": 0.1}
+        lib_points["p_v_setpoint"] = {"name": "p_v_setpoint", "address": 87, "format": "int16", "word_count": 1, "byte_count": 2, "access": "rw", "unit": "kw", "eng_per_count": 0.1}
+        lib_points["p_w_setpoint"] = {"name": "p_w_setpoint", "address": 88, "format": "int16", "word_count": 1, "byte_count": 2, "access": "rw", "unit": "kw", "eng_per_count": 0.1}
+        lib_points["q_u_setpoint"] = {"name": "q_u_setpoint", "address": 89, "format": "int16", "word_count": 1, "byte_count": 2, "access": "rw", "unit": "kvar", "eng_per_count": 0.1}
+        lib_points["q_v_setpoint"] = {"name": "q_v_setpoint", "address": 90, "format": "int16", "word_count": 1, "byte_count": 2, "access": "rw", "unit": "kvar", "eng_per_count": 0.1}
+        lib_points["q_w_setpoint"] = {"name": "q_w_setpoint", "address": 91, "format": "int16", "word_count": 1, "byte_count": 2, "access": "rw", "unit": "kvar", "eng_per_count": 0.1}
+
+        lib_bank = _FakeDataBank()
+        vrfb_bank = _FakeDataBank()
+        _Registry.register("127.0.0.1", 5020, lib_bank)
+        _Registry.register("127.0.0.1", 5021, vrfb_bank)
+
+        now = now_tz(config)
+        api_df = pd.DataFrame(
+            {"power_setpoint_kw": [42.0], "reactive_power_setpoint_kvar": [6.0]},
+            index=pd.DatetimeIndex([now - pd.Timedelta(minutes=1)]),
+        )
+        shared_data = _shared_data()
+        with shared_data["lock"]:
+            shared_data["api_schedule_df_by_plant"]["lib"] = api_df
+
+        with patch("scheduling.agent.ModbusClient", _CountingModbusClient):
+            thread = threading.Thread(target=scheduler_agent, args=(config, shared_data), daemon=True)
+            thread.start()
+            try:
+                time.sleep(0.35)
+            finally:
+                shared_data["shutdown_event"].set()
+                thread.join(timeout=3)
+
+        self.assertAlmostEqual(_read_point_internal_from_bank(lib_bank, lib_endpoint, "p_u_setpoint"), 14.0, places=6)
+        self.assertAlmostEqual(_read_point_internal_from_bank(lib_bank, lib_endpoint, "p_v_setpoint"), 14.0, places=6)
+        self.assertAlmostEqual(_read_point_internal_from_bank(lib_bank, lib_endpoint, "p_w_setpoint"), 14.0, places=6)
+        self.assertAlmostEqual(_read_point_internal_from_bank(lib_bank, lib_endpoint, "q_u_setpoint"), 2.0, places=6)
+        self.assertAlmostEqual(_read_point_internal_from_bank(lib_bank, lib_endpoint, "q_v_setpoint"), 2.0, places=6)
+        self.assertAlmostEqual(_read_point_internal_from_bank(lib_bank, lib_endpoint, "q_w_setpoint"), 2.0, places=6)
+        dispatch_state = dict(shared_data["dispatch_write_status_by_plant"]["lib"])
+        self.assertEqual(dispatch_state["last_scheduler_context"]["setpoint_mode"], "per_phase")
+
     def test_scheduler_retries_failed_write_and_publishes_dispatch_status(self):
         _Registry.clear()
         _FlakyOnceModbusClient.reset()
@@ -232,6 +298,7 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
         self.assertAlmostEqual(float(dispatch_state["last_success_q_kvar"]), 5.0, places=3)
         scheduler_ctx = dict(dispatch_state.get("last_scheduler_context") or {})
         self.assertEqual(scheduler_ctx.get("readback_compare_mode"), "register_exact")
+        self.assertEqual(scheduler_ctx.get("setpoint_mode"), "aggregate")
         self.assertEqual(scheduler_ctx.get("p_compare_source"), "readback")
         self.assertEqual(scheduler_ctx.get("q_compare_source"), "readback")
         self.assertTrue(scheduler_ctx.get("p_readback_ok"))
@@ -391,6 +458,129 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
         self.assertFalse(scheduler_ctx.get("q_readback_ok"))
         self.assertIsNone(scheduler_ctx.get("p_readback_mismatch"))
         self.assertIsNone(scheduler_ctx.get("q_readback_mismatch"))
+
+    def test_scheduler_skips_write_when_all_phase_registers_match_target(self):
+        _Registry.clear()
+        _CountingModbusClient.reset()
+        config = load_config("config.yaml")
+        config["SCHEDULER_PERIOD_S"] = 0.1
+        config["ISTENTORE_SCHEDULE_PERIOD_MINUTES"] = 15
+        config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["lib"]["modbus"]["local"]["port"] = 5020
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["port"] = 5021
+
+        lib_endpoint = config["PLANTS"]["lib"]["modbus"]["local"]
+        lib_points = lib_endpoint["points"]
+        lib_points.pop("p_setpoint", None)
+        lib_points.pop("q_setpoint", None)
+        lib_points["p_u_setpoint"] = {"name": "p_u_setpoint", "address": 86, "format": "int16", "word_count": 1, "byte_count": 2, "access": "rw", "unit": "kw", "eng_per_count": 0.1}
+        lib_points["p_v_setpoint"] = {"name": "p_v_setpoint", "address": 87, "format": "int16", "word_count": 1, "byte_count": 2, "access": "rw", "unit": "kw", "eng_per_count": 0.1}
+        lib_points["p_w_setpoint"] = {"name": "p_w_setpoint", "address": 88, "format": "int16", "word_count": 1, "byte_count": 2, "access": "rw", "unit": "kw", "eng_per_count": 0.1}
+        lib_points["q_u_setpoint"] = {"name": "q_u_setpoint", "address": 89, "format": "int16", "word_count": 1, "byte_count": 2, "access": "rw", "unit": "kvar", "eng_per_count": 0.1}
+        lib_points["q_v_setpoint"] = {"name": "q_v_setpoint", "address": 90, "format": "int16", "word_count": 1, "byte_count": 2, "access": "rw", "unit": "kvar", "eng_per_count": 0.1}
+        lib_points["q_w_setpoint"] = {"name": "q_w_setpoint", "address": 91, "format": "int16", "word_count": 1, "byte_count": 2, "access": "rw", "unit": "kvar", "eng_per_count": 0.1}
+
+        lib_bank = _FakeDataBank()
+        vrfb_bank = _FakeDataBank()
+        _Registry.register("127.0.0.1", 5020, lib_bank)
+        _Registry.register("127.0.0.1", 5021, vrfb_bank)
+
+        for point_name in ("p_u_setpoint", "p_v_setpoint", "p_w_setpoint"):
+            lib_bank.set_holding_registers(
+                lib_points[point_name]["address"],
+                encode_point_internal_words(lib_endpoint, point_name, 14.0),
+            )
+        for point_name in ("q_u_setpoint", "q_v_setpoint", "q_w_setpoint"):
+            lib_bank.set_holding_registers(
+                lib_points[point_name]["address"],
+                encode_point_internal_words(lib_endpoint, point_name, 2.0),
+            )
+
+        now = now_tz(config)
+        api_df = pd.DataFrame(
+            {"power_setpoint_kw": [42.0], "reactive_power_setpoint_kvar": [6.0]},
+            index=pd.DatetimeIndex([now - pd.Timedelta(minutes=1)]),
+        )
+        shared_data = _shared_data()
+        with shared_data["lock"]:
+            shared_data["api_schedule_df_by_plant"]["lib"] = api_df
+
+        with patch("scheduling.agent.ModbusClient", _CountingModbusClient):
+            thread = threading.Thread(target=scheduler_agent, args=(config, shared_data), daemon=True)
+            thread.start()
+            try:
+                time.sleep(0.30)
+            finally:
+                shared_data["shutdown_event"].set()
+                thread.join(timeout=3)
+
+        for address in (86, 87, 88, 89, 90, 91):
+            self.assertEqual(_CountingModbusClient.write_counts.get(("127.0.0.1", 5020, address), 0), 0)
+
+    def test_scheduler_rewrites_all_phase_registers_when_one_phase_drifted(self):
+        _Registry.clear()
+        _CountingModbusClient.reset()
+        config = load_config("config.yaml")
+        config["SCHEDULER_PERIOD_S"] = 0.1
+        config["ISTENTORE_SCHEDULE_PERIOD_MINUTES"] = 15
+        config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["lib"]["modbus"]["local"]["port"] = 5020
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["port"] = 5021
+
+        lib_endpoint = config["PLANTS"]["lib"]["modbus"]["local"]
+        lib_points = lib_endpoint["points"]
+        lib_points.pop("p_setpoint", None)
+        lib_points.pop("q_setpoint", None)
+        lib_points["p_u_setpoint"] = {"name": "p_u_setpoint", "address": 86, "format": "int16", "word_count": 1, "byte_count": 2, "access": "rw", "unit": "kw", "eng_per_count": 0.1}
+        lib_points["p_v_setpoint"] = {"name": "p_v_setpoint", "address": 87, "format": "int16", "word_count": 1, "byte_count": 2, "access": "rw", "unit": "kw", "eng_per_count": 0.1}
+        lib_points["p_w_setpoint"] = {"name": "p_w_setpoint", "address": 88, "format": "int16", "word_count": 1, "byte_count": 2, "access": "rw", "unit": "kw", "eng_per_count": 0.1}
+        lib_points["q_u_setpoint"] = {"name": "q_u_setpoint", "address": 89, "format": "int16", "word_count": 1, "byte_count": 2, "access": "rw", "unit": "kvar", "eng_per_count": 0.1}
+        lib_points["q_v_setpoint"] = {"name": "q_v_setpoint", "address": 90, "format": "int16", "word_count": 1, "byte_count": 2, "access": "rw", "unit": "kvar", "eng_per_count": 0.1}
+        lib_points["q_w_setpoint"] = {"name": "q_w_setpoint", "address": 91, "format": "int16", "word_count": 1, "byte_count": 2, "access": "rw", "unit": "kvar", "eng_per_count": 0.1}
+
+        lib_bank = _FakeDataBank()
+        vrfb_bank = _FakeDataBank()
+        _Registry.register("127.0.0.1", 5020, lib_bank)
+        _Registry.register("127.0.0.1", 5021, vrfb_bank)
+
+        for point_name in ("p_u_setpoint", "p_v_setpoint", "p_w_setpoint"):
+            lib_bank.set_holding_registers(
+                lib_points[point_name]["address"],
+                encode_point_internal_words(lib_endpoint, point_name, 14.0),
+            )
+        for point_name in ("q_u_setpoint", "q_v_setpoint", "q_w_setpoint"):
+            lib_bank.set_holding_registers(
+                lib_points[point_name]["address"],
+                encode_point_internal_words(lib_endpoint, point_name, 2.0),
+            )
+        lib_bank.set_holding_registers(
+            lib_points["p_v_setpoint"]["address"],
+            encode_point_internal_words(lib_endpoint, "p_v_setpoint", 9.0),
+        )
+
+        now = now_tz(config)
+        api_df = pd.DataFrame(
+            {"power_setpoint_kw": [42.0], "reactive_power_setpoint_kvar": [6.0]},
+            index=pd.DatetimeIndex([now - pd.Timedelta(minutes=1)]),
+        )
+        shared_data = _shared_data()
+        with shared_data["lock"]:
+            shared_data["api_schedule_df_by_plant"]["lib"] = api_df
+
+        with patch("scheduling.agent.ModbusClient", _CountingModbusClient):
+            thread = threading.Thread(target=scheduler_agent, args=(config, shared_data), daemon=True)
+            thread.start()
+            try:
+                time.sleep(0.35)
+            finally:
+                shared_data["shutdown_event"].set()
+                thread.join(timeout=3)
+
+        for address in (86, 87, 88):
+            self.assertGreaterEqual(_CountingModbusClient.write_counts.get(("127.0.0.1", 5020, address), 0), 1)
+        self.assertAlmostEqual(_read_point_internal_from_bank(lib_bank, lib_endpoint, "p_v_setpoint"), 14.0, places=6)
 
 
 if __name__ == "__main__":
