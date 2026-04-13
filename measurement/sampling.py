@@ -8,10 +8,22 @@ from modbus.grouped_reads import build_read_groups, read_points_internal_grouped
 from runtime.contracts import resolve_modbus_endpoint
 from time_utils import normalize_timestamp_value
 
-MEASUREMENT_POINT_NAMES = (
+AGGREGATE_SETPOINT_POINT_NAMES = (
     "p_setpoint",
-    "p_battery",
     "q_setpoint",
+)
+PER_PHASE_P_SETPOINT_POINT_NAMES = (
+    "p_u_setpoint",
+    "p_v_setpoint",
+    "p_w_setpoint",
+)
+PER_PHASE_Q_SETPOINT_POINT_NAMES = (
+    "q_u_setpoint",
+    "q_v_setpoint",
+    "q_w_setpoint",
+)
+BASE_MEASUREMENT_POINT_NAMES = (
+    "p_battery",
     "q_battery",
     "soc",
     "p_poi",
@@ -22,6 +34,24 @@ MEASUREMENT_POINT_NAMES = (
 
 def get_transport_endpoint(config, plant_id, transport_mode):
     return resolve_modbus_endpoint(config, plant_id, transport_mode)
+
+
+def resolve_measurement_schema(endpoint):
+    points = dict(endpoint.get("points", {}) or {})
+    if all(point_name in points for point_name in AGGREGATE_SETPOINT_POINT_NAMES):
+        return {
+            "setpoint_family": "aggregate",
+            "point_names": AGGREGATE_SETPOINT_POINT_NAMES + BASE_MEASUREMENT_POINT_NAMES,
+        }
+    if all(point_name in points for point_name in PER_PHASE_P_SETPOINT_POINT_NAMES + PER_PHASE_Q_SETPOINT_POINT_NAMES):
+        return {
+            "setpoint_family": "per_phase",
+            "point_names": PER_PHASE_P_SETPOINT_POINT_NAMES + PER_PHASE_Q_SETPOINT_POINT_NAMES + BASE_MEASUREMENT_POINT_NAMES,
+        }
+    return {
+        "setpoint_family": "unknown",
+        "point_names": BASE_MEASUREMENT_POINT_NAMES,
+    }
 
 
 def ensure_client(state, endpoint, plant_id, transport_mode):
@@ -42,8 +72,19 @@ def ensure_client(state, endpoint, plant_id, transport_mode):
             endpoint["port"],
             transport_mode,
         )
+    if "_measurement_schema" not in endpoint:
+        endpoint["_measurement_schema"] = resolve_measurement_schema(endpoint)
+        logging.info(
+            "Measurement: %s setpoint family=%s for sampling (%s mode)",
+            plant_id.upper(),
+            endpoint["_measurement_schema"]["setpoint_family"],
+            transport_mode,
+        )
     if "_measurement_read_groups" not in endpoint:
-        endpoint["_measurement_read_groups"] = build_read_groups(endpoint, MEASUREMENT_POINT_NAMES)
+        endpoint["_measurement_read_groups"] = build_read_groups(
+            endpoint,
+            endpoint["_measurement_schema"]["point_names"],
+        )
     return state.get("client")
 
 
@@ -56,21 +97,35 @@ def take_measurement(client, endpoint, measurement_timestamp, tz, plant_id):
             return None
 
     try:
+        measurement_schema = endpoint.get("_measurement_schema") or resolve_measurement_schema(endpoint)
+        setpoint_family = measurement_schema.get("setpoint_family")
         values = read_points_internal_grouped(
             client,
             endpoint,
-            MEASUREMENT_POINT_NAMES,
+            measurement_schema.get("point_names", BASE_MEASUREMENT_POINT_NAMES),
             read_groups=endpoint.get("_measurement_read_groups"),
         )
-        p_setpoint_kw = values.get("p_setpoint")
         p_actual_kw = values.get("p_battery")
-        q_setpoint_kvar = values.get("q_setpoint")
         q_actual_kvar = values.get("q_battery")
         has_soc_point = "soc" in (endpoint.get("points", {}) or {})
         soc_pu = values.get("soc") if has_soc_point else None
         p_poi_kw = values.get("p_poi")
         q_poi_kvar = values.get("q_poi")
         v_poi_kV = values.get("v_poi")
+
+        if setpoint_family == "aggregate":
+            p_setpoint_kw = values.get("p_setpoint")
+            q_setpoint_kvar = values.get("q_setpoint")
+        elif setpoint_family == "per_phase":
+            p_phase_values = [values.get(point_name) for point_name in PER_PHASE_P_SETPOINT_POINT_NAMES]
+            q_phase_values = [values.get(point_name) for point_name in PER_PHASE_Q_SETPOINT_POINT_NAMES]
+            if any(value is None for value in p_phase_values + q_phase_values):
+                return None
+            p_setpoint_kw = sum(float(value) for value in p_phase_values)
+            q_setpoint_kvar = sum(float(value) for value in q_phase_values)
+        else:
+            logging.error("Measurement: unsupported setpoint schema for %s", plant_id.upper())
+            return None
 
         if any(
             value is None

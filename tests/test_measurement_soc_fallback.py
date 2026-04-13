@@ -107,6 +107,33 @@ def _sampling_endpoint(include_soc=True):
     return {"byte_order": "big", "word_order": "msw_first", "points": points}
 
 
+def _sampling_endpoint_per_phase(include_soc=False):
+    points = {
+        "p_u_setpoint": {"name": "p_u_setpoint", "address": 1, "format": "float32", "word_count": 2, "unit": "W", "eng_per_count": 1.0},
+        "p_v_setpoint": {"name": "p_v_setpoint", "address": 3, "format": "float32", "word_count": 2, "unit": "W", "eng_per_count": 1.0},
+        "p_w_setpoint": {"name": "p_w_setpoint", "address": 5, "format": "float32", "word_count": 2, "unit": "W", "eng_per_count": 1.0},
+        "p_battery": {"name": "p_battery", "address": 7, "format": "float32", "word_count": 2, "unit": "W", "eng_per_count": 1.0},
+        "q_u_setpoint": {"name": "q_u_setpoint", "address": 9, "format": "float32", "word_count": 2, "unit": "var", "eng_per_count": 1.0},
+        "q_v_setpoint": {"name": "q_v_setpoint", "address": 11, "format": "float32", "word_count": 2, "unit": "var", "eng_per_count": 1.0},
+        "q_w_setpoint": {"name": "q_w_setpoint", "address": 13, "format": "float32", "word_count": 2, "unit": "var", "eng_per_count": 1.0},
+        "q_battery": {"name": "q_battery", "address": 15, "format": "float32", "word_count": 2, "unit": "var", "eng_per_count": 1.0},
+        "p_poi": {"name": "p_poi", "address": 17, "format": "float32", "word_count": 2, "unit": "W", "eng_per_count": 1.0},
+        "q_poi": {"name": "q_poi", "address": 19, "format": "float32", "word_count": 2, "unit": "var", "eng_per_count": 1.0},
+        "v_poi": {"name": "v_poi", "address": 21, "format": "float32", "word_count": 2, "unit": "V", "eng_per_count": 1.0},
+    }
+    if include_soc:
+        points["soc"] = {"name": "soc", "address": 23, "format": "uint16", "word_count": 1, "unit": "pu", "eng_per_count": 0.0001}
+    return {"byte_order": "big", "word_order": "msw_first", "points": points}
+
+
+def _write_point_to_register_map(register_map, endpoint, point_name, internal_value):
+    spec = endpoint["points"][point_name]
+    words = encode_point_internal_words(endpoint, spec, internal_value)
+    start_addr = int(spec["address"])
+    for offset, word in enumerate(words):
+        register_map[start_addr + offset] = int(word)
+
+
 class _SamplingClient:
     def __init__(self, register_map):
         self.register_map = dict(register_map)
@@ -234,6 +261,37 @@ class MeasurementSocFallbackTests(unittest.TestCase):
         self.assertFalse(bool(missing_soc_result["has_real_soc"]))
         self.assertIsNone(missing_soc_result["row"]["soc_pu"])
         self.assertIsNone(unreadable_soc_result)
+
+    def test_sampling_per_phase_endpoint_sums_phase_setpoints_and_allows_missing_soc(self):
+        endpoint = _sampling_endpoint_per_phase(include_soc=False)
+        register_map = {}
+        for point_name, value in (
+            ("p_u_setpoint", 4.0),
+            ("p_v_setpoint", 5.5),
+            ("p_w_setpoint", 6.5),
+            ("p_battery", 8.0),
+            ("q_u_setpoint", 0.25),
+            ("q_v_setpoint", 0.5),
+            ("q_w_setpoint", 0.75),
+            ("q_battery", 0.9),
+            ("p_poi", 7.5),
+            ("q_poi", 0.8),
+            ("v_poi", 0.22),
+        ):
+            _write_point_to_register_map(register_map, endpoint, point_name, value)
+
+        client = _SamplingClient(register_map)
+        tz = ZoneInfo("Europe/Madrid")
+        result = take_measurement(client, endpoint, pd.Timestamp("2026-04-13T10:00:00+02:00"), tz, "vrfb")
+
+        self.assertIsNotNone(result)
+        self.assertFalse(bool(result["has_real_soc"]))
+        self.assertIsNone(result["row"]["soc_pu"])
+        self.assertAlmostEqual(float(result["row"]["p_setpoint_kw"]), 16.0, places=6)
+        self.assertAlmostEqual(float(result["row"]["q_setpoint_kvar"]), 1.5, places=6)
+        self.assertAlmostEqual(float(result["row"]["battery_active_power_kw"]), 8.0, places=6)
+        self.assertAlmostEqual(float(result["row"]["q_poi_kvar"]), 0.8, places=6)
+        self.assertAlmostEqual(float(result["row"]["v_poi_kV"]), 0.22, places=6)
 
 
 if __name__ == "__main__":
