@@ -1,139 +1,53 @@
 # Active Context: HIL Scheduler
 
 ## Current Focus (Now)
-- Stabilize and validate the new three-layer schedule model (`day-ahead`, `mFRR`, `total`) for LIB and VRFB.
-- Keep API tab observability high-signal, including runtime mFRR polling telemetry.
-- Ensure historical and live plots/CSV exports remain backward-compatible while exposing schedule components.
-- Continue remote Modbus reliability work without regressing schedule/measurement behavior.
-- Keep the new menu-only dashboard navigation stable across private/public routes and mobile drawer behavior.
-- Preserve a clear audit trail for the dashboard grid-map digital-twin model while transformer-header line geometry/length issues are being investigated.
+- Validate heterogeneous Modbus dispatch paths:
+  - aggregate setpoints,
+  - per-phase setpoints,
+  - trigger-latched apply sequences.
+- Keep SoC continuity credible when hardware omits a direct Modbus `soc` point.
+- Continue stabilizing the three-layer schedule model (`day-ahead`, `mFRR`, `total`) for LIB and VRFB.
+- Keep API-page observability high-signal, including runtime mFRR polling telemetry.
+- Preserve backward-compatible history/CSV behavior while exposing schedule-intent columns.
+- Keep menu-only private/public dashboard navigation stable.
+- Preserve a clear audit trail for the current grid-map digital-twin investigation around transformer-header geometry/length data.
 
 ## Open Decisions and Risks
-- Whether mFRR API should eventually be polled/retained with adaptive windows if provider payload shape changes.
-- Whether scheduler readback paths should move to grouped reads (measurement/observed already grouped).
-- Fake-client local smoke tests still need adaptation to pooled-client semantics.
-- API password remains process-memory only (no secure at-rest persistence).
-- Full lockfile/transitive pin strategy remains undecided.
-- The April 2026 local pandapower model patches for lines `841-848` are investigative and may need technical-team review before being treated as canonical network data.
+- Per-phase-only endpoint configs are accepted by schema and supported for scheduler/control writes, but measurement and local-emulator paths still assume aggregate setpoint telemetry.
+- The default trigger apply timing is synchronous and currently adds about two seconds per successful apply; real-hardware acceptability still needs field validation.
+- Trigger reset is now a hard gate before start on trigger-configured plants; whether that should remain strict or become configurable is still open.
+- SoC estimation currently uses direct energy integration from battery active power; efficiency-aware tuning is not implemented.
+- Scheduler readback still uses point-wise exact-word reads rather than grouped reads.
+- Fake-client local smoke tests still need adaptation to pooled Modbus semantics.
+- API password remains process-memory only.
+- The April 2026 local pandapower model edits for lines `841-848` remain investigative until technical-team review.
 
 ## Rolling Change Log (Compressed, 30-Day Window)
+- 2026-04-13:
+  - Added `runtime/soc_estimation.py` as the shared startup SoC seed and fallback-estimation helper used by control, measurement, and plant emulation.
+  - Made Modbus `soc` optional in schema validation.
+  - Measurement runtime now keeps per-plant `SocEstimator` state:
+    - sync to real SoC when present,
+    - estimate from `battery_active_power_kw` when absent.
+  - Local emulator SoC seed requests now still apply even when no `soc` register is configured.
+  - Added schema-aware setpoint dispatch:
+    - endpoints must provide either aggregate `p_setpoint`/`q_setpoint` or the full per-phase sextet,
+    - scheduler/control build write plans from that schema,
+    - per-phase mode splits totals equally across U/V/W points.
+  - Added trigger-aware setpoint apply flow:
+    - successful writes optionally pulse `trigger` high then low,
+    - scheduler retries after trigger failure even when registers already match,
+    - control-engine start flow resets `trigger` to `0` before prepare and fails early if reset fails.
+  - Expanded regression coverage for SoC fallback, config/schema validation, per-phase dispatch, and trigger-aware control/scheduler behavior.
 - 2026-04-10:
-  - Corrected LIB battery reactive-power sign inversion in `grid_map_runtime.py` so runtime battery `q_kvar` matches the active-power reference swap before entering the pandapower battery `asymmetric_load`.
-  - Investigated dashboard grid-map voltage-drop anomalies around:
-    - line `831` = `L01 DEL CT ALBUÑO0340 CT-1`,
-    - line `843` = `CT Albuño340 - L01`,
-    - buses `841`, `553`, `89`, and the unrelated `843` bus naming confusion.
-  - Wrote technical audit note `docs/audits/20260410_grid_map_geometry_findings.md` documenting:
-    - model-vs-coordinate line-length mismatches,
-    - the transformer-header family `841-848`,
-    - other overloaded lines and per-line voltage-drop checks.
-  - Added backup copies of the original line-843 pandapower model pickle at:
-    - `grid_map_digital_twin/net_digital_twin.p.backup_line843_original_20260410`,
-    - `digital_twin_package/net_digital_twin.p.backup_line843_original_20260410`.
+  - Corrected LIB battery reactive-power sign inversion in `grid_map_runtime.py`.
+  - Wrote `docs/audits/20260410_grid_map_geometry_findings.md` for dashboard grid-map voltage-drop and geometry findings.
+  - Added mirrored backups of the original `line 843` digital-twin pickle state.
   - Applied mirrored investigative patches to `grid_map_digital_twin/net_digital_twin.p` and `digital_twin_package/net_digital_twin.p`:
-    - lines `841-847` set to coordinate-derived lengths with `10 m` minimum,
-    - line `848` set to coordinate-derived length (`105.707 m`),
-    - line `843` restored to original impedance-per-km values while keeping `10 m` length and raised `max_i_ka=0.24`.
+    - lines `841-847` now use coordinate-derived lengths with a `10 m` minimum,
+    - line `848` now uses its coordinate-derived length,
+    - line `843` keeps original impedance-per-km values with shortened length and higher `max_i_ka`.
 - 2026-03-27:
-  - Replaced private/public dashboard tab components with menu-only route sections.
-  - Private routes now map to section visibility: `/status`, `/plots`, `/manual-schedule`, `/api-schedule`, `/logs`.
-  - Public routes now map to section visibility: `/status`, `/plots`.
-  - Added shared navigation helpers (`dashboard/navigation.py`) for route normalization, section-class resolution, and menu toggle state.
-  - Updated dashboard callbacks to drive page-section classes instead of tab values.
-  - Added/updated navigation regression tests:
-    - `tests/test_dashboard_navigation.py`,
-    - `tests/test_dashboard_layout_navigation.py`.
-  - Updated user-facing docs wording from tab-based navigation to menu/page wording in README and dashboard controls doc.
+  - Replaced private/public dashboard tabs with menu-only route sections and added shared navigation helpers/tests.
 - 2026-03-13:
-  - Implemented split API schedule maps:
-    - `api_day_ahead_schedule_df_by_plant`,
-    - `api_mfrr_schedule_df_by_plant`,
-    - `api_schedule_df_by_plant` (authoritative total).
-  - Added full-window mFRR parsing in API wrapper and compatibility `get_mfrr_next_activation()` wrapper behavior.
-  - Added dedicated mFRR polling cadence config (`istentore_api.mfrr_poll_period_s`) and fetcher dual-cadence orchestration.
-  - Extended measurement model/storage/history with schedule intent columns:
-    - `p_schedule_total_kw`, `p_schedule_day_ahead_kw`, `p_schedule_mfrr_kw`.
-  - Updated plotting contracts (private/public + historical fallback):
-    - traces `Pref`, `day-ahead`, `mfrr`.
-  - Added private API-tab mFRR telemetry line (`Last`, `Result`, `Next`, `LIB points`, optional `Error`).
-  - Reduced mFRR poll log noise:
-    - per-poll attempt logging at DEBUG,
-    - summary logging INFO only on result/point-count transitions.
-  - Aligned VRFB mFRR index to LIB mFRR response timestamps (no synthetic expansion to day-ahead horizon); empty LIB mFRR now yields empty VRFB mFRR.
-- 2026-03-06:
-  - Investigated remote dashboard rendering differences over Tailscale and identified cross-server Dash bundle-version drift (`dash_core_components` mismatch between origins).
-  - Pinned direct Python dependencies in `requirements.txt` to current known-good versions (`dash`, `dash-auth`, `plotly`, `pandas`, `numpy`, `pyModbusTCP`, `pymodbus`, `PyYAML`) to enforce environment parity across servers.
-- 2026-03-03:
-  - Added VRFB remote diagnostics tooling:
-    - `scripts/vrfb_remote_diag.py` with `dashboard_like`, `app_like_parallel`, and `app_like_serial` modes,
-    - CSV operation logs + per-run markdown reports,
-    - README runbook matrix and root-cause classification guide.
-  - Field diagnostics outcome (from captured logs):
-    - `dashboard_like` passed (read-only and read+write),
-    - `app_like_parallel` failed with connection-closure/reset patterns,
-    - `app_like_serial` passed.
-    - Classified root cause as endpoint session/concurrency contention (not register-map mismatch).
-  - Implemented runtime mitigation across all plants/transports:
-    - `modbus/client.py` now uses process-local shared transports per endpoint with serialized access,
-    - added static grouped-read helper (`modbus/grouped_reads.py`),
-    - measurement sampling and control observed-state reads now use grouped block reads for stable point sets.
-  - Added regression tests:
-    - `tests/test_modbus_client_shared_pool.py`,
-    - `tests/test_modbus_grouped_reads.py`.
-- 2026-03-01:
-  - Local emulator startup now restores initial SoC from latest persisted per-plant measurement when available, with fallback to `STARTUP_INITIAL_SOC_PU`.
-  - `fleet.start_all` behavior split by transport:
-    - `local`: start/seed first, then enable recording (prevents transient default SoC sample in first recorded row),
-    - `remote`: existing recording-first ordering preserved.
-  - Added regression coverage:
-    - control-engine tests for local vs remote `fleet.start_all` ordering and local partial-failure recording behavior,
-    - plant-agent startup SoC seed tests for persisted and fallback paths.
-  - Aligned operator and public top-card summary table schema:
-    - inserted `SoC` column between `Status` and `P ref`,
-    - renamed headers from `Pref`/`Qref` to `P ref`/`Q ref`,
-    - switched displayed `SoC` units from `pu` to `%` with one decimal precision.
-- 2026-02-26 to 2026-02-27:
-  - Stabilized command-runtime architecture with control/settings queues and engine status publication.
-  - Added/expanded helper-level tests for control health, command flows, plotting, and schedule/runtime behavior.
-  - Continued package split hygiene (`dashboard/`, `control/`, `settings/`, `measurement/`, `runtime/`, etc.).
-- 2026-02-28 (dashboard UX iteration batch):
-  - Dispatch controls relabeled to `Dispatch`, `Dispatching`, `Starting` and removed redundant `Dispatch` label in plant cards.
-  - Public dashboard top card redesigned:
-    - replaced verbose status text with three API indicators,
-    - indicator light size increased,
-    - indicator labels simplified (`API connection`, `Today's Schedule`, `Tomorrow's Schedule`),
-    - indicator backgrounds now status-colored (green/red) with stronger contrast,
-    - transport + error text moved to one line,
-    - added per-plant summary table for per-plant latest metrics (schema refined in subsequent iterations).
-  - Public title cleaned to `Spanish Demo Dashboard` (removed read-only suffix).
-  - Status/plot readability updates:
-    - removed per-subplot y-axis titles,
-    - simplified legend names and fixed legend order,
-    - setpoint traces dotted, POI traces strong, battery traces pale,
-    - POI traces render above battery traces.
-  - Operator dashboard top card updates:
-    - responsive transport/fleet row behavior refined,
-    - inserted same summary table under transport/fleet controls,
-    - removed top-row separator above table,
-    - added spacing between table and status text lines.
-  - Shared header compaction:
-    - reduced container/header padding,
-    - restored previous logo size after review.
-  - Radius consistency pass:
-    - standardized top-card indicator/table/chip radii via `--public-top-radius: 4px`.
-  - Fixed runtime NameError in public callback by ensuring `normalize_datetime_series` availability where latest-row table values are built.
-- 2026-02-28 (credentials/runtime hardening batch):
-  - Added startup launch scripts for Linux and Windows:
-    - scripts activate `venv`, load local env file, and start app.
-    - added `.env.public-dashboard(.ps1).example` templates and ignored local secret files.
-  - Added API password env bootstrap:
-    - new env var `HIL_API_PASSWORD` loaded by config as `ISTENTORE_API_PASSWORD`.
-    - `shared_data["api_password"]` is seeded at startup from config (preload-only; no auto-connect).
-  - Split API tab credential workflow:
-    - password save is separate from connect/disconnect.
-    - new settings command `api.password.set`.
-    - connect now uses stored password (from env preload or saved UI value).
-    - legacy trigger compatibility for old `set-password-btn` path retained.
-  - Public dashboard auth warning hardening:
-    - ensured Flask secret key is always set before `dash-auth` basic auth.
-    - supports `HIL_FLASK_SECRET_KEY` / `HIL_PUBLIC_DASH_SECRET_KEY`; otherwise generates per-process fallback key.
+  - Introduced split schedule maps (`day-ahead`, `mFRR`, `total`), dedicated mFRR cadence, schedule-intent history columns, and API-page mFRR polling telemetry.
