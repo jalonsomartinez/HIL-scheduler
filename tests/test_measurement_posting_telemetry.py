@@ -111,15 +111,18 @@ def _fake_endpoint(*_args, **_kwargs):
 
 def _fake_row(_client, _endpoint, measurement_timestamp, _tz, _plant_id):
     return {
-        "timestamp": measurement_timestamp,
-        "p_setpoint_kw": 100.0,
-        "battery_active_power_kw": 100.0,
-        "q_setpoint_kvar": 0.0,
-        "battery_reactive_power_kvar": 0.0,
-        "soc_pu": 0.5,
-        "p_poi_kw": 100.0,
-        "q_poi_kvar": 0.0,
-        "v_poi_kV": 1.0,
+        "row": {
+            "timestamp": measurement_timestamp,
+            "p_setpoint_kw": 100.0,
+            "battery_active_power_kw": 100.0,
+            "q_setpoint_kvar": 0.0,
+            "battery_reactive_power_kvar": 0.0,
+            "soc_pu": 0.5,
+            "p_poi_kw": 100.0,
+            "q_poi_kvar": 0.0,
+            "v_poi_kV": 1.0,
+        },
+        "has_real_soc": True,
     }
 
 

@@ -3,10 +3,9 @@ import time
 
 from pyModbusTCP.server import ModbusServer
 
-from measurement.storage import find_latest_persisted_soc_for_plant
 from modbus.codec import decode_engineering_value, encode_engineering_value
 from modbus.units import external_to_internal, internal_to_external
-from runtime.paths import get_data_dir
+from runtime.soc_estimation import clamp_soc_pu, resolve_startup_soc_seed
 from time_utils import get_config_tz
 
 
@@ -18,7 +17,6 @@ def plant_agent(config, shared_data):
     plants_cfg = config.get("PLANTS", {})
     dt_s = float(config.get("PLANT_PERIOD_S", 1.0))
     dt_h = dt_s / 3600.0
-    startup_initial_soc_pu = float(config.get("STARTUP_INITIAL_SOC_PU", 0.5))
     tz = get_config_tz(config)
 
     servers = {}
@@ -66,7 +64,12 @@ def plant_agent(config, shared_data):
                     "message": None if message is None else str(message),
                 }
 
+    def db_has_point(endpoint_cfg, point_name):
+        return str(point_name) in dict(endpoint_cfg.get("points", {}) or {})
+
     def db_read_point_eng(db, endpoint_cfg, point_name):
+        if not db_has_point(endpoint_cfg, point_name):
+            return None
         point = endpoint_cfg["points"][point_name]
         word_count = int(point["word_count"])
         regs = db.get_holding_registers(int(point["address"]), word_count) or []
@@ -81,38 +84,17 @@ def plant_agent(config, shared_data):
         words = encode_engineering_value(endpoint_cfg, point, external_value)
         db.set_holding_registers(int(point["address"]), [int(word) for word in words])
 
+    def db_write_optional_point_eng(db, endpoint_cfg, point_name, eng_value):
+        if not db_has_point(endpoint_cfg, point_name):
+            return False
+        db_write_point_eng(db, endpoint_cfg, point_name, eng_value)
+        return True
+
     def _resolve_local_v_poi_kv(db, endpoint_cfg, default_kv):
         points = dict(endpoint_cfg.get("points", {}) or {})
         if "v_poi_write" in points:
             return db_read_point_eng(db, endpoint_cfg, "v_poi_write")
         return default_kv
-
-    def _clamp_soc_pu(value, fallback):
-        try:
-            soc_value = float(value)
-        except (TypeError, ValueError):
-            soc_value = float(fallback)
-        return min(1.0, max(0.0, soc_value))
-
-    def _resolve_startup_soc_seed(plant_id, plant_cfg):
-        fallback_soc_pu = _clamp_soc_pu(startup_initial_soc_pu, startup_initial_soc_pu)
-        latest = find_latest_persisted_soc_for_plant(
-            get_data_dir(__file__),
-            plant_cfg.get("name", plant_id),
-            plant_id,
-            tz,
-        )
-        if latest is not None:
-            return {
-                "soc_pu": _clamp_soc_pu(latest.get("soc_pu"), fallback_soc_pu),
-                "source": "disk",
-                "file_path": latest.get("file_path"),
-            }
-        return {
-            "soc_pu": fallback_soc_pu,
-            "source": "startup_fallback",
-            "file_path": None,
-        }
 
     try:
         _ensure_seed_control_maps()
@@ -121,7 +103,7 @@ def plant_agent(config, shared_data):
             local_cfg = (plant_cfg.get("modbus", {}) or {}).get("local", {})
             model = plant_cfg.get("model", {})
             power_limits = model.get("power_limits", {})
-            startup_soc_seed = _resolve_startup_soc_seed(plant_id, plant_cfg)
+            startup_soc_seed = resolve_startup_soc_seed(config, plant_id, tz, caller_file=__file__)
             initial_soc_pu = float(startup_soc_seed["soc_pu"])
 
             host = local_cfg.get("host", "localhost")
@@ -148,7 +130,7 @@ def plant_agent(config, shared_data):
 
             db = server.data_bank
             db_write_point_eng(db, local_cfg, "enable", 0)
-            db_write_point_eng(db, local_cfg, "soc", initial_soc_pu)
+            db_write_optional_point_eng(db, local_cfg, "soc", initial_soc_pu)
             db_write_point_eng(db, local_cfg, "p_setpoint", 0.0)
             db_write_point_eng(db, local_cfg, "q_setpoint", 0.0)
             db_write_point_eng(db, local_cfg, "p_battery", 0.0)
@@ -212,9 +194,9 @@ def plant_agent(config, shared_data):
                                 message="plant enabled; refusing mid-run soc reset",
                             )
                         else:
-                            requested_soc_pu = min(1.0, max(0.0, requested_soc_pu))
+                            requested_soc_pu = clamp_soc_pu(requested_soc_pu, st["soc_kwh"] / st["capacity_kwh"] if st["capacity_kwh"] > 0 else 0.0)
                             st["soc_kwh"] = requested_soc_pu * st["capacity_kwh"]
-                            db_write_point_eng(db, endpoint_cfg, "soc", requested_soc_pu)
+                            db_write_optional_point_eng(db, endpoint_cfg, "soc", requested_soc_pu)
                             _complete_seed_request(
                                 plant_id,
                                 request_id,
@@ -263,7 +245,7 @@ def plant_agent(config, shared_data):
 
                     db_write_point_eng(db, endpoint_cfg, "p_battery", p_act_kw)
                     db_write_point_eng(db, endpoint_cfg, "q_battery", q_act_kvar)
-                    db_write_point_eng(db, endpoint_cfg, "soc", soc_pu)
+                    db_write_optional_point_eng(db, endpoint_cfg, "soc", soc_pu)
                     db_write_point_eng(db, endpoint_cfg, "p_poi", p_poi_kw)
                     db_write_point_eng(db, endpoint_cfg, "q_poi", q_poi_kvar)
                     if v_poi_kv is not None:

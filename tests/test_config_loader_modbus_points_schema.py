@@ -115,6 +115,19 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
         self.assertEqual(point["unit"], "v")
         self.assertEqual(point["word_count"], 1)
 
+    def test_accepts_missing_soc_point_for_one_endpoint(self):
+        payload = _load_yaml("config.yaml")
+        payload["plants"]["lib"]["modbus"]["remote"]["points"].pop("soc", None)
+        path = _write_temp_yaml(payload)
+        try:
+            config = load_config(path)
+        finally:
+            os.unlink(path)
+
+        points = config["PLANTS"]["lib"]["modbus"]["remote"]["points"]
+        self.assertNotIn("soc", points)
+        self.assertNotIn("PLANT_REMOTE_SOC_REGISTER", config)
+
     def test_rejects_invalid_point_unit_for_quantity(self):
         payload = _load_yaml("config.yaml")
         payload["plants"]["lib"]["modbus"]["local"]["points"]["p_setpoint"]["unit"] = "kV"

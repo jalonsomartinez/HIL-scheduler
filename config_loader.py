@@ -48,7 +48,6 @@ REQUIRED_MODBUS_POINT_NAMES = (
     "q_setpoint",
     "q_battery",
     "enable",
-    "soc",
     "p_poi",
     "q_poi",
     "v_poi",

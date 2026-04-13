@@ -141,8 +141,13 @@ class PlantAgentSocSeedRequestTests(unittest.TestCase):
             from unittest.mock import patch
 
             with patch("plant_agent.ModbusServer", _FakeModbusServer), patch(
-                "plant_agent.find_latest_persisted_soc_for_plant",
-                return_value={"soc_pu": 0.77, "file_path": "data/20990101_lib.csv"},
+                "plant_agent.resolve_startup_soc_seed",
+                return_value={
+                    "soc_pu": 0.77,
+                    "source": "disk",
+                    "file_path": "data/20990101_lib.csv",
+                    "timestamp": pd.Timestamp("2099-01-01T00:00:00+01:00"),
+                },
             ):
                 thread = threading.Thread(target=plant_agent, args=(config, shared_data), daemon=True)
                 thread.start()
@@ -173,8 +178,8 @@ class PlantAgentSocSeedRequestTests(unittest.TestCase):
             from unittest.mock import patch
 
             with patch("plant_agent.ModbusServer", _FakeModbusServer), patch(
-                "plant_agent.find_latest_persisted_soc_for_plant",
-                return_value=None,
+                "plant_agent.resolve_startup_soc_seed",
+                return_value={"soc_pu": 0.63, "source": "startup_fallback", "file_path": None, "timestamp": None},
             ):
                 thread = threading.Thread(target=plant_agent, args=(config, shared_data), daemon=True)
                 thread.start()
@@ -185,6 +190,45 @@ class PlantAgentSocSeedRequestTests(unittest.TestCase):
                 soc_pu = read_point_internal(client, config["PLANTS"]["lib"]["modbus"]["local"], "soc")
                 self.assertIsNotNone(soc_pu)
                 self.assertAlmostEqual(float(soc_pu), 0.63, places=4)
+        finally:
+            shared_data["shutdown_event"].set()
+            if thread is not None:
+                thread.join(timeout=2)
+
+    def test_seed_request_applies_even_when_soc_register_is_not_configured(self):
+        config = load_config("config.yaml")
+        config["PLANT_PERIOD_S"] = 0.05
+        config["PLANTS"]["lib"]["modbus"]["local"]["points"].pop("soc", None)
+        config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["lib"]["modbus"]["local"]["port"] = 5152
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["port"] = 5153
+        shared_data = _build_shared_data(config)
+
+        thread = None
+        try:
+            from unittest.mock import patch
+
+            with patch("plant_agent.ModbusServer", _FakeModbusServer), patch(
+                "plant_agent.resolve_startup_soc_seed",
+                return_value={"soc_pu": 0.41, "source": "startup_fallback", "file_path": None},
+            ):
+                thread = threading.Thread(target=plant_agent, args=(config, shared_data), daemon=True)
+                thread.start()
+                time.sleep(0.2)
+
+                request_id = 103
+                with shared_data["lock"]:
+                    shared_data["local_emulator_soc_seed_request_by_plant"]["lib"] = {
+                        "request_id": request_id,
+                        "soc_pu": 0.73,
+                        "source": "test",
+                    }
+
+                result = _wait_for_seed_result(shared_data, "lib", request_id)
+                self.assertIsNotNone(result)
+                self.assertEqual(result["status"], "applied")
+                self.assertAlmostEqual(float(result["soc_pu"]), 0.73, places=6)
         finally:
             shared_data["shutdown_event"].set()
             if thread is not None:
@@ -209,8 +253,8 @@ class PlantAgentVoltageMirroringTests(unittest.TestCase):
             from unittest.mock import patch
 
             with patch("plant_agent.ModbusServer", _FakeModbusServer), patch(
-                "plant_agent.find_latest_persisted_soc_for_plant",
-                return_value=None,
+                "plant_agent.resolve_startup_soc_seed",
+                return_value={"soc_pu": 0.5, "source": "startup_fallback", "file_path": None, "timestamp": None},
             ):
                 thread = threading.Thread(target=plant_agent, args=(config, shared_data), daemon=True)
                 thread.start()
@@ -234,6 +278,7 @@ class PlantAgentVoltageMirroringTests(unittest.TestCase):
     def test_local_voltage_defaults_to_rated_value_without_v_poi_write(self):
         config = load_config("config.yaml")
         config["PLANT_PERIOD_S"] = 0.05
+        config["PLANTS"]["lib"]["modbus"]["local"]["points"].pop("v_poi_write", None)
         config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
         config["PLANTS"]["lib"]["modbus"]["local"]["port"] = 5170
         config["PLANTS"]["vrfb"]["modbus"]["local"]["host"] = "127.0.0.1"
@@ -245,8 +290,8 @@ class PlantAgentVoltageMirroringTests(unittest.TestCase):
             from unittest.mock import patch
 
             with patch("plant_agent.ModbusServer", _FakeModbusServer), patch(
-                "plant_agent.find_latest_persisted_soc_for_plant",
-                return_value=None,
+                "plant_agent.resolve_startup_soc_seed",
+                return_value={"soc_pu": 0.5, "source": "startup_fallback", "file_path": None, "timestamp": None},
             ):
                 thread = threading.Thread(target=plant_agent, args=(config, shared_data), daemon=True)
                 thread.start()

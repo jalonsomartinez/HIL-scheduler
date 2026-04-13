@@ -66,7 +66,8 @@ def take_measurement(client, endpoint, measurement_timestamp, tz, plant_id):
         p_actual_kw = values.get("p_battery")
         q_setpoint_kvar = values.get("q_setpoint")
         q_actual_kvar = values.get("q_battery")
-        soc_pu = values.get("soc")
+        has_soc_point = "soc" in (endpoint.get("points", {}) or {})
+        soc_pu = values.get("soc") if has_soc_point else None
         p_poi_kw = values.get("p_poi")
         q_poi_kvar = values.get("q_poi")
         v_poi_kV = values.get("v_poi")
@@ -78,24 +79,28 @@ def take_measurement(client, endpoint, measurement_timestamp, tz, plant_id):
                 p_actual_kw,
                 q_setpoint_kvar,
                 q_actual_kvar,
-                soc_pu,
                 p_poi_kw,
                 q_poi_kvar,
                 v_poi_kV,
             )
         ):
             return None
+        if has_soc_point and soc_pu is None:
+            return None
 
         return {
-            "timestamp": normalize_timestamp_value(measurement_timestamp, tz),
-            "p_setpoint_kw": float(p_setpoint_kw),
-            "battery_active_power_kw": float(p_actual_kw),
-            "q_setpoint_kvar": float(q_setpoint_kvar),
-            "battery_reactive_power_kvar": float(q_actual_kvar),
-            "soc_pu": float(soc_pu),
-            "p_poi_kw": float(p_poi_kw),
-            "q_poi_kvar": float(q_poi_kvar),
-            "v_poi_kV": float(v_poi_kV),
+            "row": {
+                "timestamp": normalize_timestamp_value(measurement_timestamp, tz),
+                "p_setpoint_kw": float(p_setpoint_kw),
+                "battery_active_power_kw": float(p_actual_kw),
+                "q_setpoint_kvar": float(q_setpoint_kvar),
+                "battery_reactive_power_kvar": float(q_actual_kvar),
+                "soc_pu": None if soc_pu is None else float(soc_pu),
+                "p_poi_kw": float(p_poi_kw),
+                "q_poi_kvar": float(q_poi_kvar),
+                "v_poi_kV": float(v_poi_kV),
+            },
+            "has_real_soc": bool(has_soc_point),
         }
     except Exception as exc:
         logging.error("Measurement: read error (%s): %s", plant_id.upper(), exc)

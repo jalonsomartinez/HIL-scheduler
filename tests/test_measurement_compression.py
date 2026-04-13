@@ -94,7 +94,7 @@ def _make_row_sequence_runner(shared_data, rows):
 
         if state["idx"] >= len(rows):
             shared_data["shutdown_event"].set()
-        return row
+        return {"row": row, "has_real_soc": True}
 
     return _run
 

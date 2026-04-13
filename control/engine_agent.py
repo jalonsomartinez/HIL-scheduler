@@ -25,10 +25,10 @@ from control.modbus_io import (
 )
 from runtime.engine_command_cycle_runtime import run_command_with_lifecycle
 from runtime.engine_status_runtime import default_engine_status, update_engine_status
-from measurement.storage import find_latest_persisted_soc_for_plant
 from modbus.grouped_reads import build_read_groups, read_points_internal_grouped
 from runtime.contracts import resolve_modbus_endpoint, sanitize_plant_name
 from runtime.paths import get_data_dir
+from runtime.soc_estimation import clamp_soc_pu, resolve_startup_soc_seed
 from scheduling.runtime import build_effective_schedule_frame, resolve_schedule_setpoint
 from runtime.shared_state import snapshot_locked
 from time_utils import get_config_tz, now_tz
@@ -330,34 +330,19 @@ def _get_daily_recording_file_path(config, plant_id):
     return os.path.join(get_data_dir(__file__), f"{date_str}_{safe_name}.csv")
 
 
-def _clamp_soc_pu(value, fallback):
-    try:
-        soc_value = float(value)
-    except (TypeError, ValueError):
-        soc_value = float(fallback)
-    if pd.isna(soc_value):
-        soc_value = float(fallback)
-    return min(1.0, max(0.0, soc_value))
-
-
 def _resolve_local_start_soc_seed(config, shared_data, plant_id, tz):
-    startup_initial_soc_pu = float(config.get("STARTUP_INITIAL_SOC_PU", 0.5))
-    latest = find_latest_persisted_soc_for_plant(get_data_dir(__file__), _plant_name(config, plant_id), plant_id, tz)
-    if latest is not None:
+    seed = resolve_startup_soc_seed(config, plant_id, tz, caller_file=__file__)
+    if str(seed.get("source")) == "disk":
         logging.info(
             "ControlEngine: %s local start SoC seed from disk %.4f pu (%s @ %s).",
             plant_id.upper(),
-            float(latest["soc_pu"]),
-            latest["file_path"],
-            pd.Timestamp(latest["timestamp"]).isoformat(),
+            float(seed["soc_pu"]),
+            seed["file_path"],
+            pd.Timestamp(seed["timestamp"]).isoformat(),
         )
-        return {
-            "soc_pu": _clamp_soc_pu(latest["soc_pu"], startup_initial_soc_pu),
-            "source": "disk",
-            "message": f"{latest['file_path']}",
-        }
+        return {"soc_pu": seed["soc_pu"], "source": "disk", "message": seed.get("message")}
 
-    fallback_soc = _clamp_soc_pu(startup_initial_soc_pu, startup_initial_soc_pu)
+    fallback_soc = clamp_soc_pu(seed.get("soc_pu"), 0.5)
     logging.info(
         "ControlEngine: %s local start SoC seed not found on disk; using startup fallback %.4f pu.",
         plant_id.upper(),
@@ -374,7 +359,7 @@ def _request_local_emulator_soc_seed(shared_data, plant_id, soc_pu, source, *, t
     request_id = int(time.time_ns())
     request_payload = {
         "request_id": request_id,
-        "soc_pu": _clamp_soc_pu(soc_pu, 0.5),
+        "soc_pu": clamp_soc_pu(soc_pu, 0.5),
         "source": str(source),
     }
 

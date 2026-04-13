@@ -28,6 +28,7 @@ from measurement.storage import (
     normalize_measurements_df,
     rows_are_similar,
 )
+from runtime.soc_estimation import SocEstimator, resolve_startup_soc_seed
 from runtime.contracts import sanitize_plant_name
 from runtime.defaults import (
     DEFAULT_MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S,
@@ -111,6 +112,8 @@ def measurement_agent(config, shared_data):
 
     plant_states = {}
     for plant_id in plant_ids:
+        model = dict((plants_cfg.get(plant_id, {}) or {}).get("model", {}) or {})
+        startup_soc_seed = resolve_startup_soc_seed(config, plant_id, tz, caller_file=__file__)
         plant_states[plant_id] = {
             "client": None,
             "endpoint_key": None,
@@ -122,6 +125,10 @@ def measurement_agent(config, shared_data):
             "session_tail_is_null": False,
             "latest_measurement": None,
             "cache_context": None,
+            "soc_estimator": SocEstimator(
+                model.get("capacity_kwh", 0.0),
+                startup_soc_seed.get("soc_pu"),
+            ),
         }
 
     def empty_post_status():
@@ -757,11 +764,21 @@ def measurement_agent(config, shared_data):
                 state = plant_states[plant_id]
                 _, endpoint = ensure_client(plant_id, transport_mode)
 
-                row = sampling_take_measurement(state["client"], endpoint, scheduled_step_ts, tz, plant_id)
-                if row is None:
+                measurement = sampling_take_measurement(state["client"], endpoint, scheduled_step_ts, tz, plant_id)
+                if measurement is None:
                     continue
-
+                row = dict(measurement.get("row", {}) or {})
+                has_real_soc = bool(measurement.get("has_real_soc", False))
                 row_ts = normalize_timestamp_value(row.get("timestamp"), tz)
+                estimator = state["soc_estimator"]
+                if has_real_soc:
+                    soc_pu = row.get("soc_pu")
+                    if soc_pu is None:
+                        continue
+                    row["soc_pu"] = float(estimator.sync(soc_pu, timestamp=row_ts))
+                else:
+                    row["soc_pu"] = float(estimator.estimate_from_power(row.get("battery_active_power_kw"), timestamp=row_ts))
+
                 row["p_schedule_total_kw"] = resolve_schedule_power_kw(total_schedule_map.get(plant_id), row_ts)
                 row["p_schedule_day_ahead_kw"] = resolve_schedule_power_kw(day_ahead_schedule_map.get(plant_id), row_ts)
                 row["p_schedule_mfrr_kw"] = resolve_schedule_power_kw(mfrr_schedule_map.get(plant_id), row_ts)
