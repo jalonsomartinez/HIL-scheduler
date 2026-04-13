@@ -143,7 +143,7 @@ plants:
           soc: {address: 22, format: uint16, access: r, unit: pu, eng_per_count: 0.0001} # pc is percentage
           start_command: {address: 5, format: uint16, access: w, unit: raw, eng_per_count: 1.0} # 1: start, 0: stop. Este registro debe estar a 1 para permitir la operación normal de la batería. Si se pone a 0, la batería se detiene y no responde a comandos de potencia.
       remote:
-        host: "10.117.133.12" #"7c30070c1f50.sn.mynetname.net" #
+        host: "7c30070c1f50.sn.mynetname.net" #"10.117.133.12" #
         port: 502
         byte_order: big
         word_order: msw_first
