@@ -74,7 +74,7 @@ class DashboardControlHealthTests(unittest.TestCase):
                 "last_success": now_ts - timedelta(milliseconds=800),
                 "consecutive_failures": 0,
                 "enable_state": 1,
-                "start_command_state": 2,
+                "start_command_state": 1,
                 "stop_command_state": 0,
                 "error": None,
                 "last_error": None,
@@ -83,7 +83,7 @@ class DashboardControlHealthTests(unittest.TestCase):
         )
         self.assertIn("Modbus link: OK", ok_lines[0])
         self.assertIn("Obs age: 0.8s", ok_lines[0])
-        self.assertIn("Commands: enable=1 | start_command=2 | stop_command=0", ok_lines[1])
+        self.assertIn("Commands: enable=1 | start_command=1 | stop_command=0", ok_lines[1])
 
         err_lines = summarize_plant_modbus_health(
             {

@@ -89,7 +89,7 @@ def _write_optional_command_point(config, shared_data, plant_id, point_name, val
 def _run_start_command_sequence(config, shared_data, plant_id):
     details = [
         _write_optional_command_point(config, shared_data, plant_id, "stop_command", 0),
-        _write_optional_command_point(config, shared_data, plant_id, "start_command", 2),
+        _write_optional_command_point(config, shared_data, plant_id, "start_command", 1),
     ]
     ok = all(str(item.get("state")) in {"ok", "skipped"} for item in details)
     return {"ok": bool(ok), "details": details}

@@ -661,7 +661,7 @@ def run_dashboard_like(
                     recorder=recorder,
                     client_id=client_id,
                     point_name="start_command",
-                    internal_value=2,
+                    internal_value=1,
                 )
                 write_point_internal(
                     client,

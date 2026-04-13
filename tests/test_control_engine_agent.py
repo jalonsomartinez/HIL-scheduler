@@ -362,7 +362,7 @@ class ControlEngineAgentTests(unittest.TestCase):
             send_setpoints_fn=lambda plant_id, p_kw, q_kvar: calls.append(("setpoints", plant_id, p_kw, q_kvar)) or True,
             prepare_start_commands_fn=lambda plant_id: {
                 "ok": False,
-                "details": [{"point": "start_command", "state": "failed", "value": 2, "message": "write_failed"}],
+                "details": [{"point": "start_command", "state": "failed", "value": 1, "message": "write_failed"}],
             },
         )
 
@@ -722,7 +722,7 @@ class ControlEngineAgentTests(unittest.TestCase):
         _publish_observed_state(
             shared_data,
             "lib",
-            {"enable_state": 1, "start_command_state": 2, "stop_command_state": 0, "p_battery_kw": 4.0, "q_battery_kvar": -1.0},
+            {"enable_state": 1, "start_command_state": 1, "stop_command_state": 0, "p_battery_kw": 4.0, "q_battery_kvar": -1.0},
             now_value=t0,
         )
         failed = _publish_observed_state(
@@ -741,7 +741,7 @@ class ControlEngineAgentTests(unittest.TestCase):
         )
 
         self.assertEqual(failed["enable_state"], 1)
-        self.assertEqual(failed["start_command_state"], 2)
+        self.assertEqual(failed["start_command_state"], 1)
         self.assertEqual(failed["stop_command_state"], 0)
         self.assertEqual(failed["p_battery_kw"], 4.0)
         self.assertEqual(failed["error"], "connect_failed")

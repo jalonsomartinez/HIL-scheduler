@@ -38,6 +38,7 @@
     - successful writes optionally pulse `trigger` high then low,
     - scheduler retries after trigger failure even when registers already match,
     - control-engine start flow resets `trigger` to `0` before prepare and fails early if reset fails.
+  - Updated start-command prepare semantics so run-allowed writes now use `start_command=1` instead of `2`.
   - Expanded regression coverage for SoC fallback, config/schema validation, per-phase dispatch, and trigger-aware control/scheduler behavior.
 - 2026-04-10:
   - Corrected LIB battery reactive-power sign inversion in `grid_map_runtime.py`.

@@ -123,7 +123,7 @@ Expected version: `3.9.2`
   --timeout-s 2.0 --poll-s 1.0 --duration-s 180 \
   --out logs/vrfb_remote_diag_dashboard_like_readonly_run1.csv
 ```
-2. `dashboard_like` read+write sequence (`start_command=2`, `enable=1`, `p/q` writes every 10 cycles):
+2. `dashboard_like` read+write sequence (`start_command=1`, `enable=1`, `p/q` writes every 10 cycles):
 ```bash
 ./venv/bin/python scripts/vrfb_remote_diag.py \
   --mode dashboard_like \

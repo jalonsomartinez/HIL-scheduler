@@ -140,7 +140,7 @@ plants:
           v_poi: {address: 29, format: uint16, access: r, unit: V, eng_per_count: 1.0} # Lo mismo que el p_poi, realmente es la tensión a la salida del inversor.
           enable: {address: 7, format: uint16, access: rw, unit: raw, eng_per_count: 1.0} # Este registro debe estar a 1 para permitir el control de la vrfb desde el orquestador
           soc: {address: 22, format: uint16, access: r, unit: pu, eng_per_count: 0.0001}
-          start_command: {address: 0, format: uint16, access: w, unit: raw, eng_per_count: 1.0} # 2: start, 0: stop. Este registro debe estar a 2 para permitir la operación normal de la batería. Si se pone a 0, la batería se detiene y no responde a comandos de potencia.
+          start_command: {address: 0, format: uint16, access: w, unit: raw, eng_per_count: 1.0} # 1: start, 0: stop. Este registro debe estar a 1 para permitir la operación normal de la batería. Si se pone a 0, la batería se detiene y no responde a comandos de potencia.
           # IMPORTANTE QUE DEBE ESTAR A 2, NO A 1. Lo he implementado así porque lo hice análogo al mapa de CEN. Es distinto que para la LIB porque en la LIB es el PLC el que manda el 2. Aquí, al no estar en medio el PLC, lo tiene que mandar directamente el orquestador. Si esto supone un incoveniente, lo cambio.
     measurement_series:
       soc: 5

@@ -20,7 +20,7 @@ def _shared_data():
         "plant_observed_state_by_plant": {
             "lib": {
                 "enable_state": 1,
-                "start_command_state": 2,
+                "start_command_state": 1,
                 "stop_command_state": 0,
                 "p_battery_kw": 10.0,
                 "q_battery_kvar": -2.0,
@@ -34,7 +34,7 @@ def _shared_data():
             },
             "vrfb": {
                 "enable_state": 1,
-                "start_command_state": 2,
+                "start_command_state": 1,
                 "stop_command_state": 0,
                 "p_battery_kw": 5.0,
                 "q_battery_kvar": 0.5,
