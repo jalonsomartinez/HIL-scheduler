@@ -148,17 +148,21 @@ plants:
         byte_order: big
         word_order: msw_first
         points:
-          p_setpoint: {address: 1, format: int16, access: rw, unit: kW, eng_per_count: 0.1}
-          p_poi: {address: 14, format: int16, access: r, unit: kW, eng_per_count: 0.1} # Mismo que p_battery porque no hay impedancia entre inversor y POI
-          p_battery: {address: 14, format: int16, access: r, unit: kW, eng_per_count: 0.1}
-          q_setpoint: {address: 2, format: int16, access: rw, unit: kvar, eng_per_count: 0.1}
-          q_poi: {address: 15, format: int16, access: r, unit: kvar, eng_per_count: 0.1} # Igual que para p_poi
-          q_battery: {address: 15, format: int16, access: r, unit: kvar, eng_per_count: 0.1}
-          v_poi: {address: 29, format: uint16, access: r, unit: V, eng_per_count: 1.0}
+          p_u_setpoint: {address: 27764, format: float32, access: rw, unit: W, eng_per_count: 1.0}
+          p_v_setpoint: {address: 27766, format: float32, access: rw, unit: W, eng_per_count: 1.0}
+          p_w_setpoint: {address: 27768, format: float32, access: rw, unit: W, eng_per_count: 1.0}
+          p_poi: {address: 26128, format: float32, access: r, unit: W, eng_per_count: 1.0}
+          p_battery: {address: 26128, format: float32, access: r, unit: W, eng_per_count: 1.0}
+          q_u_setpoint: {address: 27758, format: float32, access: rw, unit: var, eng_per_count: 1.0}
+          q_v_setpoint: {address: 27760, format: float32, access: rw, unit: var, eng_per_count: 1.0}
+          q_w_setpoint: {address: 27762, format: float32, access: rw, unit: var, eng_per_count: 1.0}
+          q_poi: {address: 26136, format: float32, access: r, unit: var, eng_per_count: 1.0} 
+          q_battery: {address: 26136, format: float32, access: r, unit: var, eng_per_count: 1.0}
+          v_poi: {address: 26102, format: float32, access: r, unit: V, eng_per_count: 1.0}
           v_poi_write: {address: 30, format: uint16, access: rw, unit: V, eng_per_count: 1.0}
-          enable: {address: 7, format: uint16, access: rw, unit: raw, eng_per_count: 1.0}
-          soc: {address: 22, format: uint16, access: r, unit: pu, eng_per_count: 0.0001} # pc is percentage
-          start_command: {address: 5, format: uint16, access: w, unit: raw, eng_per_count: 1.0} # 2: start, 0: stop. Este registro debe estar a 2 para permitir la operación normal de la batería. Si se pone a 0, la batería se detiene y no responde a comandos de potencia.
+          enable: {address: 17000, format: uint32, access: rw, unit: raw, eng_per_count: 1.0}
+          #soc: {address: 22, format: uint16, access: r, unit: pu, eng_per_count: 0.0001} 
+          start_command: {address: 17002, format: uint32, access: rw, unit: raw, eng_per_count: 1.0} 
     measurement_series:
       soc: 5
       p: 11
