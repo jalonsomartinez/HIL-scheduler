@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 from measurement.agent import measurement_agent
-from measurement.sampling import take_measurement
+from measurement.sampling import ensure_client, take_measurement
 from modbus.codec import encode_point_internal_words
 
 
@@ -104,7 +104,7 @@ def _sampling_endpoint(include_soc=True):
     }
     if include_soc:
         points["soc"] = {"name": "soc", "address": 20, "format": "uint16", "word_count": 1, "unit": "pu", "eng_per_count": 0.0001}
-    return {"byte_order": "big", "word_order": "msw_first", "points": points}
+    return {"host": "localhost", "port": 5020, "byte_order": "big", "word_order": "msw_first", "points": points}
 
 
 def _sampling_endpoint_per_phase(include_soc=False):
@@ -153,6 +153,22 @@ class _SamplingClient:
 
 
 class MeasurementSocFallbackTests(unittest.TestCase):
+    def test_ensure_client_logs_setpoint_family_only_once_for_same_endpoint(self):
+        endpoint = _sampling_endpoint(include_soc=True)
+        state = {}
+
+        with patch("measurement.sampling.ModbusClient", side_effect=lambda host, port: _SamplingClient({})), patch(
+            "measurement.sampling.logging.info"
+        ) as info_mock:
+            ensure_client(state, dict(endpoint), "lib", "local")
+            ensure_client(state, dict(endpoint), "lib", "local")
+
+        logged_messages = [call.args[0] for call in info_mock.call_args_list]
+        self.assertEqual(
+            sum("setpoint family=" in message for message in logged_messages),
+            1,
+        )
+
     def test_missing_soc_uses_startup_seed_then_integrates_battery_power(self):
         config = _build_config(capacity_kwh=1000.0, measurement_period_s=0.2)
         shared_data = _build_shared_data("data/20990101_lib.csv")

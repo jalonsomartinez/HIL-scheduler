@@ -143,7 +143,7 @@ class MeasurementAgentRecordingTests(unittest.TestCase):
                 config = _build_config()
 
                 # End the agent loop shortly after startup; this test targets record-start stability.
-                stop_timer = threading.Timer(0.35, shared_data["shutdown_event"].set)
+                stop_timer = threading.Timer(1.4, shared_data["shutdown_event"].set)
                 stop_timer.start()
                 try:
                     with patch(

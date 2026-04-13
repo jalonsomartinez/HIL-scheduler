@@ -72,19 +72,26 @@ def ensure_client(state, endpoint, plant_id, transport_mode):
             endpoint["port"],
             transport_mode,
         )
-    if "_measurement_schema" not in endpoint:
-        endpoint["_measurement_schema"] = resolve_measurement_schema(endpoint)
+        state["measurement_schema"] = None
+        state["measurement_read_groups"] = None
+        state["measurement_schema_log_key"] = None
+    if state.get("measurement_schema") is None:
+        state["measurement_schema"] = resolve_measurement_schema(endpoint)
+    if state.get("measurement_schema_log_key") != (endpoint_key, transport_mode):
         logging.info(
             "Measurement: %s setpoint family=%s for sampling (%s mode)",
             plant_id.upper(),
-            endpoint["_measurement_schema"]["setpoint_family"],
+            state["measurement_schema"]["setpoint_family"],
             transport_mode,
         )
-    if "_measurement_read_groups" not in endpoint:
-        endpoint["_measurement_read_groups"] = build_read_groups(
+        state["measurement_schema_log_key"] = (endpoint_key, transport_mode)
+    if state.get("measurement_read_groups") is None:
+        state["measurement_read_groups"] = build_read_groups(
             endpoint,
-            endpoint["_measurement_schema"]["point_names"],
+            state["measurement_schema"]["point_names"],
         )
+    endpoint["_measurement_schema"] = state["measurement_schema"]
+    endpoint["_measurement_read_groups"] = state["measurement_read_groups"]
     return state.get("client")
 
 
