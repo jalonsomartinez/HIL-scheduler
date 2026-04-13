@@ -123,7 +123,7 @@ plants:
         p_min_kw: -50
         q_max_kvar: 5
         q_min_kvar: -5
-      poi_voltage_kv: 0.22
+      poi_voltage_kv: 0.40
     modbus:
       local:
         host: "localhost"
