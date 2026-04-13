@@ -7,7 +7,7 @@ from modbus.client import ModbusClient
 from runtime.dispatch_write_runtime import publish_dispatch_write_status, set_dispatch_sending_enabled
 import scheduling.manual_schedule_manager as msm
 from runtime.contracts import resolve_modbus_endpoint
-from modbus.setpoint_io import build_setpoint_write_plan, read_setpoint_target_words, write_setpoint_targets
+from modbus.setpoint_io import build_setpoint_write_plan, read_setpoint_target_words, write_setpoint_plan_with_optional_trigger
 from scheduling.runtime import resolve_schedule_setpoint, resolve_series_setpoint_asof, split_manual_override_series
 from runtime.shared_state import snapshot_locked
 from time_utils import get_config_tz, now_tz
@@ -38,6 +38,7 @@ def scheduler_agent(config, shared_data):
     previous_p = {plant_id: None for plant_id in plant_ids}
     previous_q = {plant_id: None for plant_id in plant_ids}
     previous_api_stale = {plant_id: None for plant_id in plant_ids}
+    force_setpoint_retry = {plant_id: False for plant_id in plant_ids}
     last_manual_prune_day = None
 
     def ensure_client(plant_id, transport_mode):
@@ -117,6 +118,7 @@ def scheduler_agent(config, shared_data):
                     previous_p[plant_id] = None
                     previous_q[plant_id] = None
                     previous_api_stale[plant_id] = None
+                    force_setpoint_retry[plant_id] = False
                     continue
 
                 api_schedule_df = api_map.get(plant_id)
@@ -164,6 +166,7 @@ def scheduler_agent(config, shared_data):
 
                 p_write_ok = None
                 q_write_ok = None
+                trigger_write_ok = None
                 attempted_any = False
 
                 write_plan = build_setpoint_write_plan(endpoint, p_setpoint, q_setpoint)
@@ -208,25 +211,31 @@ def scheduler_agent(config, shared_data):
                     q_compare_source = "readback"
                     q_should_write = bool(q_readback_mismatch)
 
-                if p_should_write:
+                should_apply = bool(force_setpoint_retry[plant_id] or p_should_write or q_should_write)
+                if should_apply:
                     attempted_any = True
-                    p_write_ok = bool(write_setpoint_targets(client, endpoint, write_plan["p_targets"])["ok"])
-                    if p_write_ok:
+                    apply_result = write_setpoint_plan_with_optional_trigger(client, endpoint, write_plan)
+                    p_write_ok = bool((apply_result.get("p_result") or {}).get("ok"))
+                    q_write_ok = bool((apply_result.get("q_result") or {}).get("ok"))
+                    trigger_result = dict(apply_result.get("trigger_result") or {})
+                    trigger_write_ok = str(trigger_result.get("state")) in {"ok", "skipped"}
+                    if bool(apply_result.get("ok")):
                         previous_p[plant_id] = p_setpoint
-
-                if q_should_write:
-                    attempted_any = True
-                    q_write_ok = bool(write_setpoint_targets(client, endpoint, write_plan["q_targets"])["ok"])
-                    if q_write_ok:
                         previous_q[plant_id] = q_setpoint
+                        force_setpoint_retry[plant_id] = False
+                    else:
+                        force_setpoint_retry[plant_id] = True
 
                 if attempted_any:
                     attempted_results = [value for value in (p_write_ok, q_write_ok) if value is not None]
                     ok_count = sum(1 for value in attempted_results if value is True)
                     fail_count = sum(1 for value in attempted_results if value is False)
-                    if fail_count == 0:
+                    if fail_count == 0 and trigger_write_ok is True:
                         attempt_status = "ok"
                         error_text = None
+                    elif fail_count == 0 and trigger_write_ok is False:
+                        attempt_status = "failed"
+                        error_text = "setpoint_trigger_failed"
                     elif ok_count > 0:
                         attempt_status = "partial"
                         error_text = "setpoint_write_partial_failure"
@@ -259,13 +268,21 @@ def scheduler_agent(config, shared_data):
                     )
                     if fail_count > 0:
                         logging.warning(
-                            "Scheduler: %s setpoint write %s (P=%s ok=%s, Q=%s ok=%s).",
+                            "Scheduler: %s setpoint write %s (P=%s ok=%s, Q=%s ok=%s, trigger_ok=%s).",
                             plant_id.upper(),
                             attempt_status,
                             f"{p_setpoint:.3f}",
                             p_write_ok,
                             f"{q_setpoint:.3f}",
                             q_write_ok,
+                            trigger_write_ok,
+                        )
+                    elif trigger_write_ok is False:
+                        logging.warning(
+                            "Scheduler: %s trigger pulse failed after setpoint write (P=%.3f Q=%.3f).",
+                            plant_id.upper(),
+                            p_setpoint,
+                            q_setpoint,
                         )
 
             except Exception as exc:

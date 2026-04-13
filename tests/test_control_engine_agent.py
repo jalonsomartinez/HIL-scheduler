@@ -201,6 +201,90 @@ class ControlEngineAgentTests(unittest.TestCase):
         self.assertEqual(calls[0], ("enable", "lib", 1))
         self.assertEqual(calls[1], ("setpoints", "lib", 12.5, -3.0))
 
+    def test_start_one_plant_resets_trigger_before_prepare_enable_and_setpoints(self):
+        shared_data = _shared_data()
+        calls = []
+        shared_data["scheduler_running_by_plant"]["lib"] = True
+
+        result = _start_one_plant(
+            {"STARTUP_INITIAL_SOC_PU": 0.5},
+            shared_data,
+            "lib",
+            tz=timezone.utc,
+            reset_trigger_fn=lambda plant_id: calls.append(("trigger_reset", plant_id)) or {"state": "ok"},
+            prepare_start_commands_fn=lambda plant_id: calls.append(("prepare", plant_id)) or {"ok": True, "details": []},
+            set_enable_fn=lambda plant_id, value: calls.append(("enable", plant_id, value)) or True,
+            send_setpoints_fn=lambda plant_id, p_kw, q_kvar: calls.append(("setpoints", plant_id, p_kw, q_kvar)) or True,
+            get_latest_schedule_setpoint_fn=lambda plant_id: (12.5, -3.0),
+        )
+
+        self.assertEqual(result["state"], "succeeded")
+        self.assertEqual(calls[0], ("trigger_reset", "lib"))
+        self.assertEqual(calls[1], ("prepare", "lib"))
+        self.assertEqual(calls[2], ("enable", "lib", 1))
+        self.assertEqual(calls[3], ("setpoints", "lib", 12.5, -3.0))
+
+    def test_start_one_plant_trigger_reset_failure_fails_before_prepare(self):
+        shared_data = _shared_data()
+        shared_data["scheduler_running_by_plant"]["lib"] = True
+        prepare_calls = []
+
+        result = _start_one_plant(
+            {"STARTUP_INITIAL_SOC_PU": 0.5},
+            shared_data,
+            "lib",
+            tz=timezone.utc,
+            reset_trigger_fn=lambda plant_id: {"state": "failed", "point": "trigger", "value": 0, "message": "write_failed"},
+            prepare_start_commands_fn=lambda plant_id: prepare_calls.append(plant_id) or {"ok": True, "details": []},
+            set_enable_fn=lambda plant_id, value: True,
+            send_setpoints_fn=lambda plant_id, p_kw, q_kvar: True,
+            get_latest_schedule_setpoint_fn=lambda plant_id: (1.0, 2.0),
+        )
+
+        self.assertEqual(result["state"], "failed")
+        self.assertEqual(result["message"], "command_prepare_failed")
+        self.assertFalse(result["result"]["command_prepare_ok"])
+        self.assertEqual(result["result"]["command_prepare_detail"][0]["point"], "trigger")
+        self.assertEqual(shared_data["plant_transition_by_plant"]["lib"], "stopped")
+        self.assertEqual(prepare_calls, [])
+
+    @patch("modbus.setpoint_io._sleep")
+    @patch("control.modbus_io.ModbusClient")
+    def test_start_one_plant_uses_trigger_reset_and_triggered_initial_setpoint_write(self, client_cls, sleep_mock):
+        client = _MemoryModbusClient("127.0.0.1", 502)
+        client_cls.return_value = client
+        shared_data = _shared_data()
+        shared_data["scheduler_running_by_plant"]["lib"] = True
+        endpoint_cfg = {
+            "host": "127.0.0.1",
+            "port": 502,
+            "mode": "remote",
+            "byte_order": "big",
+            "word_order": "msw_first",
+            "points": {
+                "p_setpoint": {"name": "p_setpoint", "address": 10, "format": "int16", "word_count": 1, "unit": "kW", "eng_per_count": 0.1},
+                "q_setpoint": {"name": "q_setpoint", "address": 11, "format": "int16", "word_count": 1, "unit": "kvar", "eng_per_count": 0.1},
+                "trigger": {"name": "trigger", "address": 12, "format": "uint16", "word_count": 1, "unit": "raw", "eng_per_count": 1.0},
+            },
+        }
+
+        with patch("control.engine_agent._get_plant_modbus_config", return_value=endpoint_cfg):
+            result = _start_one_plant(
+                {"STARTUP_INITIAL_SOC_PU": 0.5},
+                shared_data,
+                "lib",
+                tz=timezone.utc,
+                set_enable_fn=lambda plant_id, value: True,
+                get_latest_schedule_setpoint_fn=lambda plant_id: (12.5, -3.0),
+                prepare_start_commands_fn=lambda plant_id: {"ok": True, "details": []},
+            )
+
+        self.assertEqual(result["state"], "succeeded")
+        self.assertAlmostEqual(read_point_internal(client, endpoint_cfg, "p_setpoint"), 12.5, places=6)
+        self.assertAlmostEqual(read_point_internal(client, endpoint_cfg, "q_setpoint"), -3.0, places=6)
+        self.assertEqual(client.registers[12], 0)
+        self.assertEqual(sleep_mock.call_count, 2)
+
     def test_start_one_plant_enable_failure_rolls_back_state(self):
         shared_data = _shared_data()
 
@@ -282,6 +366,40 @@ class ControlEngineAgentTests(unittest.TestCase):
 
         self.assertEqual(result["state"], "succeeded")
         self.assertEqual(result["result"], {"threshold_reached": True, "disable_ok": True})
+
+    @patch("modbus.setpoint_io._sleep")
+    @patch("control.modbus_io.ModbusClient")
+    def test_safe_stop_zero_write_uses_trigger_sequence_when_configured(self, client_cls, sleep_mock):
+        client = _MemoryModbusClient("127.0.0.1", 502)
+        client_cls.return_value = client
+        shared_data = _shared_data()
+        shared_data["scheduler_running_by_plant"]["lib"] = True
+        endpoint_cfg = {
+            "host": "127.0.0.1",
+            "port": 502,
+            "mode": "remote",
+            "byte_order": "big",
+            "word_order": "msw_first",
+            "points": {
+                "p_setpoint": {"name": "p_setpoint", "address": 10, "format": "int16", "word_count": 1, "unit": "kW", "eng_per_count": 0.1},
+                "q_setpoint": {"name": "q_setpoint", "address": 11, "format": "int16", "word_count": 1, "unit": "kvar", "eng_per_count": 0.1},
+                "trigger": {"name": "trigger", "address": 12, "format": "uint16", "word_count": 1, "unit": "raw", "eng_per_count": 1.0},
+            },
+        }
+
+        with patch("control.engine_agent._get_plant_modbus_config", return_value=endpoint_cfg), patch(
+            "control.engine_agent._wait_until_battery_power_below_threshold", return_value=True
+        ), patch("control.engine_agent._set_enable", return_value=True), patch(
+            "control.engine_agent._run_stop_command_sequence", return_value={"ok": True, "details": []}
+        ):
+            result = _safe_stop_plant({"PLANT_IDS": ("lib", "vrfb")}, shared_data, "lib")
+
+        self.assertTrue(result["threshold_reached"])
+        self.assertTrue(result["disable_ok"])
+        self.assertAlmostEqual(read_point_internal(client, endpoint_cfg, "p_setpoint"), 0.0, places=6)
+        self.assertAlmostEqual(read_point_internal(client, endpoint_cfg, "q_setpoint"), 0.0, places=6)
+        self.assertEqual(client.registers[12], 0)
+        self.assertEqual(sleep_mock.call_count, 2)
 
     def test_stop_one_plant_fails_when_command_stop_failed(self):
         shared_data = _shared_data()

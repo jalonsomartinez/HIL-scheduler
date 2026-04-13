@@ -27,6 +27,17 @@ class _MemoryModbusClient:
         return [self.registers.get(int(address) + offset, 0) for offset in range(int(count))]
 
 
+class _FailingWriteMemoryModbusClient(_MemoryModbusClient):
+    def __init__(self, host, port, *, fail_addresses=None):
+        super().__init__(host, port)
+        self.fail_addresses = set(int(value) for value in (fail_addresses or set()))
+
+    def write_single_register(self, address, value):
+        if int(address) in self.fail_addresses:
+            return False
+        return super().write_single_register(address, value)
+
+
 class ControlModbusIoTests(unittest.TestCase):
     @patch("control.modbus_io.ModbusClient")
     def test_send_setpoints_writes_equal_phase_split_when_endpoint_uses_per_phase_points(self, client_cls):
@@ -57,6 +68,81 @@ class ControlModbusIoTests(unittest.TestCase):
         self.assertAlmostEqual(read_point_internal(client, endpoint_cfg, "q_u_setpoint"), 10.0, places=6)
         self.assertAlmostEqual(read_point_internal(client, endpoint_cfg, "q_v_setpoint"), 10.0, places=6)
         self.assertAlmostEqual(read_point_internal(client, endpoint_cfg, "q_w_setpoint"), 10.0, places=6)
+
+    @patch("modbus.setpoint_io._sleep")
+    @patch("control.modbus_io.ModbusClient")
+    def test_send_setpoints_pulses_trigger_when_configured(self, client_cls, sleep_mock):
+        client = _MemoryModbusClient("127.0.0.1", 502)
+        client_cls.return_value = client
+        endpoint_cfg = {
+            "host": "127.0.0.1",
+            "port": 502,
+            "mode": "remote",
+            "byte_order": "big",
+            "word_order": "msw_first",
+            "points": {
+                "p_setpoint": {"name": "p_setpoint", "address": 10, "format": "int16", "word_count": 1, "unit": "kW", "eng_per_count": 0.1},
+                "q_setpoint": {"name": "q_setpoint", "address": 11, "format": "int16", "word_count": 1, "unit": "kvar", "eng_per_count": 0.1},
+                "trigger": {"name": "trigger", "address": 12, "format": "uint16", "word_count": 1, "unit": "raw", "eng_per_count": 1.0},
+            },
+        }
+
+        result = send_setpoints(endpoint_cfg, "LIB", 90.0, 30.0)
+
+        self.assertTrue(result)
+        self.assertAlmostEqual(read_point_internal(client, endpoint_cfg, "p_setpoint"), 90.0, places=6)
+        self.assertAlmostEqual(read_point_internal(client, endpoint_cfg, "q_setpoint"), 30.0, places=6)
+        self.assertEqual(client.registers[12], 0)
+        self.assertEqual(sleep_mock.call_count, 2)
+
+    @patch("modbus.setpoint_io._sleep")
+    @patch("control.modbus_io.ModbusClient")
+    def test_send_setpoints_does_not_pulse_trigger_when_setpoint_write_fails(self, client_cls, sleep_mock):
+        client = _FailingWriteMemoryModbusClient("127.0.0.1", 502, fail_addresses={10})
+        client_cls.return_value = client
+        endpoint_cfg = {
+            "host": "127.0.0.1",
+            "port": 502,
+            "mode": "remote",
+            "byte_order": "big",
+            "word_order": "msw_first",
+            "points": {
+                "p_setpoint": {"name": "p_setpoint", "address": 10, "format": "int16", "word_count": 1, "unit": "kW", "eng_per_count": 0.1},
+                "q_setpoint": {"name": "q_setpoint", "address": 11, "format": "int16", "word_count": 1, "unit": "kvar", "eng_per_count": 0.1},
+                "trigger": {"name": "trigger", "address": 12, "format": "uint16", "word_count": 1, "unit": "raw", "eng_per_count": 1.0},
+            },
+        }
+
+        result = send_setpoints(endpoint_cfg, "LIB", 90.0, 30.0)
+
+        self.assertFalse(result)
+        self.assertNotIn(12, client.registers)
+        sleep_mock.assert_not_called()
+
+    @patch("modbus.setpoint_io._sleep")
+    @patch("control.modbus_io.ModbusClient")
+    def test_send_setpoints_returns_failure_when_trigger_reset_fails(self, client_cls, sleep_mock):
+        client = _FailingWriteMemoryModbusClient("127.0.0.1", 502, fail_addresses={12})
+        client_cls.return_value = client
+        endpoint_cfg = {
+            "host": "127.0.0.1",
+            "port": 502,
+            "mode": "remote",
+            "byte_order": "big",
+            "word_order": "msw_first",
+            "points": {
+                "p_setpoint": {"name": "p_setpoint", "address": 10, "format": "int16", "word_count": 1, "unit": "kW", "eng_per_count": 0.1},
+                "q_setpoint": {"name": "q_setpoint", "address": 11, "format": "int16", "word_count": 1, "unit": "kvar", "eng_per_count": 0.1},
+                "trigger": {"name": "trigger", "address": 12, "format": "uint16", "word_count": 1, "unit": "raw", "eng_per_count": 1.0},
+            },
+        }
+
+        result = send_setpoints(endpoint_cfg, "LIB", 90.0, 30.0)
+
+        self.assertFalse(result)
+        self.assertEqual(sleep_mock.call_count, 1)
+        self.assertAlmostEqual(read_point_internal(client, endpoint_cfg, "p_setpoint"), 90.0, places=6)
+        self.assertAlmostEqual(read_point_internal(client, endpoint_cfg, "q_setpoint"), 30.0, places=6)
 
     @patch("control.modbus_io.time.sleep")
     @patch("control.modbus_io.ModbusClient")

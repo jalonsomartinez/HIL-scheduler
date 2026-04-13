@@ -6,7 +6,7 @@ import time
 from modbus.client import ModbusClient
 
 from modbus.codec import read_point_internal, write_point_internal
-from modbus.setpoint_io import build_setpoint_write_plan, write_setpoint_targets
+from modbus.setpoint_io import build_setpoint_write_plan, write_setpoint_plan_with_optional_trigger
 
 
 def write_optional_command_point(endpoint_cfg, plant_label, point_name, value):
@@ -91,9 +91,17 @@ def send_setpoints(endpoint_cfg, plant_label, p_kw, q_kvar):
             )
             return False
         write_plan = build_setpoint_write_plan(endpoint_cfg, p_kw, q_kvar)
-        p_result = write_setpoint_targets(client, endpoint_cfg, write_plan["p_targets"])
-        q_result = write_setpoint_targets(client, endpoint_cfg, write_plan["q_targets"])
-        return bool(p_result["ok"] and q_result["ok"])
+        apply_result = write_setpoint_plan_with_optional_trigger(client, endpoint_cfg, write_plan)
+        trigger_result = dict(apply_result.get("trigger_result") or {})
+        if str(trigger_result.get("state")) == "ok":
+            logging.info("Control I/O: %s trigger pulse applied after setpoint write.", plant_label)
+        elif bool(trigger_result.get("configured")) and str(trigger_result.get("state")) == "failed":
+            logging.warning(
+                "Control I/O: %s trigger pulse failed after setpoint write (message=%s).",
+                plant_label,
+                trigger_result.get("message"),
+            )
+        return bool(apply_result["ok"])
     except Exception as exc:
         logging.error("Control I/O: setpoint write error (%s): %s", plant_label, exc)
         return False

@@ -44,6 +44,9 @@ class ModbusUnitsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_point_unit("v_poi", "kvar")
         self.assertEqual(validate_point_unit("v_poi_write", "kV"), "kv")
+        self.assertEqual(validate_point_unit("trigger", "raw"), "raw")
+        self.assertAlmostEqual(external_to_internal("trigger", "raw", 1.0), 1.0, places=6)
+        self.assertAlmostEqual(internal_to_external("trigger", "raw", 0.0), 0.0, places=6)
         with self.assertRaises(ValueError):
             validate_point_unit("soc", "kw")
 

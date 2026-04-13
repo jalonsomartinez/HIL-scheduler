@@ -98,6 +98,22 @@ def _run_stop_command_sequence(config, shared_data, plant_id):
     return {"ok": bool(ok), "details": details}
 
 
+def _reset_trigger_to_normal(config, shared_data, plant_id):
+    result = _write_optional_command_point(config, shared_data, plant_id, "trigger", 0)
+    state = str(result.get("state"))
+    if state == "ok":
+        logging.info("ControlEngine: %s trigger reset to 0 before start.", plant_id.upper())
+    elif state == "skipped":
+        logging.debug("ControlEngine: %s trigger reset skipped (point not configured).", plant_id.upper())
+    else:
+        logging.error(
+            "ControlEngine: %s trigger reset failed before start (message=%s).",
+            plant_id.upper(),
+            result.get("message"),
+        )
+    return result
+
+
 def _send_setpoints(config, shared_data, plant_id, p_kw, q_kvar):
     cfg = _get_plant_modbus_config(config, shared_data, plant_id)
     return send_setpoints_io(cfg, plant_id.upper(), p_kw, q_kvar)
@@ -508,6 +524,7 @@ def _start_one_plant(
     resolve_local_start_soc_seed_fn=None,
     request_local_emulator_soc_seed_fn=None,
     prepare_start_commands_fn=None,
+    reset_trigger_fn=None,
 ):
     set_enable_fn = set_enable_fn or (lambda pid, value: _set_enable(config, shared_data, pid, value))
     send_setpoints_fn = send_setpoints_fn or (lambda pid, p, q: _send_setpoints(config, shared_data, pid, p, q))
@@ -523,6 +540,7 @@ def _start_one_plant(
     prepare_start_commands_fn = prepare_start_commands_fn or (
         lambda pid: _run_start_command_sequence(config, shared_data, pid)
     )
+    reset_trigger_fn = reset_trigger_fn or (lambda pid: _reset_trigger_to_normal(config, shared_data, pid))
 
     with shared_data["lock"]:
         transition_state = shared_data.get("plant_transition_by_plant", {}).get(plant_id, "stopped")
@@ -541,6 +559,26 @@ def _start_one_plant(
             (seed or {}).get("soc_pu"),
             (seed or {}).get("source", "unknown"),
         )
+
+    trigger_reset_result = dict(reset_trigger_fn(plant_id) or {})
+    trigger_reset_state = str(trigger_reset_result.get("state", "failed"))
+    if trigger_reset_state not in {"ok", "skipped"}:
+        with shared_data["lock"]:
+            shared_data["plant_transition_by_plant"][plant_id] = "stopped"
+        return {
+            "state": "failed",
+            "message": "command_prepare_failed",
+            "result": {
+                "command_prepare_ok": False,
+                "command_prepare_detail": [trigger_reset_result],
+                "enable_ok": False,
+                "initial_setpoint_write_ok": False,
+                "initial_p_kw": 0.0,
+                "initial_q_kvar": 0.0,
+                "seed_result": seed_result,
+                "dispatch_enabled": bool(dispatch_enabled),
+            },
+        }
 
     command_prepare = prepare_start_commands_fn(plant_id) or {"ok": False, "details": []}
     command_prepare_ok = bool(command_prepare.get("ok", False))

@@ -58,11 +58,13 @@ class _BankClient:
 class _FlakyOnceModbusClient:
     write_counts = {}
     failed_once_keys = set()
+    write_log = []
 
     @classmethod
     def reset(cls):
         cls.write_counts = {}
         cls.failed_once_keys = set()
+        cls.write_log = []
 
     def __init__(self, host, port):
         self.host = str(host)
@@ -89,6 +91,7 @@ class _FlakyOnceModbusClient:
             return False
         key = (self.host, self.port, int(address))
         self.__class__.write_counts[key] = int(self.__class__.write_counts.get(key, 0)) + 1
+        self.__class__.write_log.append((self.host, self.port, int(address), int(value)))
         # Fail only the first LIB p_setpoint write.
         if int(address) == 86 and key not in self.__class__.failed_once_keys:
             self.__class__.failed_once_keys.add(key)
@@ -102,10 +105,12 @@ class _FlakyOnceModbusClient:
 
 class _CountingModbusClient:
     write_counts = {}
+    write_log = []
 
     @classmethod
     def reset(cls):
         cls.write_counts = {}
+        cls.write_log = []
 
     def __init__(self, host, port):
         self.host = str(host)
@@ -132,6 +137,7 @@ class _CountingModbusClient:
             return False
         key = (self.host, self.port, int(address))
         self.__class__.write_counts[key] = int(self.__class__.write_counts.get(key, 0)) + 1
+        self.__class__.write_log.append((self.host, self.port, int(address), int(value)))
         bank = _Registry.get(self.host, self.port)
         if bank is None:
             return False
@@ -151,6 +157,26 @@ class _ReadbackFailingModbusClient(_CountingModbusClient):
         if int(address) in self.__class__.failed_read_addresses:
             return None
         return super().read_holding_registers(address, count)
+
+
+class _TriggerFlakyOnceModbusClient(_CountingModbusClient):
+    failed_once_addresses = set()
+    failed_once_keys = set()
+
+    @classmethod
+    def reset(cls):
+        super().reset()
+        cls.failed_once_addresses = set()
+        cls.failed_once_keys = set()
+
+    def write_single_register(self, address, value):
+        key = (self.host, self.port, int(address))
+        if int(address) in self.__class__.failed_once_addresses and key not in self.__class__.failed_once_keys:
+            self.__class__.failed_once_keys.add(key)
+            self.__class__.write_counts[key] = int(self.__class__.write_counts.get(key, 0)) + 1
+            self.__class__.write_log.append((self.host, self.port, int(address), int(value)))
+            return False
+        return super().write_single_register(address, value)
 
 
 def _shared_data():
@@ -303,6 +329,191 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
         self.assertEqual(scheduler_ctx.get("q_compare_source"), "readback")
         self.assertTrue(scheduler_ctx.get("p_readback_ok"))
         self.assertTrue(scheduler_ctx.get("q_readback_ok"))
+
+    @patch("modbus.setpoint_io._sleep")
+    def test_scheduler_pulses_trigger_after_setpoint_write_when_configured(self, sleep_mock):
+        _Registry.clear()
+        _CountingModbusClient.reset()
+        config = load_config("config.yaml")
+        config["SCHEDULER_PERIOD_S"] = 0.1
+        config["ISTENTORE_SCHEDULE_PERIOD_MINUTES"] = 15
+        config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["lib"]["modbus"]["local"]["port"] = 5020
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["port"] = 5021
+
+        lib_endpoint = config["PLANTS"]["lib"]["modbus"]["local"]
+        lib_points = lib_endpoint["points"]
+        p_reg = int(lib_points["p_setpoint"]["address"])
+        q_reg = int(lib_points["q_setpoint"]["address"])
+        trigger_reg = 95
+        lib_points["trigger"] = {
+            "name": "trigger",
+            "address": trigger_reg,
+            "format": "uint16",
+            "word_count": 1,
+            "byte_count": 2,
+            "access": "w",
+            "unit": "raw",
+            "eng_per_count": 1.0,
+        }
+
+        lib_bank = _FakeDataBank()
+        vrfb_bank = _FakeDataBank()
+        _Registry.register("127.0.0.1", 5020, lib_bank)
+        _Registry.register("127.0.0.1", 5021, vrfb_bank)
+
+        now = now_tz(config)
+        api_df = pd.DataFrame(
+            {
+                "power_setpoint_kw": [42.0],
+                "reactive_power_setpoint_kvar": [5.0],
+            },
+            index=pd.DatetimeIndex([now - pd.Timedelta(minutes=1)]),
+        )
+        shared_data = _shared_data()
+        with shared_data["lock"]:
+            shared_data["api_schedule_df_by_plant"]["lib"] = api_df
+
+        with patch("scheduling.agent.ModbusClient", _CountingModbusClient):
+            thread = threading.Thread(target=scheduler_agent, args=(config, shared_data), daemon=True)
+            thread.start()
+            try:
+                time.sleep(0.35)
+            finally:
+                shared_data["shutdown_event"].set()
+                thread.join(timeout=3)
+
+        self.assertAlmostEqual(_read_kw(lib_bank, p_reg), 42.0, places=1)
+        self.assertAlmostEqual(_read_kw(lib_bank, q_reg), 5.0, places=1)
+        self.assertEqual(lib_bank.get_holding_registers(trigger_reg, 1)[0], 0)
+        self.assertEqual(_CountingModbusClient.write_counts.get(("127.0.0.1", 5020, trigger_reg), 0), 2)
+        self.assertEqual(sleep_mock.call_count, 2)
+
+    @patch("modbus.setpoint_io._sleep")
+    def test_scheduler_skips_trigger_when_readback_already_matches_target(self, sleep_mock):
+        _Registry.clear()
+        _CountingModbusClient.reset()
+        config = load_config("config.yaml")
+        config["SCHEDULER_PERIOD_S"] = 0.1
+        config["ISTENTORE_SCHEDULE_PERIOD_MINUTES"] = 15
+        config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["lib"]["modbus"]["local"]["port"] = 5020
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["port"] = 5021
+
+        lib_endpoint = config["PLANTS"]["lib"]["modbus"]["local"]
+        lib_points = lib_endpoint["points"]
+        p_reg = int(lib_points["p_setpoint"]["address"])
+        q_reg = int(lib_points["q_setpoint"]["address"])
+        trigger_reg = 95
+        lib_points["trigger"] = {
+            "name": "trigger",
+            "address": trigger_reg,
+            "format": "uint16",
+            "word_count": 1,
+            "byte_count": 2,
+            "access": "w",
+            "unit": "raw",
+            "eng_per_count": 1.0,
+        }
+
+        lib_bank = _FakeDataBank()
+        vrfb_bank = _FakeDataBank()
+        _Registry.register("127.0.0.1", 5020, lib_bank)
+        _Registry.register("127.0.0.1", 5021, vrfb_bank)
+
+        now = now_tz(config)
+        api_df = pd.DataFrame(
+            {
+                "power_setpoint_kw": [42.0],
+                "reactive_power_setpoint_kvar": [5.0],
+            },
+            index=pd.DatetimeIndex([now - pd.Timedelta(minutes=1)]),
+        )
+        _seed_setpoints(lib_bank, lib_endpoint, 42.0, 5.0)
+
+        shared_data = _shared_data()
+        with shared_data["lock"]:
+            shared_data["api_schedule_df_by_plant"]["lib"] = api_df
+
+        with patch("scheduling.agent.ModbusClient", _CountingModbusClient):
+            thread = threading.Thread(target=scheduler_agent, args=(config, shared_data), daemon=True)
+            thread.start()
+            try:
+                time.sleep(0.30)
+            finally:
+                shared_data["shutdown_event"].set()
+                thread.join(timeout=3)
+
+        self.assertEqual(_CountingModbusClient.write_counts.get(("127.0.0.1", 5020, p_reg), 0), 0)
+        self.assertEqual(_CountingModbusClient.write_counts.get(("127.0.0.1", 5020, q_reg), 0), 0)
+        self.assertEqual(_CountingModbusClient.write_counts.get(("127.0.0.1", 5020, trigger_reg), 0), 0)
+        sleep_mock.assert_not_called()
+
+    @patch("modbus.setpoint_io._sleep")
+    def test_scheduler_retries_after_trigger_failure_even_when_registers_match(self, sleep_mock):
+        _Registry.clear()
+        _TriggerFlakyOnceModbusClient.reset()
+        config = load_config("config.yaml")
+        config["SCHEDULER_PERIOD_S"] = 0.1
+        config["ISTENTORE_SCHEDULE_PERIOD_MINUTES"] = 15
+        config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["lib"]["modbus"]["local"]["port"] = 5020
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["port"] = 5021
+
+        lib_endpoint = config["PLANTS"]["lib"]["modbus"]["local"]
+        lib_points = lib_endpoint["points"]
+        p_reg = int(lib_points["p_setpoint"]["address"])
+        q_reg = int(lib_points["q_setpoint"]["address"])
+        trigger_reg = 95
+        lib_points["trigger"] = {
+            "name": "trigger",
+            "address": trigger_reg,
+            "format": "uint16",
+            "word_count": 1,
+            "byte_count": 2,
+            "access": "w",
+            "unit": "raw",
+            "eng_per_count": 1.0,
+        }
+        _TriggerFlakyOnceModbusClient.failed_once_addresses = {trigger_reg}
+
+        lib_bank = _FakeDataBank()
+        vrfb_bank = _FakeDataBank()
+        _Registry.register("127.0.0.1", 5020, lib_bank)
+        _Registry.register("127.0.0.1", 5021, vrfb_bank)
+
+        now = now_tz(config)
+        api_df = pd.DataFrame(
+            {
+                "power_setpoint_kw": [42.0],
+                "reactive_power_setpoint_kvar": [5.0],
+            },
+            index=pd.DatetimeIndex([now - pd.Timedelta(minutes=1)]),
+        )
+        shared_data = _shared_data()
+        with shared_data["lock"]:
+            shared_data["api_schedule_df_by_plant"]["lib"] = api_df
+
+        with patch("scheduling.agent.ModbusClient", _TriggerFlakyOnceModbusClient):
+            thread = threading.Thread(target=scheduler_agent, args=(config, shared_data), daemon=True)
+            thread.start()
+            try:
+                time.sleep(0.55)
+            finally:
+                shared_data["shutdown_event"].set()
+                thread.join(timeout=3)
+
+        self.assertAlmostEqual(_read_kw(lib_bank, p_reg), 42.0, places=1)
+        self.assertAlmostEqual(_read_kw(lib_bank, q_reg), 5.0, places=1)
+        self.assertEqual(lib_bank.get_holding_registers(trigger_reg, 1)[0], 0)
+        self.assertGreaterEqual(_TriggerFlakyOnceModbusClient.write_counts.get(("127.0.0.1", 5020, p_reg), 0), 2)
+        self.assertGreaterEqual(_TriggerFlakyOnceModbusClient.write_counts.get(("127.0.0.1", 5020, q_reg), 0), 2)
+        self.assertGreaterEqual(_TriggerFlakyOnceModbusClient.write_counts.get(("127.0.0.1", 5020, trigger_reg), 0), 3)
+        dispatch_state = dict(shared_data["dispatch_write_status_by_plant"]["lib"])
+        self.assertEqual(dispatch_state["last_attempt_status"], "ok")
 
     def test_scheduler_skips_write_when_plant_readback_already_matches_target(self):
         _Registry.clear()
