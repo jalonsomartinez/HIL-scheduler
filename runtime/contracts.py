@@ -78,3 +78,18 @@ def clamp_dispatch_setpoints(p_kw, q_kvar, power_limits):
             "q_max_kvar": q_max_kvar,
         },
     }
+
+
+def clamp_voltage_setpoint_pu(value, *, default=1.0, minimum=0.9, maximum=1.1):
+    """Normalize and clamp a voltage setpoint in pu."""
+    try:
+        normalized = float(default if value is None else value)
+    except (TypeError, ValueError):
+        normalized = float(default)
+    if normalized != normalized:  # NaN check without importing math.
+        normalized = float(default)
+    minimum = float(minimum)
+    maximum = float(maximum)
+    if maximum < minimum:
+        minimum, maximum = maximum, minimum
+    return min(max(normalized, minimum), maximum)

@@ -14,6 +14,12 @@ def build_dashboard_layout(
     initial_posting_enabled,
     now_value,
 ):
+    def _reactive_mode_supported_style(plant_id, transport_mode):
+        plant_cfg = (config.get("PLANTS", {}) or {}).get(plant_id, {}) or {}
+        endpoint = (((plant_cfg.get("modbus", {}) or {}).get(transport_mode, {})) or {})
+        points = dict(endpoint.get("points", {}) or {})
+        return {} if "q_control_mode" in points else {"display": "none"}
+
     return html.Div(
         className="app-container",
         children=[
@@ -169,13 +175,28 @@ def build_dashboard_layout(
                                             ),
                                             html.Div(className="control-separator"),
                                             html.Div(
-                                                className="control-section",
+                                                className="control-group",
                                                 children=[
                                                     html.Div(
                                                         className="compact-toggle",
                                                         children=[
                                                             html.Button("Dispatch", id="dispatch-enable-lib", className="toggle-option toggle-option--positive", n_clicks=0, disabled=False),
                                                             html.Button("Paused", id="dispatch-disable-lib", className="toggle-option toggle-option--negative active", n_clicks=0, disabled=True),
+                                                        ],
+                                                    ),
+                                                ],
+                                            ),
+                                            html.Div(className="control-separator"),
+                                            html.Div(
+                                                id="reactive-mode-lib-wrap",
+                                                className="control-group",
+                                                style=_reactive_mode_supported_style("lib", initial_transport),
+                                                children=[
+                                                    html.Div(
+                                                        className="compact-toggle",
+                                                        children=[
+                                                            html.Button("Q mode", id="reactive-mode-lib-q-btn", className="toggle-option toggle-option--negative active", n_clicks=0, disabled=False),
+                                                            html.Button("V mode", id="reactive-mode-lib-voltage-btn", className="toggle-option toggle-option--positive", n_clicks=0, disabled=False),
                                                         ],
                                                     ),
                                                 ],
@@ -220,13 +241,28 @@ def build_dashboard_layout(
                                             ),
                                             html.Div(className="control-separator"),
                                             html.Div(
-                                                className="control-section",
+                                                className="control-group",
                                                 children=[
                                                     html.Div(
                                                         className="compact-toggle",
                                                         children=[
                                                             html.Button("Dispatch", id="dispatch-enable-vrfb", className="toggle-option toggle-option--positive", n_clicks=0, disabled=False),
                                                             html.Button("Paused", id="dispatch-disable-vrfb", className="toggle-option toggle-option--negative active", n_clicks=0, disabled=True),
+                                                        ],
+                                                    ),
+                                                ],
+                                            ),
+                                            html.Div(className="control-separator"),
+                                            html.Div(
+                                                id="reactive-mode-vrfb-wrap",
+                                                className="control-group",
+                                                style=_reactive_mode_supported_style("vrfb", initial_transport),
+                                                children=[
+                                                    html.Div(
+                                                        className="compact-toggle",
+                                                        children=[
+                                                            html.Button("Q mode", id="reactive-mode-vrfb-q-btn", className="toggle-option toggle-option--negative active", n_clicks=0, disabled=False),
+                                                            html.Button("V mode", id="reactive-mode-vrfb-voltage-btn", className="toggle-option toggle-option--positive", n_clicks=0, disabled=False),
                                                         ],
                                                     ),
                                                 ],
@@ -722,6 +758,7 @@ def build_dashboard_layout(
             ),
             dcc.Store(id="control-action", data="idle"),
             dcc.Store(id="manual-settings-action", data="idle"),
+            dcc.Store(id="reactive-mode-action", data="idle"),
             dcc.Store(id="api-password-action", data="idle"),
             dcc.Store(id="api-connection-action", data="idle"),
             dcc.Store(id="posting-settings-action", data="idle"),

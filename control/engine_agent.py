@@ -26,6 +26,7 @@ from control.modbus_io import (
 from runtime.engine_command_cycle_runtime import run_command_with_lifecycle
 from runtime.engine_status_runtime import default_engine_status, update_engine_status
 from modbus.grouped_reads import build_read_groups, read_points_internal_grouped
+from modbus.setpoint_io import q_control_mode_point_configured
 from runtime.contracts import (
     clamp_dispatch_setpoints,
     resolve_modbus_endpoint,
@@ -62,8 +63,6 @@ def _get_plant_modbus_config(config, shared_data, plant_id, transport_mode=None)
         "power_limits": endpoint.get("power_limits", {}),
         "points": endpoint.get("points", {}),
     }
-
-
 def _set_enable(config, shared_data, plant_id, value):
     cfg = _get_plant_modbus_config(config, shared_data, plant_id)
     return set_enable_io(cfg, plant_id.upper(), value)
@@ -163,6 +162,7 @@ def _read_observed_points(config, shared_data, plant_id, transport_mode=None):
         "enable_state": None,
         "start_command_state": None,
         "stop_command_state": None,
+        "q_control_mode_state": None,
         "p_battery_kw": None,
         "q_battery_kvar": None,
     }
@@ -178,6 +178,8 @@ def _read_observed_points(config, shared_data, plant_id, transport_mode=None):
             point_names.append("start_command")
         if "stop_command" in points:
             point_names.append("stop_command")
+        if "q_control_mode" in points:
+            point_names.append("q_control_mode")
         signature = tuple(
             sorted(
                 (
@@ -208,6 +210,9 @@ def _read_observed_points(config, shared_data, plant_id, transport_mode=None):
         if "stop_command" in points:
             stop_value = grouped.get("stop_command")
             values["stop_command_state"] = None if stop_value is None else int(stop_value)
+        if "q_control_mode" in points:
+            q_control_mode_value = grouped.get("q_control_mode")
+            values["q_control_mode_state"] = None if q_control_mode_value is None else int(q_control_mode_value)
     except Exception as exc:
         error = {"code": "read_error", "message": str(exc)}
     finally:
@@ -229,6 +234,7 @@ def _publish_observed_state(shared_data, plant_id, values, *, error=None, now_va
             "enable_state": prev.get("enable_state"),
             "start_command_state": prev.get("start_command_state"),
             "stop_command_state": prev.get("stop_command_state"),
+            "q_control_mode_state": prev.get("q_control_mode_state"),
             "p_battery_kw": prev.get("p_battery_kw"),
             "q_battery_kvar": prev.get("q_battery_kvar"),
             "last_attempt": now_value,
@@ -246,12 +252,13 @@ def _publish_observed_state(shared_data, plant_id, values, *, error=None, now_va
                 "enable_state",
                 "start_command_state",
                 "stop_command_state",
+                "q_control_mode_state",
                 "p_battery_kw",
                 "q_battery_kvar",
             )
         )
         if success_any:
-            for key in ("enable_state", "start_command_state", "stop_command_state", "p_battery_kw", "q_battery_kvar"):
+            for key in ("enable_state", "start_command_state", "stop_command_state", "q_control_mode_state", "p_battery_kw", "q_battery_kvar"):
                 if values.get(key) is not None:
                     current[key] = values.get(key)
             current["last_success"] = now_value
@@ -448,8 +455,11 @@ def _get_latest_schedule_setpoint(config, shared_data, plant_id, tz):
             "api_df": data.get("api_schedule_df_by_plant", {}).get(plant_id),
             "manual_series_map": dict(data.get("manual_schedule_series_df_by_key", {})),
             "manual_merge_enabled": dict(data.get("manual_schedule_merge_enabled_by_key", {})),
+            "selected_reactive_mode": int((data.get("reactive_control_mode_by_plant", {}) or {}).get(plant_id, 1) or 1),
         },
     )
+    if source_snapshot["selected_reactive_mode"] not in {1, 3}:
+        source_snapshot["selected_reactive_mode"] = 1
     p_key, q_key, v_key = msm.manual_series_keys_for_plant(plant_id, include_voltage=True)
     return resolve_dispatch_bundle_from_sources(
         source_snapshot["api_df"],
@@ -461,8 +471,32 @@ def _get_latest_schedule_setpoint(config, shared_data, plant_id, tz):
         manual_p_enabled=bool(source_snapshot["manual_merge_enabled"].get(p_key, False)),
         manual_q_enabled=bool(source_snapshot["manual_merge_enabled"].get(q_key, False)),
         manual_v_enabled=bool(source_snapshot["manual_merge_enabled"].get(v_key, False)),
+        selected_reactive_control_mode=source_snapshot["selected_reactive_mode"],
         source="manual",
     )
+
+
+def _perform_transport_switch(config, shared_data, plant_ids, requested_mode, safe_stop_all_fn):
+    perform_transport_switch_flow(shared_data, plant_ids, requested_mode, safe_stop_all_fn)
+    with shared_data["lock"]:
+        selected_map = shared_data.setdefault("reactive_control_mode_by_plant", {})
+        runtime_map = shared_data.setdefault("reactive_control_mode_runtime_by_plant", {})
+        now_value = now_tz(config)
+        for plant_id in plant_ids:
+            endpoint = resolve_modbus_endpoint(config, plant_id, requested_mode)
+            if q_control_mode_point_configured(endpoint):
+                continue
+            selected_map[plant_id] = 1
+            entry = dict(runtime_map.get(plant_id, {}) or {})
+            entry.update(
+                {
+                    "selected_mode": 1,
+                    "desired_mode": 1,
+                    "last_updated": now_value,
+                    "last_error": None,
+                }
+            )
+            runtime_map[plant_id] = entry
 
 
 def _safe_stop_plant(config, shared_data, plant_id, *, threshold_kw=1.0, timeout_s=30):
@@ -819,7 +853,7 @@ def _execute_command(config, shared_data, command, *, plant_ids, tz, now_fn=now_
     safe_stop_all_fn = _dep("safe_stop_all_plants_fn", lambda: _safe_stop_all_plants(config, shared_data, plant_ids))
     perform_transport_switch_fn = _dep(
         "perform_transport_switch_fn",
-        lambda requested_mode: perform_transport_switch_flow(shared_data, plant_ids, requested_mode, safe_stop_all_fn),
+        lambda requested_mode: _perform_transport_switch(config, shared_data, plant_ids, requested_mode, safe_stop_all_fn),
     )
     start_one_plant_fn = _dep(
         "start_one_plant_fn",

@@ -10,6 +10,7 @@ from dashboard.settings_intents import (
     api_connection_intent_from_trigger,
     manual_settings_intent_from_trigger,
     posting_intent_from_trigger,
+    reactive_mode_intent_from_trigger,
 )
 
 
@@ -93,6 +94,11 @@ class DashboardSettingsIntentsTests(unittest.TestCase):
         self.assertEqual(posting_intent_from_trigger("api-posting-enable-btn")["kind"], "posting.enable")
         self.assertEqual(posting_intent_from_trigger("api-posting-disable-btn")["kind"], "posting.disable")
         self.assertIsNone(posting_intent_from_trigger("other"))
+
+    def test_reactive_mode_intent_maps_voltage_toggle(self):
+        intent = reactive_mode_intent_from_trigger("reactive-mode-lib-voltage-btn")
+        self.assertEqual(intent["kind"], "reactive_mode.set")
+        self.assertEqual(intent["payload"], {"plant_id": "lib", "mode": 3})
 
 
 if __name__ == "__main__":

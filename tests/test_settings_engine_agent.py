@@ -54,6 +54,26 @@ def _shared():
         "manual_schedule_merge_enabled_by_key": msm.default_manual_merge_enabled_map(default_enabled=False),
         "manual_schedule_df_by_plant": {"lib": pd.DataFrame(), "vrfb": pd.DataFrame()},
         "manual_series_runtime_state_by_key": {},
+        "transport_mode": "local",
+        "reactive_control_mode_by_plant": {"lib": 1, "vrfb": 1},
+        "reactive_control_mode_runtime_by_plant": {
+            "lib": {
+                "selected_mode": 1,
+                "desired_mode": 1,
+                "last_command_id": None,
+                "last_error": None,
+                "last_updated": None,
+                "last_success": None,
+            },
+            "vrfb": {
+                "selected_mode": 1,
+                "desired_mode": 1,
+                "last_command_id": None,
+                "last_error": None,
+                "last_updated": None,
+                "last_success": None,
+            },
+        },
         "api_password": None,
         "api_connection_runtime": {
             "state": "disconnected",
@@ -252,6 +272,40 @@ class SettingsEngineAgentTests(unittest.TestCase):
             self.assertTrue(shared["posting_runtime"]["policy_enabled"])
             self.assertEqual(shared["posting_runtime"]["state"], "enabled")
             self.assertEqual(shared["api_connection_runtime"]["posting_health"]["state"], "idle")
+
+    def test_reactive_mode_set_updates_selected_mode(self):
+        shared = _shared()
+        cfg = _config()
+        cfg["PLANTS"] = {
+            "lib": {"modbus": {"local": {"points": {"q_control_mode": {"address": 1}}}}},
+            "vrfb": {"modbus": {"local": {"points": {}}}},
+        }
+        result = _execute_settings_command(
+            cfg,
+            shared,
+            {"id": "cmd-react-1", "kind": "reactive_mode.set", "payload": {"plant_id": "lib", "mode": 3}},
+            tz=timezone.utc,
+        )
+        self.assertEqual(result["state"], "succeeded")
+        with shared["lock"]:
+            self.assertEqual(shared["reactive_control_mode_by_plant"]["lib"], 3)
+            self.assertEqual(shared["reactive_control_mode_runtime_by_plant"]["lib"]["selected_mode"], 3)
+
+    def test_reactive_mode_set_rejects_unsupported_voltage_mode(self):
+        shared = _shared()
+        cfg = _config()
+        cfg["PLANTS"] = {
+            "lib": {"modbus": {"local": {"points": {}}}},
+            "vrfb": {"modbus": {"local": {"points": {}}}},
+        }
+        result = _execute_settings_command(
+            cfg,
+            shared,
+            {"id": "cmd-react-2", "kind": "reactive_mode.set", "payload": {"plant_id": "lib", "mode": 3}},
+            tz=timezone.utc,
+        )
+        self.assertEqual(result["state"], "rejected")
+        self.assertEqual(result["message"], "unsupported_mode")
 
     def test_single_cycle_publishes_settings_engine_status(self):
         shared = _shared()

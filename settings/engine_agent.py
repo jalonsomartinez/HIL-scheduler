@@ -6,6 +6,8 @@ import time
 
 import pandas as pd
 
+from modbus.setpoint_io import q_control_mode_point_configured
+from runtime.contracts import resolve_modbus_endpoint
 from runtime.api_runtime_state import (
     complete_api_connect_probe,
     complete_api_disconnect,
@@ -90,6 +92,51 @@ def _ensure_manual_runtime_state_map(shared_data):
                 st["state"] = "active" if st["active"] else "inactive"
             state_map[key] = st
     return state_map
+
+
+def _ensure_reactive_mode_runtime_state_map(config, shared_data):
+    plant_ids = tuple(config.get("PLANT_IDS", ("lib", "vrfb")))
+    mode_map = shared_data.setdefault("reactive_control_mode_by_plant", {})
+    runtime_map = shared_data.setdefault("reactive_control_mode_runtime_by_plant", {})
+    for plant_id in plant_ids:
+        try:
+            selected_mode = int(mode_map.get(plant_id, 1) or 1)
+        except (TypeError, ValueError):
+            selected_mode = 1
+        if selected_mode not in {1, 3}:
+            selected_mode = 1
+        mode_map[plant_id] = selected_mode
+        if plant_id not in runtime_map or not isinstance(runtime_map.get(plant_id), dict):
+            runtime_map[plant_id] = {
+                "selected_mode": selected_mode,
+                "desired_mode": selected_mode,
+                "last_command_id": None,
+                "last_error": None,
+                "last_updated": None,
+                "last_success": None,
+            }
+        else:
+            entry = dict(runtime_map.get(plant_id, {}) or {})
+            try:
+                entry_selected_mode = int(entry.get("selected_mode", selected_mode) or selected_mode)
+            except (TypeError, ValueError):
+                entry_selected_mode = selected_mode
+            if entry_selected_mode not in {1, 3}:
+                entry_selected_mode = selected_mode
+            entry["selected_mode"] = entry_selected_mode
+            try:
+                desired_mode = int(entry.get("desired_mode", entry_selected_mode) or entry_selected_mode)
+            except (TypeError, ValueError):
+                desired_mode = entry_selected_mode
+            if desired_mode not in {1, 3}:
+                desired_mode = entry_selected_mode
+            entry["desired_mode"] = desired_mode
+            entry.setdefault("last_command_id", None)
+            entry.setdefault("last_error", None)
+            entry.setdefault("last_updated", None)
+            entry.setdefault("last_success", None)
+            runtime_map[plant_id] = entry
+    return runtime_map
 
 
 def _update_settings_engine_status(
@@ -256,6 +303,64 @@ def _apply_manual_series_command(config, shared_data, command, *, tz):
     }
 
 
+def _apply_reactive_mode_set(config, shared_data, command):
+    payload = dict((command or {}).get("payload", {}) or {})
+    command_id = str((command or {}).get("id", ""))
+    now_value = now_tz(config)
+    plant_id = str(payload.get("plant_id", ""))
+    if plant_id not in tuple(config.get("PLANT_IDS", ("lib", "vrfb"))):
+        return {"state": "rejected", "message": "invalid_plant_id", "result": {"plant_id": plant_id}}
+
+    try:
+        requested_mode = int(payload.get("mode"))
+    except (TypeError, ValueError):
+        requested_mode = None
+    if requested_mode not in {1, 3}:
+        return {"state": "rejected", "message": "invalid_mode", "result": {"plant_id": plant_id}}
+
+    transport_mode = snapshot_locked(shared_data, lambda data: data.get("transport_mode", "local"))
+    endpoint = resolve_modbus_endpoint(config, plant_id, transport_mode)
+    supports_mode_toggle = q_control_mode_point_configured(endpoint)
+    if requested_mode == 3 and not supports_mode_toggle:
+        error = _error_payload(now_value, "unsupported_mode", "Active endpoint does not expose q_control_mode.")
+        with shared_data["lock"]:
+            runtime_map = _ensure_reactive_mode_runtime_state_map(config, shared_data)
+            entry = dict(runtime_map.get(plant_id, {}) or {})
+            entry.update(
+                {
+                    "desired_mode": requested_mode,
+                    "last_command_id": command_id,
+                    "last_error": error,
+                    "last_updated": now_value,
+                }
+            )
+            runtime_map[plant_id] = entry
+        return {"state": "rejected", "message": "unsupported_mode", "result": {"plant_id": plant_id, "mode": requested_mode}}
+
+    with shared_data["lock"]:
+        mode_map = shared_data.setdefault("reactive_control_mode_by_plant", {})
+        runtime_map = _ensure_reactive_mode_runtime_state_map(config, shared_data)
+        previous_mode = int(mode_map.get(plant_id, 1) or 1)
+        mode_map[plant_id] = requested_mode
+        entry = dict(runtime_map.get(plant_id, {}) or {})
+        entry.update(
+            {
+                "selected_mode": requested_mode,
+                "desired_mode": requested_mode,
+                "last_command_id": command_id,
+                "last_error": None,
+                "last_updated": now_value,
+                "last_success": now_value,
+            }
+        )
+        runtime_map[plant_id] = entry
+    return {
+        "state": "succeeded",
+        "message": None,
+        "result": {"plant_id": plant_id, "previous_mode": previous_mode, "selected_mode": requested_mode},
+    }
+
+
 def _apply_api_connect(config, shared_data, command):
     payload = dict((command or {}).get("payload", {}) or {})
     command_id = str((command or {}).get("id", ""))
@@ -404,6 +509,8 @@ def _execute_settings_command(config, shared_data, command, *, tz):
         return _apply_posting_policy(config, shared_data, command, enabled=True)
     if kind == "posting.disable":
         return _apply_posting_policy(config, shared_data, command, enabled=False)
+    if kind == "reactive_mode.set":
+        return _apply_reactive_mode_set(config, shared_data, command)
     return {"state": "rejected", "message": "unsupported_command", "result": {"kind": kind}}
 
 
@@ -441,6 +548,7 @@ def settings_engine_agent(config, shared_data):
     tz = get_config_tz(config)
     with shared_data["lock"]:
         _ensure_manual_runtime_state_map(shared_data)
+        _ensure_reactive_mode_runtime_state_map(config, shared_data)
         initial_posting_enabled = bool(
             (shared_data.get("posting_runtime", {}) or {}).get(
                 "policy_enabled",

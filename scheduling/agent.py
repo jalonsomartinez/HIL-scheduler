@@ -99,6 +99,7 @@ def scheduler_agent(config, shared_data):
                 "api_map": dict(data.get("api_schedule_df_by_plant", {})),
                 "manual_series_map": dict(data.get("manual_schedule_series_df_by_key", {})),
                 "manual_merge_enabled": dict(data.get("manual_schedule_merge_enabled_by_key", {})),
+                "reactive_mode_by_plant": dict(data.get("reactive_control_mode_by_plant", {})),
             },
         )
         transport_mode = snapshot["transport_mode"]
@@ -106,6 +107,7 @@ def scheduler_agent(config, shared_data):
         api_map = snapshot["api_map"]
         manual_series_map = snapshot["manual_series_map"]
         manual_merge_enabled = snapshot["manual_merge_enabled"]
+        reactive_mode_by_plant = snapshot["reactive_mode_by_plant"]
 
         for plant_id in plant_ids:
             try:
@@ -130,7 +132,9 @@ def scheduler_agent(config, shared_data):
 
                 api_schedule_df = api_map.get(plant_id)
                 p_key, q_key, v_key = msm.manual_series_keys_for_plant(plant_id, include_voltage=True)
-                manual_v_enabled = bool(manual_merge_enabled.get(v_key, False))
+                selected_reactive_mode = int(reactive_mode_by_plant.get(plant_id, 1) or 1)
+                if selected_reactive_mode not in {1, 3}:
+                    selected_reactive_mode = 1
                 dispatch_bundle = resolve_dispatch_bundle_from_sources(
                     api_schedule_df,
                     manual_series_map.get(p_key),
@@ -140,7 +144,8 @@ def scheduler_agent(config, shared_data):
                     tz,
                     manual_p_enabled=bool(manual_merge_enabled.get(p_key, False)),
                     manual_q_enabled=bool(manual_merge_enabled.get(q_key, False)),
-                    manual_v_enabled=manual_v_enabled,
+                    manual_v_enabled=bool(manual_merge_enabled.get(v_key, False)),
+                    selected_reactive_control_mode=selected_reactive_mode,
                     source="api",
                     api_validity_window=api_validity_window,
                 )
@@ -161,7 +166,7 @@ def scheduler_agent(config, shared_data):
 
                 manual_p_applied = bool(manual_merge_enabled.get(p_key, False))
                 manual_q_applied = bool(manual_merge_enabled.get(q_key, False))
-                manual_v_applied = bool(manual_v_enabled)
+                manual_v_applied = bool(manual_merge_enabled.get(v_key, False))
 
                 p_write_ok = None
                 q_write_ok = None
@@ -193,6 +198,7 @@ def scheduler_agent(config, shared_data):
                             "manual_p_applied": bool(manual_p_applied),
                             "manual_q_applied": bool(manual_q_applied),
                             "manual_v_applied": bool(manual_v_applied),
+                            "selected_reactive_control_mode": int(selected_reactive_mode),
                             "reactive_control_mode": reactive_dispatch.get("reactive_control_mode"),
                             "voltage_mode_active": bool(voltage_mode_active),
                             "voltage_setpoint_pu": resolved_voltage_setpoint_pu,

@@ -21,6 +21,7 @@ from dashboard.settings_intents import (
     api_connection_intent_from_trigger,
     manual_settings_intent_from_trigger,
     posting_intent_from_trigger,
+    reactive_mode_intent_from_trigger,
 )
 from dashboard.control_health import (
     summarize_control_engine_status,
@@ -67,12 +68,13 @@ from dashboard.settings_ui_state import (
     manual_series_display_state,
     posting_controls_state,
     posting_display_state,
+    reactive_mode_controls_state,
     resolve_command_click_feedback_state,
 )
 from grid_map_runtime import build_grid_map_figure_update, build_grid_map_meta_lines, snapshot_grid_map_runtime
 import scheduling.manual_schedule_manager as msm
 from measurement.storage import MEASUREMENT_COLUMNS
-from runtime.contracts import sanitize_plant_name
+from runtime.contracts import resolve_modbus_endpoint, sanitize_plant_name
 from runtime.paths import get_assets_dir, get_data_dir, get_project_root
 from scheduling.runtime import build_effective_schedule_frame
 from settings.command_runtime import enqueue_settings_command
@@ -297,6 +299,24 @@ def dashboard_agent(config, shared_data):
         elif active_side == "negative":
             negative.append("active")
         return " ".join(positive), " ".join(negative)
+
+    def _reactive_mode_label(mode_value):
+        try:
+            mode_int = int(mode_value)
+        except (TypeError, ValueError):
+            mode_int = None
+        if mode_int == 3:
+            return "Voltage Reg"
+        if mode_int == 1:
+            return "Q Control"
+        if mode_int is None:
+            return "Unknown"
+        return f"Mode {mode_int}"
+
+    def _reactive_mode_supported(plant_id, transport_mode):
+        endpoint = resolve_modbus_endpoint(config, plant_id, transport_mode)
+        points = dict(endpoint.get("points", {}) or {})
+        return "q_control_mode" in points
 
     def _toggle_confirm_request_for_transport(*, requested_side):
         side = "positive" if str(requested_side) == "positive" else "negative"
@@ -1264,6 +1284,110 @@ def dashboard_agent(config, shared_data):
 
     @app.callback(
         [
+            Output("reactive-mode-lib-wrap", "style"),
+            Output("reactive-mode-lib-q-btn", "children"),
+            Output("reactive-mode-lib-q-btn", "className"),
+            Output("reactive-mode-lib-q-btn", "disabled"),
+            Output("reactive-mode-lib-voltage-btn", "children"),
+            Output("reactive-mode-lib-voltage-btn", "className"),
+            Output("reactive-mode-lib-voltage-btn", "disabled"),
+            Output("reactive-mode-vrfb-wrap", "style"),
+            Output("reactive-mode-vrfb-q-btn", "children"),
+            Output("reactive-mode-vrfb-q-btn", "className"),
+            Output("reactive-mode-vrfb-q-btn", "disabled"),
+            Output("reactive-mode-vrfb-voltage-btn", "children"),
+            Output("reactive-mode-vrfb-voltage-btn", "className"),
+            Output("reactive-mode-vrfb-voltage-btn", "disabled"),
+        ],
+        [
+            Input("interval-component", "n_intervals"),
+            Input("reactive-mode-action", "data"),
+            Input("reactive-mode-lib-q-btn", "n_clicks_timestamp"),
+            Input("reactive-mode-lib-voltage-btn", "n_clicks_timestamp"),
+            Input("reactive-mode-vrfb-q-btn", "n_clicks_timestamp"),
+            Input("reactive-mode-vrfb-voltage-btn", "n_clicks_timestamp"),
+        ],
+        prevent_initial_call=False,
+    )
+    def render_reactive_mode_controls(
+        _n_intervals,
+        _reactive_mode_action,
+        lib_q_click_ts_ms,
+        lib_voltage_click_ts_ms,
+        vrfb_q_click_ts_ms,
+        vrfb_voltage_click_ts_ms,
+    ):
+        snapshot = snapshot_locked(
+            shared_data,
+            lambda data: {
+                "transport_mode": data.get("transport_mode", "local"),
+                "selected_mode_by_plant": dict(data.get("reactive_control_mode_by_plant", {})),
+                "runtime_by_plant": dict(data.get("reactive_control_mode_runtime_by_plant", {})),
+            },
+        )
+        transport_mode = snapshot["transport_mode"]
+        runtime_by_plant = snapshot["runtime_by_plant"]
+        selected_mode_by_plant = snapshot["selected_mode_by_plant"]
+        now_value = now_tz(config)
+
+        def _controls_for(plant_id, q_click_ts_ms, voltage_click_ts_ms):
+            runtime = dict(runtime_by_plant.get(plant_id, {}) or {})
+            selected_mode = int(runtime.get("selected_mode", selected_mode_by_plant.get(plant_id, 1)) or 1)
+            if selected_mode not in {1, 3}:
+                selected_mode = 1
+            supported = _reactive_mode_supported(plant_id, transport_mode)
+            click_feedback_state = resolve_command_click_feedback_state(
+                positive_click_ts_ms=voltage_click_ts_ms,
+                negative_click_ts_ms=q_click_ts_ms,
+                positive_state="switching_to_voltage",
+                negative_state="switching_to_q",
+                now_ts=now_value,
+                hold_seconds=ui_transition_feedback_hold_s,
+            )
+            control_state = reactive_mode_controls_state(
+                selected_mode,
+                click_feedback_state=click_feedback_state,
+                supported=supported,
+            )
+            voltage_cls, q_cls = _binary_toggle_classes(control_state["active_side"])
+            return [
+                {} if supported else {"display": "none"},
+                control_state["q_label"],
+                q_cls,
+                bool(control_state["q_disabled"]),
+                control_state["voltage_label"],
+                voltage_cls,
+                bool(control_state["voltage_disabled"]),
+            ]
+
+        return tuple(
+            _controls_for("lib", lib_q_click_ts_ms, lib_voltage_click_ts_ms)
+            + _controls_for("vrfb", vrfb_q_click_ts_ms, vrfb_voltage_click_ts_ms)
+        )
+
+    @app.callback(
+        Output("reactive-mode-action", "data"),
+        [
+            Input("reactive-mode-lib-q-btn", "n_clicks"),
+            Input("reactive-mode-lib-voltage-btn", "n_clicks"),
+            Input("reactive-mode-vrfb-q-btn", "n_clicks"),
+            Input("reactive-mode-vrfb-voltage-btn", "n_clicks"),
+        ],
+        prevent_initial_call=True,
+    )
+    def enqueue_reactive_mode_commands(*_clicks):
+        ctx = callback_context
+        if not ctx.triggered:
+            raise PreventUpdate
+        trigger_id = _parse_trigger_id(ctx.triggered[0]["prop_id"])
+        intent = reactive_mode_intent_from_trigger(trigger_id)
+        if intent is None:
+            raise PreventUpdate
+        status = _enqueue_dashboard_settings_intent(intent, trigger_id=trigger_id, log_label="reactive mode command")
+        return _command_status_action_token(status)
+
+    @app.callback(
+        [
             Output("manual-graph-lib-p", "figure"),
             Output("manual-graph-lib-q", "figure"),
             Output("manual-graph-lib-v", "figure"),
@@ -2051,6 +2175,7 @@ def dashboard_agent(config, shared_data):
             }
             manual_series_map = dict(shared_data.get("manual_schedule_series_df_by_key", {}))
             manual_merge_enabled = dict(shared_data.get("manual_schedule_merge_enabled_by_key", {}))
+            reactive_mode_by_plant = dict(shared_data.get("reactive_control_mode_by_plant", {}))
             measurements_map = {
                 plant_id: shared_data.get("current_file_df_by_plant", {}).get(plant_id, pd.DataFrame()).copy()
                 for plant_id in plant_ids
@@ -2197,6 +2322,15 @@ def dashboard_agent(config, shared_data):
                 ),
             )
 
+        def _current_reactive_mode_label(plant_id):
+            observed = dict(observed_state_by_plant.get(plant_id, {}) or {})
+            if bool(observed_effective_stale_by_plant.get(plant_id, True)):
+                return "Unknown"
+            return _reactive_mode_label(observed.get("q_control_mode_state"))
+
+        def _desired_reactive_mode_label(plant_id):
+            return _reactive_mode_label(reactive_mode_by_plant.get(plant_id, 1))
+
         table_rows = []
         for plant_id in plant_ids:
             latest = _latest_measurements_row(plant_id)
@@ -2214,6 +2348,7 @@ def dashboard_agent(config, shared_data):
                         _metric_cell(latest.get("p_poi_kw"), "kW", decimals=1),
                         _metric_cell(latest.get("q_setpoint_kvar"), "kvar", decimals=1),
                         _metric_cell(latest.get("q_poi_kvar"), "kvar", decimals=1),
+                        html.Td(_current_reactive_mode_label(plant_id), className="public-summary-measurement-cell"),
                         _metric_cell(latest.get("v_setpoint_pu"), "pu", decimals=3),
                         _metric_cell(latest.get("v_poi_kV"), "kV", decimals=voltage_decimals),
                     ]
@@ -2233,6 +2368,7 @@ def dashboard_agent(config, shared_data):
                             html.Th("P POI"),
                             html.Th("Q ref"),
                             html.Th("Q POI"),
+                            html.Th("Q mode"),
                             html.Th("V ref"),
                             html.Th("Voltage"),
                         ]
@@ -2270,6 +2406,12 @@ def dashboard_agent(config, shared_data):
                     className="status-text",
                 )
             ]
+            rows.append(
+                html.Div(
+                    f"Reactive mode: desired={_desired_reactive_mode_label(plant_id)} | current={_current_reactive_mode_label(plant_id)}",
+                    className="status-text",
+                )
+            )
             rows.extend(html.Div(text, className="status-text") for text in dispatch_lines)
             rows.extend(html.Div(text, className="status-text") for text in health_lines)
             return rows

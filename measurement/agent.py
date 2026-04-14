@@ -719,6 +719,7 @@ def measurement_agent(config, shared_data):
                 },
                 "manual_series_map": dict(data.get("manual_schedule_series_df_by_key", {})),
                 "manual_merge_enabled": dict(data.get("manual_schedule_merge_enabled_by_key", {})),
+                "reactive_mode_by_plant": dict(data.get("reactive_control_mode_by_plant", {})),
             },
         )
         transport_mode = snapshot["transport_mode"]
@@ -734,6 +735,7 @@ def measurement_agent(config, shared_data):
         mfrr_schedule_map = snapshot.get("mfrr_schedule_map", {})
         manual_series_map = snapshot.get("manual_series_map", {})
         manual_merge_enabled = snapshot.get("manual_merge_enabled", {})
+        reactive_mode_by_plant = snapshot.get("reactive_mode_by_plant", {})
 
         for plant_id in plant_ids:
             state = plant_states[plant_id]
@@ -788,6 +790,9 @@ def measurement_agent(config, shared_data):
                 row["p_schedule_day_ahead_kw"] = resolve_schedule_power_kw(day_ahead_schedule_map.get(plant_id), row_ts)
                 row["p_schedule_mfrr_kw"] = resolve_schedule_power_kw(mfrr_schedule_map.get(plant_id), row_ts)
                 p_key, q_key, v_key = msm.manual_series_keys_for_plant(plant_id, include_voltage=True)
+                selected_reactive_mode = int(reactive_mode_by_plant.get(plant_id, 1) or 1)
+                if selected_reactive_mode not in {1, 3}:
+                    selected_reactive_mode = 1
                 dispatch_bundle = resolve_dispatch_bundle_from_sources(
                     total_schedule_map.get(plant_id),
                     manual_series_map.get(p_key),
@@ -798,6 +803,7 @@ def measurement_agent(config, shared_data):
                     manual_p_enabled=bool(manual_merge_enabled.get(p_key, False)),
                     manual_q_enabled=bool(manual_merge_enabled.get(q_key, False)),
                     manual_v_enabled=bool(manual_merge_enabled.get(v_key, False)),
+                    selected_reactive_control_mode=selected_reactive_mode,
                     source="api",
                 )
                 row["v_setpoint_pu"] = float(dispatch_bundle.get("voltage_setpoint_pu", 1.0))

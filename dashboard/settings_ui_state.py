@@ -134,3 +134,47 @@ def posting_controls_state(display_state):
         "enable_disabled": enabling or disabling or enabled,
         "disable_disabled": enabling or disabling or disabled,
     }
+
+
+def reactive_mode_controls_state(selected_mode, *, click_feedback_state=None, supported=True):
+    try:
+        selected_mode = int(selected_mode or 1)
+    except (TypeError, ValueError):
+        selected_mode = 1
+    if selected_mode not in {1, 3}:
+        selected_mode = 1
+
+    if not supported:
+        return {
+            "q_label": "Q mode",
+            "voltage_label": "Unavailable",
+            "q_disabled": True,
+            "voltage_disabled": True,
+            "active_side": "negative",
+        }
+
+    feedback = str(click_feedback_state or "").lower()
+    if feedback == "switching_to_voltage":
+        return {
+            "q_label": "Q mode",
+            "voltage_label": "V...",
+            "q_disabled": True,
+            "voltage_disabled": True,
+            "active_side": "positive",
+        }
+    if feedback == "switching_to_q":
+        return {
+            "q_label": "Q...",
+            "voltage_label": "V mode",
+            "q_disabled": True,
+            "voltage_disabled": True,
+            "active_side": "negative",
+        }
+
+    return {
+        "q_label": "Q mode",
+        "voltage_label": "V mode",
+        "q_disabled": selected_mode == 1,
+        "voltage_disabled": selected_mode == 3,
+        "active_side": "positive" if selected_mode == 3 else "negative",
+    }

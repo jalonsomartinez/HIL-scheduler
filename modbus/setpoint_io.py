@@ -4,7 +4,7 @@ import logging
 import time
 
 from modbus.codec import encode_point_internal_words, read_point_internal, read_point_words, write_point_internal
-from runtime.contracts import clamp_dispatch_setpoints
+from runtime.contracts import clamp_dispatch_setpoints, clamp_voltage_setpoint_pu
 
 AGGREGATE_SETPOINT_MODE = "aggregate"
 PER_PHASE_SETPOINT_MODE = "per_phase"
@@ -77,7 +77,7 @@ def resolve_reactive_power_request(
         "reactive_control_mode": None,
         "requested_q_kvar": float(0.0 if requested_q_kvar is None else requested_q_kvar),
         "voltage_mode_active": bool(voltage_mode_active),
-        "voltage_setpoint_pu": float(1.0 if voltage_setpoint_pu is None else voltage_setpoint_pu),
+        "voltage_setpoint_pu": float(clamp_voltage_setpoint_pu(voltage_setpoint_pu)),
         "measured_v_poi_kv": None,
         "measured_v_poi_pu": None,
     }

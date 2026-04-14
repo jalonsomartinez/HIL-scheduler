@@ -2,6 +2,7 @@
 
 import pandas as pd
 
+from runtime.contracts import clamp_voltage_setpoint_pu
 from time_utils import normalize_schedule_index
 
 
@@ -108,6 +109,16 @@ def _ffill_column_on_union(df, union_index, column_name):
     return series.reindex(union_index).ffill()
 
 
+def _resolve_clamped_voltage_setpoint(series_df, now_value, tz, *, manual_v_enabled):
+    voltage_setpoint_pu = 1.0
+    if manual_v_enabled:
+        manual_v_value, manual_v_has = resolve_series_setpoint_asof(series_df, now_value, tz)
+        manual_v_end = split_manual_override_series(series_df, tz).get("end_ts")
+        if manual_v_has and (manual_v_end is None or pd.Timestamp(now_value) < pd.Timestamp(manual_v_end)):
+            voltage_setpoint_pu = float(manual_v_value)
+    return float(clamp_voltage_setpoint_pu(voltage_setpoint_pu))
+
+
 def build_effective_schedule_frame(
     api_df,
     manual_p_df,
@@ -179,7 +190,11 @@ def build_effective_schedule_frame(
     effective["reactive_power_setpoint_kvar"] = (
         pd.to_numeric(effective["reactive_power_setpoint_kvar"], errors="coerce").fillna(0.0)
     )
-    effective["voltage_setpoint_pu"] = pd.to_numeric(effective["voltage_setpoint_pu"], errors="coerce").fillna(1.0)
+    effective["voltage_setpoint_pu"] = (
+        pd.to_numeric(effective["voltage_setpoint_pu"], errors="coerce")
+        .map(lambda value: clamp_voltage_setpoint_pu(value))
+        .fillna(1.0)
+    )
     return effective.sort_index()
 
 
@@ -190,7 +205,7 @@ def resolve_effective_dispatch_bundle(
     *,
     source="manual",
     api_validity_window=None,
-    voltage_mode_active=False,
+    selected_reactive_control_mode=1,
 ):
     p_setpoint, q_setpoint, api_is_stale = resolve_schedule_setpoint(
         schedule_df,
@@ -214,8 +229,8 @@ def resolve_effective_dispatch_bundle(
     return {
         "p_kw": float(p_setpoint),
         "q_kvar": float(q_setpoint),
-        "voltage_setpoint_pu": float(voltage_setpoint_pu),
-        "voltage_mode_active": bool(voltage_mode_active),
+        "voltage_setpoint_pu": float(clamp_voltage_setpoint_pu(voltage_setpoint_pu)),
+        "voltage_mode_active": int(selected_reactive_control_mode or 1) == 3,
         "api_is_stale": api_is_stale,
     }
 
@@ -231,6 +246,7 @@ def resolve_dispatch_bundle_from_sources(
     manual_p_enabled,
     manual_q_enabled,
     manual_v_enabled,
+    selected_reactive_control_mode=1,
     source="api",
     api_validity_window=None,
 ):
@@ -241,7 +257,12 @@ def resolve_dispatch_bundle_from_sources(
         source=source,
         api_validity_window=api_validity_window,
     )
-    voltage_setpoint_pu = 1.0
+    voltage_setpoint_pu = _resolve_clamped_voltage_setpoint(
+        manual_v_df,
+        now_value,
+        tz,
+        manual_v_enabled=manual_v_enabled,
+    )
 
     if manual_p_enabled:
         manual_p_value, manual_p_has = resolve_series_setpoint_asof(manual_p_df, now_value, tz)
@@ -255,17 +276,11 @@ def resolve_dispatch_bundle_from_sources(
         if manual_q_has and (manual_q_end is None or pd.Timestamp(now_value) < pd.Timestamp(manual_q_end)):
             q_setpoint = float(manual_q_value)
 
-    if manual_v_enabled:
-        manual_v_value, manual_v_has = resolve_series_setpoint_asof(manual_v_df, now_value, tz)
-        manual_v_end = split_manual_override_series(manual_v_df, tz).get("end_ts")
-        if manual_v_has and (manual_v_end is None or pd.Timestamp(now_value) < pd.Timestamp(manual_v_end)):
-            voltage_setpoint_pu = float(manual_v_value)
-
     return {
         "p_kw": float(p_setpoint),
         "q_kvar": float(q_setpoint),
         "voltage_setpoint_pu": float(voltage_setpoint_pu),
-        "voltage_mode_active": bool(manual_v_enabled),
+        "voltage_mode_active": int(selected_reactive_control_mode or 1) == 3,
         "api_is_stale": api_is_stale,
     }
 

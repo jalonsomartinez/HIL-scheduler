@@ -48,6 +48,8 @@ class SharedStateContractTests(unittest.TestCase):
             "control_command_next_id",
             "plant_observed_state_by_plant",
             "plant_operating_state_by_plant",
+            "reactive_control_mode_by_plant",
+            "reactive_control_mode_runtime_by_plant",
             "dispatch_write_status_by_plant",
             "control_engine_status",
             "settings_command_queue",
@@ -81,6 +83,8 @@ class SharedStateContractTests(unittest.TestCase):
         self.assertEqual(set(shared_data["local_emulator_soc_seed_result_by_plant"].keys()), set(plant_ids))
         self.assertEqual(set(shared_data["plant_observed_state_by_plant"].keys()), set(plant_ids))
         self.assertEqual(set(shared_data["plant_operating_state_by_plant"].keys()), set(plant_ids))
+        self.assertEqual(set(shared_data["reactive_control_mode_by_plant"].keys()), set(plant_ids))
+        self.assertEqual(set(shared_data["reactive_control_mode_runtime_by_plant"].keys()), set(plant_ids))
         self.assertEqual(set(shared_data["dispatch_write_status_by_plant"].keys()), set(plant_ids))
         self.assertIsInstance(shared_data["control_engine_status"], dict)
         self.assertIsInstance(shared_data["settings_command_queue"], queue.Queue)
@@ -155,6 +159,11 @@ class SharedStateContractTests(unittest.TestCase):
         self.assertTrue(all("consecutive_failures" in state for state in shared_data["plant_observed_state_by_plant"].values()))
         self.assertTrue(all("start_command_state" in state for state in shared_data["plant_observed_state_by_plant"].values()))
         self.assertTrue(all("stop_command_state" in state for state in shared_data["plant_observed_state_by_plant"].values()))
+        self.assertTrue(all("q_control_mode_state" in state for state in shared_data["plant_observed_state_by_plant"].values()))
+        self.assertTrue(all(mode == 1 for mode in shared_data["reactive_control_mode_by_plant"].values()))
+        self.assertTrue(
+            all(int((entry or {}).get("selected_mode", 0)) == 1 for entry in shared_data["reactive_control_mode_runtime_by_plant"].values())
+        )
         self.assertTrue(
             all(
                 {

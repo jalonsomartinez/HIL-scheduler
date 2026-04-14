@@ -57,6 +57,7 @@ def _default_plant_observed_state_by_plant(plant_ids):
             "enable_state": None,
             "start_command_state": None,
             "stop_command_state": None,
+            "q_control_mode_state": None,
             "p_battery_kw": None,
             "q_battery_kvar": None,
             "last_attempt": None,
@@ -73,6 +74,24 @@ def _default_plant_observed_state_by_plant(plant_ids):
 
 def _default_plant_operating_state_by_plant(plant_ids):
     return {plant_id: "unknown" for plant_id in plant_ids}
+
+
+def _default_reactive_control_mode_by_plant(plant_ids):
+    return {plant_id: 1 for plant_id in plant_ids}
+
+
+def _default_reactive_control_mode_runtime_by_plant(plant_ids):
+    return {
+        plant_id: {
+            "selected_mode": 1,
+            "desired_mode": 1,
+            "last_command_id": None,
+            "last_error": None,
+            "last_updated": None,
+            "last_success": None,
+        }
+        for plant_id in plant_ids
+    }
 
 
 def _default_manual_series_runtime_state_by_key():
@@ -185,6 +204,8 @@ def build_initial_shared_data(config):
         "control_command_next_id": 1,
         "plant_observed_state_by_plant": _default_plant_observed_state_by_plant(plant_ids),
         "plant_operating_state_by_plant": _default_plant_operating_state_by_plant(plant_ids),
+        "reactive_control_mode_by_plant": _default_reactive_control_mode_by_plant(plant_ids),
+        "reactive_control_mode_runtime_by_plant": _default_reactive_control_mode_runtime_by_plant(plant_ids),
         "dispatch_write_status_by_plant": default_dispatch_write_status_by_plant(plant_ids),
         "control_engine_status": default_engine_status(include_last_observed_refresh=True),
         "settings_command_queue": queue.Queue(maxsize=128),

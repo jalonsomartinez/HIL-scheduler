@@ -90,12 +90,42 @@ class ScheduleRuntimeEndTimeTests(unittest.TestCase):
             base,
             tz,
             source="manual",
-            voltage_mode_active=True,
+            selected_reactive_control_mode=3,
         )
 
         self.assertAlmostEqual(float(effective.loc[base, "voltage_setpoint_pu"]), 1.0)
         self.assertAlmostEqual(float(bundle["voltage_setpoint_pu"]), 1.0)
         self.assertTrue(bundle["voltage_mode_active"])
+
+    def test_voltage_setpoint_is_clamped_in_effective_schedule_and_bundle(self):
+        tz = ZoneInfo("Europe/Madrid")
+        base = pd.Timestamp("2026-02-26T10:00:00+01:00")
+        api_df = pd.DataFrame(
+            {"power_setpoint_kw": [100.0], "reactive_power_setpoint_kvar": [10.0]},
+            index=pd.DatetimeIndex([base]),
+        )
+        manual_v_df = pd.DataFrame({"setpoint": [1.2]}, index=pd.DatetimeIndex([base]))
+
+        effective = build_effective_schedule_frame(
+            api_df,
+            pd.DataFrame(columns=["setpoint"]),
+            pd.DataFrame(columns=["setpoint"]),
+            manual_v_df,
+            manual_p_enabled=False,
+            manual_q_enabled=False,
+            manual_v_enabled=True,
+            tz=tz,
+        )
+        bundle = resolve_effective_dispatch_bundle(
+            effective,
+            base,
+            tz,
+            source="manual",
+            selected_reactive_control_mode=3,
+        )
+
+        self.assertAlmostEqual(float(effective.loc[base, "voltage_setpoint_pu"]), 1.1)
+        self.assertAlmostEqual(float(bundle["voltage_setpoint_pu"]), 1.1)
 
 
 if __name__ == "__main__":

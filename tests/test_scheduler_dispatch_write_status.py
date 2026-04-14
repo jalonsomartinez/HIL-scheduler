@@ -189,6 +189,7 @@ def _shared_data():
         "manual_schedule_df_by_plant": {"lib": pd.DataFrame(), "vrfb": pd.DataFrame()},
         "manual_schedule_series_df_by_key": msm.default_manual_series_map(),
         "manual_schedule_merge_enabled_by_key": msm.default_manual_merge_enabled_map(default_enabled=False),
+        "reactive_control_mode_by_plant": {"lib": 1, "vrfb": 1},
         "api_schedule_df_by_plant": {"lib": pd.DataFrame(), "vrfb": pd.DataFrame()},
         "dispatch_write_status_by_plant": {"lib": {"sending_enabled": False}, "vrfb": {"sending_enabled": False}},
     }
@@ -205,6 +206,14 @@ def _seed_setpoints(bank, endpoint_cfg, p_kw, q_kvar):
     q_reg = int(points["q_setpoint"]["address"])
     bank.set_holding_registers(p_reg, encode_point_internal_words(endpoint_cfg, "p_setpoint", p_kw))
     bank.set_holding_registers(q_reg, encode_point_internal_words(endpoint_cfg, "q_setpoint", q_kvar))
+
+
+def _seed_q_control_mode_if_configured(bank, endpoint_cfg, mode):
+    points = endpoint_cfg["points"]
+    if "q_control_mode" not in points:
+        return
+    point = points["q_control_mode"]
+    bank.set_holding_registers(point["address"], encode_point_internal_words(endpoint_cfg, "q_control_mode", mode))
 
 
 def _read_point_internal_from_bank(bank, endpoint_cfg, point_name):
@@ -419,7 +428,7 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
         shared_data = _shared_data()
         with shared_data["lock"]:
             shared_data["api_schedule_df_by_plant"]["lib"] = api_df
-            shared_data["manual_schedule_merge_enabled_by_key"]["lib_v"] = True
+            shared_data["reactive_control_mode_by_plant"]["lib"] = 3
 
         with patch("scheduling.agent.ModbusClient", _CountingModbusClient):
             thread = threading.Thread(target=scheduler_agent, args=(config, shared_data), daemon=True)
@@ -664,6 +673,7 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
             index=pd.DatetimeIndex([now - pd.Timedelta(minutes=1)]),
         )
         _seed_setpoints(lib_bank, lib_endpoint, 42.0, 5.0)
+        _seed_q_control_mode_if_configured(lib_bank, lib_endpoint, 1)
 
         shared_data = _shared_data()
         with shared_data["lock"]:
@@ -777,6 +787,7 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
             index=pd.DatetimeIndex([now - pd.Timedelta(minutes=1)]),
         )
         _seed_setpoints(lib_bank, lib_endpoint, 42.0, 5.0)
+        _seed_q_control_mode_if_configured(lib_bank, lib_endpoint, 1)
 
         shared_data = _shared_data()
         with shared_data["lock"]:
@@ -939,6 +950,7 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
                 lib_points[point_name]["address"],
                 encode_point_internal_words(lib_endpoint, point_name, 2.0),
             )
+        _seed_q_control_mode_if_configured(lib_bank, lib_endpoint, 1)
 
         now = now_tz(config)
         api_df = pd.DataFrame(

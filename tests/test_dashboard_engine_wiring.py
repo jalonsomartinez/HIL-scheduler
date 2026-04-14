@@ -71,6 +71,12 @@ def _settings_shared():
         "manual_schedule_merge_enabled_by_key": msm.default_manual_merge_enabled_map(default_enabled=False),
         "manual_schedule_df_by_plant": {"lib": pd.DataFrame(), "vrfb": pd.DataFrame()},
         "manual_series_runtime_state_by_key": {},
+        "transport_mode": "local",
+        "reactive_control_mode_by_plant": {"lib": 1, "vrfb": 1},
+        "reactive_control_mode_runtime_by_plant": {
+            "lib": {"selected_mode": 1, "desired_mode": 1, "last_command_id": None, "last_error": None, "last_updated": None, "last_success": None},
+            "vrfb": {"selected_mode": 1, "desired_mode": 1, "last_command_id": None, "last_error": None, "last_updated": None, "last_success": None},
+        },
         "api_password": None,
         "api_connection_runtime": {
             "state": "connected",
@@ -175,6 +181,34 @@ class DashboardEngineWiringTests(unittest.TestCase):
             self.assertEqual(final_status["state"], "succeeded")
             self.assertEqual(shared["settings_engine_status"]["last_finished_command"]["id"], status["id"])
             self.assertEqual(shared["api_connection_runtime"]["posting_health"]["state"], "disabled")
+
+    def test_reactive_mode_settings_cycle_updates_selected_mode(self):
+        shared = _settings_shared()
+        config = {
+            "TIMEZONE_NAME": "Europe/Madrid",
+            "PLANT_IDS": ("lib", "vrfb"),
+            "PLANTS": {
+                "lib": {"modbus": {"local": {"points": {"q_control_mode": {"address": 1}}}}},
+                "vrfb": {"modbus": {"local": {"points": {}}}},
+            },
+        }
+        now_value = datetime(2026, 2, 25, 12, 0, tzinfo=timezone.utc)
+
+        status = enqueue_settings_command(
+            shared,
+            kind="reactive_mode.set",
+            payload={"plant_id": "lib", "mode": 3},
+            source="dashboard",
+            now_fn=lambda: now_value,
+        )
+
+        with patch("settings.engine_agent.now_tz", return_value=now_value):
+            command_id = _run_single_settings_cycle(config, shared, tz=timezone.utc)
+
+        self.assertEqual(command_id, status["id"])
+        with shared["lock"]:
+            self.assertEqual(shared["reactive_control_mode_by_plant"]["lib"], 3)
+            self.assertEqual(shared["settings_command_status_by_id"][status["id"]]["state"], "succeeded")
 
 
 if __name__ == "__main__":

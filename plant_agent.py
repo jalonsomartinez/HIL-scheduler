@@ -137,6 +137,7 @@ def plant_agent(config, shared_data):
             db_write_point_eng(db, local_cfg, "q_battery", 0.0)
             db_write_point_eng(db, local_cfg, "p_poi", 0.0)
             db_write_point_eng(db, local_cfg, "q_poi", 0.0)
+            db_write_optional_point_eng(db, local_cfg, "q_control_mode", 1)
             initial_v_poi_kv = _resolve_local_v_poi_kv(db, local_cfg, states[plant_id]["poi_voltage_kv"])
             if initial_v_poi_kv is not None:
                 db_write_point_eng(db, local_cfg, "v_poi", initial_v_poi_kv)

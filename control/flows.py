@@ -104,6 +104,7 @@ def perform_transport_switch(shared_data, plant_ids, requested_mode, safe_stop_a
                         "enable_state": None,
                         "start_command_state": None,
                         "stop_command_state": None,
+                        "q_control_mode_state": None,
                         "p_battery_kw": None,
                         "q_battery_kvar": None,
                         "last_attempt": None,

@@ -27,6 +27,13 @@ MANUAL_BUTTON_TRIGGER_MAP = {
     "manual-toggle-vrfb-v-update-btn": ("vrfb_v", "update"),
 }
 
+REACTIVE_MODE_TRIGGER_MAP = {
+    "reactive-mode-lib-q-btn": ("lib", 1),
+    "reactive-mode-lib-voltage-btn": ("lib", 3),
+    "reactive-mode-vrfb-q-btn": ("vrfb", 1),
+    "reactive-mode-vrfb-voltage-btn": ("vrfb", 3),
+}
+
 
 def _serialize_manual_series_df(df, tz):
     norm = msm.ensure_manual_series_terminal_duplicate_row(df, timezone_name=getattr(tz, "key", str(tz)))
@@ -85,6 +92,14 @@ def api_connection_intent_from_trigger(trigger_id):
     if trigger_id == "disconnect-api-btn":
         return {"kind": "api.disconnect", "payload": {}}
     return None
+
+
+def reactive_mode_intent_from_trigger(trigger_id):
+    mapped = REACTIVE_MODE_TRIGGER_MAP.get(trigger_id)
+    if not mapped:
+        return None
+    plant_id, mode = mapped
+    return {"kind": "reactive_mode.set", "payload": {"plant_id": plant_id, "mode": int(mode)}}
 
 
 def posting_intent_from_trigger(trigger_id):
