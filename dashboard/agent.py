@@ -2348,6 +2348,9 @@ def dashboard_agent(config, shared_data):
             except (TypeError, ValueError):
                 return True
 
+        def _is_voltage_mode_active(plant_id):
+            return not _is_q_control_mode_active(plant_id)
+
         table_rows = []
         for plant_id in plant_ids:
             latest = _latest_measurements_row(plant_id)
@@ -2363,7 +2366,7 @@ def dashboard_agent(config, shared_data):
                         _metric_cell(soc_percent, "%", decimals=1),
                         _metric_cell(latest.get("p_setpoint_kw"), "kW", decimals=1),
                         _metric_cell(latest.get("p_poi_kw"), "kW", decimals=1),
-                        _metric_cell(latest.get("q_setpoint_kvar"), "kvar", decimals=1),
+                        _metric_cell(latest.get("q_setpoint_kvar"), "kvar", decimals=1, dimmed=_is_voltage_mode_active(plant_id)),
                         _metric_cell(latest.get("q_poi_kvar"), "kvar", decimals=1),
                         (
                             _metric_cell(latest.get("v_setpoint_pu"), "pu", decimals=3, dimmed=_is_q_control_mode_active(plant_id))

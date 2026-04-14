@@ -857,14 +857,14 @@ def build_public_readonly_app(config, shared_data):
                 return None
             return number
 
-        def _metric_cell(value, unit, *, decimals):
+        def _metric_cell(value, unit, *, decimals, dimmed=False):
             number = _coerce_float(value)
             if number is None:
                 return html.Td("—", className="public-summary-empty public-summary-measurement-cell")
             value_text = f"{number:.{int(decimals)}f}"
             return html.Td(
                 html.Div(
-                    className="public-summary-metric",
+                    className="public-summary-metric public-summary-metric--dimmed" if dimmed else "public-summary-metric",
                     children=[
                         html.Span(value_text, className="public-summary-value"),
                         html.Span(unit, className="public-summary-unit"),
@@ -900,6 +900,21 @@ def build_public_readonly_app(config, shared_data):
                 ),
             )
 
+        def _is_q_control_mode_active(plant_id):
+            observed = dict(snapshot["observed_state_by_plant"].get(plant_id, {}) or {})
+            if not bool(snapshot["observed_effective_stale_by_plant"].get(plant_id, True)):
+                try:
+                    return int(observed.get("q_control_mode_state")) == 1
+                except (TypeError, ValueError):
+                    pass
+            try:
+                return int(snapshot["reactive_mode_by_plant"].get(plant_id, 1)) == 1
+            except (TypeError, ValueError):
+                return True
+
+        def _is_voltage_mode_active(plant_id):
+            return not _is_q_control_mode_active(plant_id)
+
         table_rows = []
         for plant_id in plant_ids:
             latest = _latest_measurements_row(plant_id)
@@ -915,9 +930,9 @@ def build_public_readonly_app(config, shared_data):
                         _metric_cell(soc_percent, "%", decimals=1),
                         _metric_cell(latest.get("p_setpoint_kw"), "kW", decimals=1),
                         _metric_cell(latest.get("p_poi_kw"), "kW", decimals=1),
-                        _metric_cell(latest.get("q_setpoint_kvar"), "kvar", decimals=1),
+                        _metric_cell(latest.get("q_setpoint_kvar"), "kvar", decimals=1, dimmed=_is_voltage_mode_active(plant_id)),
                         _metric_cell(latest.get("q_poi_kvar"), "kvar", decimals=1),
-                        _metric_cell(latest.get("v_setpoint_pu"), "pu", decimals=3),
+                        _metric_cell(latest.get("v_setpoint_pu"), "pu", decimals=3, dimmed=_is_q_control_mode_active(plant_id)),
                         _metric_cell(latest.get("v_poi_kV"), "kV", decimals=voltage_decimals),
                     ]
                 )
