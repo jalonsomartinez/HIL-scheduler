@@ -22,11 +22,14 @@ def resolve_modbus_endpoint(config, plant_id, transport_mode):
     points = endpoint.get("points", {}) or {}
     return {
         "mode": transport_mode,
+        "plant_id": plant_id,
         "host": endpoint.get("host", "localhost"),
         "port": int(endpoint.get("port", default_port)),
         "byte_order": endpoint.get("byte_order"),
         "word_order": endpoint.get("word_order"),
         "power_limits": copy.deepcopy(power_limits),
+        "poi_voltage_kv": float((plant_cfg.get("model", {}) or {}).get("poi_voltage_kv", 20.0)),
+        "voltage_control_droop_pu": (plant_cfg.get("model", {}) or {}).get("voltage_control_droop_pu"),
         "points": copy.deepcopy(points),
     }
 

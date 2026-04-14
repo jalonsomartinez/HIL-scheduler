@@ -74,6 +74,7 @@ plants:
         q_max_kvar: 600.0
         q_min_kvar: -600.0
       poi_voltage_kv: 20.0
+      voltage_control_droop_pu: 0.04
     modbus:
       local:
         host: "localhost"
@@ -92,6 +93,7 @@ plants:
           enable: {address: 1, format: uint16, access: rw, unit: raw, eng_per_count: 1.0}
           soc: {address: 281, format: uint16, access: r, unit: pu, eng_per_count: 0.0001} # pc is percentage
           stop_command: {address: 85, format: uint16, access: w, unit: raw, eng_per_count: 1.0}
+          q_control_mode: {address: 82, format: uint16, access: rw, unit: raw, eng_per_count: 1.0}
       remote:
         host: "10.117.133.21"
         port: 502
@@ -108,6 +110,7 @@ plants:
           enable: {address: 1, format: uint16, access: rw, unit: raw, eng_per_count: 1.0} # El enable permite la escritura en la batería. Debe estar a 1 para permitir escritura
           soc: {address: 281, format: uint16, access: r, unit: pu, eng_per_count: 0.0001} # pc is percentage
           stop_command: {address: 85, format: uint16, access: w, unit: raw, eng_per_count: 1.0} # 1: stop, 0: start. Este registro debe estar a 0 para permitir la operación normal de la batería. Si se pone a 1, la batería se detiene y no responde a comandos de potencia.
+          q_control_mode: {address: 82, format: uint16, access: rw, unit: raw, eng_per_count: 1.0} # 1: reactive power control, 3: voltage control
     measurement_series:
       soc: 4
       p: 6

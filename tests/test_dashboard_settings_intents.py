@@ -55,6 +55,20 @@ class DashboardSettingsIntentsTests(unittest.TestCase):
         self.assertEqual(intent["payload"]["series_rows"][0]["setpoint"], 5.0)
         self.assertEqual(intent["payload"]["series_rows"][-1]["setpoint"], 5.0)
 
+    def test_manual_voltage_trigger_maps_to_voltage_series(self):
+        tz = ZoneInfo("Europe/Madrid")
+        df = pd.DataFrame(
+            [{"datetime": datetime(2026, 2, 25, 10, 0, tzinfo=tz), "setpoint": 1.02}]
+        ).set_index("datetime")
+        intent = manual_settings_intent_from_trigger(
+            "manual-toggle-lib-v-enable-btn",
+            draft_series_by_key={"lib_v": df},
+            tz=tz,
+        )
+        self.assertEqual(intent["kind"], "manual.activate")
+        self.assertEqual(intent["payload"]["series_key"], "lib_v")
+        self.assertEqual(intent["payload"]["series_rows"][0]["setpoint"], 1.02)
+
     def test_api_password_set_uses_trimmed_password(self):
         intent = api_password_intent_from_trigger("save-api-password-btn", password_value=" pw ")
         self.assertEqual(intent["kind"], "api.password.set")

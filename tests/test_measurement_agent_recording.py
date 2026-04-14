@@ -253,8 +253,10 @@ class MeasurementAgentRecordingTests(unittest.TestCase):
                 self.assertFalse(vrfb_rows.empty)
                 self.assertAlmostEqual(float(lib_rows.iloc[-1]["p_setpoint_kw"]), 10.0, places=6)
                 self.assertAlmostEqual(float(lib_rows.iloc[-1]["q_setpoint_kvar"]), 1.0, places=6)
+                self.assertAlmostEqual(float(lib_rows.iloc[-1]["v_setpoint_pu"]), 1.0, places=6)
                 self.assertAlmostEqual(float(vrfb_rows.iloc[-1]["p_setpoint_kw"]), 16.0, places=6)
                 self.assertAlmostEqual(float(vrfb_rows.iloc[-1]["q_setpoint_kvar"]), 1.5, places=6)
+                self.assertAlmostEqual(float(vrfb_rows.iloc[-1]["v_setpoint_pu"]), 1.0, places=6)
                 self.assertAlmostEqual(float(vrfb_rows.iloc[-1]["soc_pu"]), 0.55, places=6)
 
 

@@ -7,8 +7,13 @@ from modbus.client import ModbusClient
 from runtime.dispatch_write_runtime import publish_dispatch_write_status, set_dispatch_sending_enabled
 import scheduling.manual_schedule_manager as msm
 from runtime.contracts import resolve_modbus_endpoint
-from modbus.setpoint_io import build_setpoint_write_plan, read_setpoint_target_words, write_setpoint_plan_with_optional_trigger
-from scheduling.runtime import resolve_schedule_setpoint, resolve_series_setpoint_asof, split_manual_override_series
+from modbus.setpoint_io import (
+    build_setpoint_write_plan,
+    read_setpoint_target_words,
+    resolve_reactive_power_request,
+    write_setpoint_plan_with_optional_trigger,
+)
+from scheduling.runtime import resolve_dispatch_bundle_from_sources
 from runtime.shared_state import snapshot_locked
 from time_utils import get_config_tz, now_tz
 
@@ -37,6 +42,7 @@ def scheduler_agent(config, shared_data):
     endpoints = {plant_id: None for plant_id in plant_ids}
     previous_p = {plant_id: None for plant_id in plant_ids}
     previous_q = {plant_id: None for plant_id in plant_ids}
+    previous_reactive_control_mode = {plant_id: None for plant_id in plant_ids}
     previous_api_stale = {plant_id: None for plant_id in plant_ids}
     force_setpoint_retry = {plant_id: False for plant_id in plant_ids}
     last_manual_prune_day = None
@@ -117,18 +123,32 @@ def scheduler_agent(config, shared_data):
                 if not is_running:
                     previous_p[plant_id] = None
                     previous_q[plant_id] = None
+                    previous_reactive_control_mode[plant_id] = None
                     previous_api_stale[plant_id] = None
                     force_setpoint_retry[plant_id] = False
                     continue
 
                 api_schedule_df = api_map.get(plant_id)
-                requested_p_setpoint, requested_q_setpoint, is_stale = resolve_schedule_setpoint(
+                p_key, q_key, v_key = msm.manual_series_keys_for_plant(plant_id, include_voltage=True)
+                manual_v_enabled = bool(manual_merge_enabled.get(v_key, False))
+                dispatch_bundle = resolve_dispatch_bundle_from_sources(
                     api_schedule_df,
+                    manual_series_map.get(p_key),
+                    manual_series_map.get(q_key),
+                    manual_series_map.get(v_key),
                     loop_now,
                     tz,
+                    manual_p_enabled=bool(manual_merge_enabled.get(p_key, False)),
+                    manual_q_enabled=bool(manual_merge_enabled.get(q_key, False)),
+                    manual_v_enabled=manual_v_enabled,
                     source="api",
                     api_validity_window=api_validity_window,
                 )
+                requested_p_setpoint = float(dispatch_bundle["p_kw"])
+                requested_q_setpoint = float(dispatch_bundle["q_kvar"])
+                resolved_voltage_setpoint_pu = float(dispatch_bundle["voltage_setpoint_pu"])
+                voltage_mode_active = bool(dispatch_bundle["voltage_mode_active"])
+                is_stale = dispatch_bundle["api_is_stale"]
                 if previous_api_stale[plant_id] != bool(is_stale):
                     if is_stale:
                         if api_schedule_df is None or api_schedule_df.empty:
@@ -139,40 +159,76 @@ def scheduler_agent(config, shared_data):
                         logging.info("Scheduler: %s API setpoint fresh again.", plant_id.upper())
                 previous_api_stale[plant_id] = bool(is_stale)
 
-                p_key, q_key = msm.manual_series_keys_for_plant(plant_id)
-                manual_p_value, manual_p_has = resolve_series_setpoint_asof(manual_series_map.get(p_key), loop_now, tz)
-                manual_q_value, manual_q_has = resolve_series_setpoint_asof(manual_series_map.get(q_key), loop_now, tz)
-                manual_p_end_time = split_manual_override_series(manual_series_map.get(p_key), tz).get("end_ts")
-                manual_q_end_time = split_manual_override_series(manual_series_map.get(q_key), tz).get("end_ts")
-
-                if (
-                    bool(manual_merge_enabled.get(p_key, False))
-                    and manual_p_has
-                    and (manual_p_end_time is None or pd.Timestamp(loop_now) < pd.Timestamp(manual_p_end_time))
-                ):
-                    requested_p_setpoint = manual_p_value
-                    manual_p_applied = True
-                else:
-                    manual_p_applied = False
-                if (
-                    bool(manual_merge_enabled.get(q_key, False))
-                    and manual_q_has
-                    and (manual_q_end_time is None or pd.Timestamp(loop_now) < pd.Timestamp(manual_q_end_time))
-                ):
-                    requested_q_setpoint = manual_q_value
-                    manual_q_applied = True
-                else:
-                    manual_q_applied = False
+                manual_p_applied = bool(manual_merge_enabled.get(p_key, False))
+                manual_q_applied = bool(manual_merge_enabled.get(q_key, False))
+                manual_v_applied = bool(manual_v_enabled)
 
                 p_write_ok = None
                 q_write_ok = None
+                reactive_control_mode_write_ok = None
                 trigger_write_ok = None
                 attempted_any = False
 
-                write_plan = build_setpoint_write_plan(endpoint, requested_p_setpoint, requested_q_setpoint)
+                reactive_dispatch = resolve_reactive_power_request(
+                    client,
+                    endpoint,
+                    requested_q_kvar=requested_q_setpoint,
+                    voltage_mode_active=voltage_mode_active,
+                    voltage_setpoint_pu=resolved_voltage_setpoint_pu,
+                )
+                if not bool(reactive_dispatch.get("ok")):
+                    attempted_any = True
+                    publish_dispatch_write_status(
+                        shared_data,
+                        plant_id,
+                        sending_enabled=True,
+                        attempted_at=loop_now,
+                        p_kw=requested_p_setpoint,
+                        q_kvar=None,
+                        source="scheduler",
+                        status="failed",
+                        error=str(reactive_dispatch.get("error") or "reactive_dispatch_failed"),
+                        scheduler_context={
+                            "api_stale": bool(is_stale),
+                            "manual_p_applied": bool(manual_p_applied),
+                            "manual_q_applied": bool(manual_q_applied),
+                            "manual_v_applied": bool(manual_v_applied),
+                            "reactive_control_mode": reactive_dispatch.get("reactive_control_mode"),
+                            "voltage_mode_active": bool(voltage_mode_active),
+                            "voltage_setpoint_pu": resolved_voltage_setpoint_pu,
+                            "measured_v_poi_kv": reactive_dispatch.get("measured_v_poi_kv"),
+                            "measured_v_poi_pu": reactive_dispatch.get("measured_v_poi_pu"),
+                        },
+                    )
+                    logging.warning(
+                        "Scheduler: %s reactive dispatch resolution failed (mode=%s error=%s).",
+                        plant_id.upper(),
+                        "voltage" if voltage_mode_active else "q",
+                        reactive_dispatch.get("error"),
+                    )
+                    force_setpoint_retry[plant_id] = True
+                    continue
+
+                requested_q_for_plan = float(reactive_dispatch.get("requested_q_kvar", requested_q_setpoint))
+                reactive_control_mode = reactive_dispatch.get("reactive_control_mode")
+                write_plan = build_setpoint_write_plan(
+                    endpoint,
+                    requested_p_setpoint,
+                    requested_q_for_plan,
+                    reactive_control_mode=reactive_control_mode,
+                )
                 limit_result = dict((write_plan or {}).get("limit_result") or {})
                 applied_p_setpoint = float(limit_result.get("applied_p_kw", requested_p_setpoint))
-                applied_q_setpoint = float(limit_result.get("applied_q_kvar", requested_q_setpoint))
+                applied_q_setpoint = float(limit_result.get("applied_q_kvar", requested_q_for_plan))
+
+                control_mode_targets = list(write_plan.get("control_mode_targets") or [])
+                try:
+                    reactive_control_mode_actual_words = read_setpoint_target_words(client, endpoint, control_mode_targets)
+                except Exception as exc:
+                    logging.warning("Scheduler: %s reactive control mode readback failed: %s", plant_id.upper(), exc)
+                    reactive_control_mode_actual_words = {
+                        str(target["point_name"]): None for target in control_mode_targets
+                    }
 
                 try:
                     p_actual_words = read_setpoint_target_words(client, endpoint, write_plan["p_targets"])
@@ -185,9 +241,19 @@ def scheduler_agent(config, shared_data):
                     logging.warning("Scheduler: %s Q setpoint readback failed: %s", plant_id.upper(), exc)
                     q_actual_words = {str(target["point_name"]): None for target in write_plan["q_targets"]}
 
+                reactive_control_mode_readback_ok = all(
+                    reactive_control_mode_actual_words.get(str(target["point_name"])) is not None
+                    for target in control_mode_targets
+                )
                 p_readback_ok = all(p_actual_words.get(str(target["point_name"])) is not None for target in write_plan["p_targets"])
                 q_readback_ok = all(q_actual_words.get(str(target["point_name"])) is not None for target in write_plan["q_targets"])
 
+                reactive_control_mode_readback_mismatch = None
+                if control_mode_targets and reactive_control_mode_readback_ok:
+                    reactive_control_mode_readback_mismatch = any(
+                        list(reactive_control_mode_actual_words.get(str(target["point_name"])) or []) != list(target["target_words"])
+                        for target in control_mode_targets
+                    )
                 p_readback_mismatch = None
                 if p_readback_ok:
                     p_readback_mismatch = any(
@@ -214,7 +280,25 @@ def scheduler_agent(config, shared_data):
                     q_compare_source = "readback"
                     q_should_write = bool(q_readback_mismatch)
 
-                should_apply = bool(force_setpoint_retry[plant_id] or p_should_write or q_should_write)
+                if control_mode_targets:
+                    if not reactive_control_mode_readback_ok:
+                        reactive_control_mode_compare_source = "cache_fallback"
+                        reactive_control_mode_should_write = (
+                            previous_reactive_control_mode[plant_id] != reactive_control_mode
+                        )
+                    else:
+                        reactive_control_mode_compare_source = "readback"
+                        reactive_control_mode_should_write = bool(reactive_control_mode_readback_mismatch)
+                else:
+                    reactive_control_mode_compare_source = "not_configured"
+                    reactive_control_mode_should_write = False
+
+                should_apply = bool(
+                    force_setpoint_retry[plant_id]
+                    or reactive_control_mode_should_write
+                    or p_should_write
+                    or q_should_write
+                )
                 if should_apply:
                     attempted_any = True
                     if bool(limit_result.get("any_clamped")):
@@ -222,11 +306,12 @@ def scheduler_agent(config, shared_data):
                             "Scheduler: %s setpoints clamped before write (requested P=%.3f Q=%.3f, applied P=%.3f Q=%.3f).",
                             plant_id.upper(),
                             float(limit_result.get("requested_p_kw", requested_p_setpoint)),
-                            float(limit_result.get("requested_q_kvar", requested_q_setpoint)),
+                            float(limit_result.get("requested_q_kvar", requested_q_for_plan)),
                             applied_p_setpoint,
                             applied_q_setpoint,
                         )
                     apply_result = write_setpoint_plan_with_optional_trigger(client, endpoint, write_plan)
+                    reactive_control_mode_write_ok = bool((apply_result.get("control_mode_result") or {}).get("ok"))
                     p_write_ok = bool((apply_result.get("p_result") or {}).get("ok"))
                     q_write_ok = bool((apply_result.get("q_result") or {}).get("ok"))
                     trigger_result = dict(apply_result.get("trigger_result") or {})
@@ -234,12 +319,17 @@ def scheduler_agent(config, shared_data):
                     if bool(apply_result.get("ok")):
                         previous_p[plant_id] = applied_p_setpoint
                         previous_q[plant_id] = applied_q_setpoint
+                        previous_reactive_control_mode[plant_id] = reactive_control_mode
                         force_setpoint_retry[plant_id] = False
                     else:
                         force_setpoint_retry[plant_id] = True
 
                 if attempted_any:
-                    attempted_results = [value for value in (p_write_ok, q_write_ok) if value is not None]
+                    attempted_results = [
+                        value
+                        for value in (reactive_control_mode_write_ok, p_write_ok, q_write_ok)
+                        if value is not None
+                    ]
                     ok_count = sum(1 for value in attempted_results if value is True)
                     fail_count = sum(1 for value in attempted_results if value is False)
                     if fail_count == 0 and trigger_write_ok is True:
@@ -268,8 +358,17 @@ def scheduler_agent(config, shared_data):
                             "api_stale": bool(is_stale),
                             "manual_p_applied": bool(manual_p_applied),
                             "manual_q_applied": bool(manual_q_applied),
+                            "manual_v_applied": bool(manual_v_applied),
                             "readback_compare_mode": "register_exact",
                             "setpoint_mode": write_plan["mode"],
+                            "reactive_control_mode": reactive_control_mode,
+                            "reactive_control_mode_compare_source": reactive_control_mode_compare_source,
+                            "reactive_control_mode_readback_ok": bool(reactive_control_mode_readback_ok),
+                            "reactive_control_mode_readback_mismatch": reactive_control_mode_readback_mismatch,
+                            "voltage_mode_active": bool(voltage_mode_active),
+                            "voltage_setpoint_pu": resolved_voltage_setpoint_pu,
+                            "measured_v_poi_kv": reactive_dispatch.get("measured_v_poi_kv"),
+                            "measured_v_poi_pu": reactive_dispatch.get("measured_v_poi_pu"),
                             "p_compare_source": p_compare_source,
                             "q_compare_source": q_compare_source,
                             "p_readback_ok": bool(p_readback_ok),
@@ -277,7 +376,7 @@ def scheduler_agent(config, shared_data):
                             "p_readback_mismatch": p_readback_mismatch,
                             "q_readback_mismatch": q_readback_mismatch,
                             "requested_p_kw": float(limit_result.get("requested_p_kw", requested_p_setpoint)),
-                            "requested_q_kvar": float(limit_result.get("requested_q_kvar", requested_q_setpoint)),
+                            "requested_q_kvar": float(limit_result.get("requested_q_kvar", requested_q_for_plan)),
                             "applied_p_kw": applied_p_setpoint,
                             "applied_q_kvar": applied_q_setpoint,
                             "p_clamped": bool(limit_result.get("p_clamped", False)),

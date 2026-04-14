@@ -225,6 +225,45 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
         self.assertEqual(point["unit"], "raw")
         self.assertEqual(point["word_count"], 1)
 
+    def test_accepts_optional_q_control_mode_when_droop_is_present(self):
+        payload = _load_yaml("config.yaml")
+        payload["plants"]["lib"]["model"]["voltage_control_droop_pu"] = 0.05
+        payload["plants"]["lib"]["modbus"]["local"]["points"]["q_control_mode"] = {
+            "address": 402,
+            "format": "uint16",
+            "access": "rw",
+            "unit": "raw",
+            "eng_per_count": 1.0,
+        }
+        path = _write_temp_yaml(payload)
+        try:
+            config = load_config(path)
+        finally:
+            os.unlink(path)
+
+        model = config["PLANTS"]["lib"]["model"]
+        point = config["PLANTS"]["lib"]["modbus"]["local"]["points"]["q_control_mode"]
+        self.assertEqual(float(model["voltage_control_droop_pu"]), 0.05)
+        self.assertEqual(point["address"], 402)
+        self.assertEqual(point["unit"], "raw")
+        self.assertEqual(point["access"], "rw")
+
+    def test_rejects_q_control_mode_without_droop(self):
+        payload = _load_yaml("config.yaml")
+        payload["plants"]["lib"]["modbus"]["local"]["points"]["q_control_mode"] = {
+            "address": 402,
+            "format": "uint16",
+            "access": "rw",
+            "unit": "raw",
+            "eng_per_count": 1.0,
+        }
+        path = _write_temp_yaml(payload)
+        try:
+            with self.assertRaisesRegex(ValueError, "voltage_control_droop_pu"):
+                load_config(path)
+        finally:
+            os.unlink(path)
+
     def test_rejects_inverted_power_limits(self):
         payload = _load_yaml("config.yaml")
         payload["plants"]["lib"]["model"]["power_limits"]["p_min_kw"] = 10.0

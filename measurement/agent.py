@@ -37,7 +37,8 @@ from runtime.defaults import (
 )
 from runtime.parsing import parse_bool
 from runtime.shared_state import snapshot_locked
-from scheduling.runtime import resolve_schedule_setpoint
+import scheduling.manual_schedule_manager as msm
+from scheduling.runtime import resolve_dispatch_bundle_from_sources, resolve_schedule_setpoint
 from time_utils import get_config_tz, normalize_datetime_series, normalize_timestamp_value, now_tz, serialize_iso_with_tz
 
 
@@ -716,6 +717,8 @@ def measurement_agent(config, shared_data):
                     plant_id: data.get("api_mfrr_schedule_df_by_plant", {}).get(plant_id, pd.DataFrame()).copy()
                     for plant_id in plant_ids
                 },
+                "manual_series_map": dict(data.get("manual_schedule_series_df_by_key", {})),
+                "manual_merge_enabled": dict(data.get("manual_schedule_merge_enabled_by_key", {})),
             },
         )
         transport_mode = snapshot["transport_mode"]
@@ -729,6 +732,8 @@ def measurement_agent(config, shared_data):
         total_schedule_map = snapshot.get("total_schedule_map", {})
         day_ahead_schedule_map = snapshot.get("day_ahead_schedule_map", {})
         mfrr_schedule_map = snapshot.get("mfrr_schedule_map", {})
+        manual_series_map = snapshot.get("manual_series_map", {})
+        manual_merge_enabled = snapshot.get("manual_merge_enabled", {})
 
         for plant_id in plant_ids:
             state = plant_states[plant_id]
@@ -782,6 +787,20 @@ def measurement_agent(config, shared_data):
                 row["p_schedule_total_kw"] = resolve_schedule_power_kw(total_schedule_map.get(plant_id), row_ts)
                 row["p_schedule_day_ahead_kw"] = resolve_schedule_power_kw(day_ahead_schedule_map.get(plant_id), row_ts)
                 row["p_schedule_mfrr_kw"] = resolve_schedule_power_kw(mfrr_schedule_map.get(plant_id), row_ts)
+                p_key, q_key, v_key = msm.manual_series_keys_for_plant(plant_id, include_voltage=True)
+                dispatch_bundle = resolve_dispatch_bundle_from_sources(
+                    total_schedule_map.get(plant_id),
+                    manual_series_map.get(p_key),
+                    manual_series_map.get(q_key),
+                    manual_series_map.get(v_key),
+                    row_ts,
+                    tz,
+                    manual_p_enabled=bool(manual_merge_enabled.get(p_key, False)),
+                    manual_q_enabled=bool(manual_merge_enabled.get(q_key, False)),
+                    manual_v_enabled=bool(manual_merge_enabled.get(v_key, False)),
+                    source="api",
+                )
+                row["v_setpoint_pu"] = float(dispatch_bundle.get("voltage_setpoint_pu", 1.0))
 
                 state["latest_measurement"] = row.copy()
 

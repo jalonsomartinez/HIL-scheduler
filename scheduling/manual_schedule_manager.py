@@ -46,6 +46,8 @@ MANUAL_SERIES_META = {
         "unit": "kvar",
         "label": "VRFB Reactive Power",
     },
+    "lib_v": {"plant_id": "lib", "signal": "v", "column": "voltage_setpoint_pu", "unit": "pu", "label": "LIB Voltage"},
+    "vrfb_v": {"plant_id": "vrfb", "signal": "v", "column": "voltage_setpoint_pu", "unit": "pu", "label": "VRFB Voltage"},
 }
 MANUAL_SERIES_KEYS = tuple(MANUAL_SERIES_META.keys())
 MIN_MANUAL_ROW_GAP_S = 60
@@ -66,9 +68,16 @@ def manual_series_key(plant_id: str, signal: str) -> str:
     return key
 
 
-def manual_series_keys_for_plant(plant_id: str):
+def manual_series_key_for_signal(plant_id: str, signal: str) -> str:
+    return manual_series_key(plant_id, signal)
+
+
+def manual_series_keys_for_plant(plant_id: str, *, include_voltage: bool = False):
     plant = str(plant_id).lower()
-    return (manual_series_key(plant, "p"), manual_series_key(plant, "q"))
+    keys = (manual_series_key(plant, "p"), manual_series_key(plant, "q"))
+    if include_voltage:
+        return keys + (manual_series_key(plant, "v"),)
+    return keys
 
 
 def default_manual_series_map():
@@ -209,17 +218,21 @@ def rebuild_manual_schedule_df_by_plant(series_map, timezone_name: str = DEFAULT
     tz = get_timezone(timezone_name)
     result = {"lib": pd.DataFrame(), "vrfb": pd.DataFrame()}
     for plant_id in result.keys():
-        p_key, q_key = manual_series_keys_for_plant(plant_id)
+        p_key, q_key, v_key = manual_series_keys_for_plant(plant_id, include_voltage=True)
         p_df = ensure_manual_series_terminal_duplicate_row(series_map.get(p_key), timezone_name=timezone_name)
         q_df = ensure_manual_series_terminal_duplicate_row(series_map.get(q_key), timezone_name=timezone_name)
+        v_df = ensure_manual_series_terminal_duplicate_row(series_map.get(v_key), timezone_name=timezone_name)
         p_end_time = split_manual_override_series(p_df, tz).get("end_ts")
         q_end_time = split_manual_override_series(q_df, tz).get("end_ts")
+        v_end_time = split_manual_override_series(v_df, tz).get("end_ts")
 
-        union_index = p_df.index.union(q_df.index).sort_values()
+        union_index = p_df.index.union(q_df.index).union(v_df.index).sort_values()
         if p_end_time is not None:
             union_index = union_index.union(pd.DatetimeIndex([pd.Timestamp(p_end_time)])).sort_values()
         if q_end_time is not None:
             union_index = union_index.union(pd.DatetimeIndex([pd.Timestamp(q_end_time)])).sort_values()
+        if v_end_time is not None:
+            union_index = union_index.union(pd.DatetimeIndex([pd.Timestamp(v_end_time)])).sort_values()
         if len(union_index) == 0:
             result[plant_id] = pd.DataFrame()
             continue
@@ -237,6 +250,12 @@ def rebuild_manual_schedule_df_by_plant(series_map, timezone_name: str = DEFAULT
             combined["reactive_power_setpoint_kvar"] = pd.Series(index=union_index, dtype=float)
         if q_end_time is not None:
             combined.loc[combined.index >= pd.Timestamp(q_end_time), "reactive_power_setpoint_kvar"] = pd.NA
+        if not v_df.empty:
+            combined["voltage_setpoint_pu"] = v_df["setpoint"].reindex(union_index).ffill()
+        else:
+            combined["voltage_setpoint_pu"] = pd.Series(index=union_index, dtype=float)
+        if v_end_time is not None:
+            combined.loc[combined.index >= pd.Timestamp(v_end_time), "voltage_setpoint_pu"] = pd.NA
         combined = normalize_schedule_index(combined, tz)
         result[plant_id] = combined
     return result

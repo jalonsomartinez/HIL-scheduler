@@ -1,54 +1,37 @@
 # Active Context: HIL Scheduler
 
 ## Current Focus (Now)
-- Validate heterogeneous Modbus dispatch paths:
-  - aggregate setpoints,
-  - per-phase setpoints,
-  - trigger-latched apply sequences.
-- Keep SoC continuity credible when hardware omits a direct Modbus `soc` point.
-- Continue stabilizing the three-layer schedule model (`day-ahead`, `mFRR`, `total`) for LIB and VRFB.
-- Keep API-page observability high-signal, including runtime mFRR polling telemetry.
-- Preserve backward-compatible history/CSV behavior while exposing schedule-intent columns.
-- Keep menu-only private/public dashboard navigation stable.
-- Preserve a clear audit trail for the current grid-map digital-twin investigation around transformer-header geometry/length data.
+- Field-validate the new voltage-regulation reactive-control path on real hardware.
+- Confirm optional `q_control_mode` writes behave correctly on LIB local and remote endpoints.
+- Verify manual voltage override UX is usable and clearly communicates that activation switches reactive mode.
+- Preserve telemetry/history compatibility while recording `v_setpoint_pu`.
+- Keep the current grid-map digital-twin audit trail intact during unrelated runtime work.
 
 ## Open Decisions and Risks
-- Per-phase-only endpoint configs are accepted by schema and supported for scheduler/control writes, but measurement and local-emulator paths still assume aggregate setpoint telemetry.
-- The default trigger apply timing is synchronous and currently adds about two seconds per successful apply; real-hardware acceptability still needs field validation.
-- Trigger reset is now a hard gate before start on trigger-configured plants; whether that should remain strict or become configurable is still open.
-- SoC estimation currently uses direct energy integration from battery active power; efficiency-aware tuning is not implemented.
-- Scheduler readback still uses point-wise exact-word reads rather than grouped reads.
-- Fake-client local smoke tests still need adaptation to pooled Modbus semantics.
+- Voltage regulation currently uses `q_max_kvar` as the droop scaling base; field behavior may still motivate refinement.
+- Voltage mode depends on live `v_poi` reads; noisy or unavailable voltage telemetry now causes explicit dispatch failure instead of fallback.
+- Trigger apply timing remains synchronous and may be too slow for some endpoints.
+- Per-phase-only endpoint configs are supported in scheduler/control dispatch, but local emulator write assumptions are still aggregate-oriented.
 - API password remains process-memory only.
-- The April 2026 local pandapower model edits for lines `841-848` remain investigative until technical-team review.
+- The April 2026 local pandapower edits for lines `841-848` remain investigative until technical-team review.
 
 ## Rolling Change Log (Compressed, 30-Day Window)
+- 2026-04-14:
+  - Added plant-level voltage-regulation dispatch support behind optional Modbus point `q_control_mode`.
+  - Added required plant config `model.voltage_control_droop_pu` whenever `q_control_mode` is configured.
+  - Extended manual schedule/runtime state from four signals to six:
+    - `lib_p`, `lib_q`, `lib_v`,
+    - `vrfb_p`, `vrfb_q`, `vrfb_v`.
+  - Voltage setpoint now defaults to `1.0 pu` when no manual voltage value is available.
+  - Scheduler and control start flow now share voltage-aware dispatch-bundle resolution.
+  - Voltage mode writes `q_control_mode=3` and computes `Q` from measured `v_poi`, plant nominal voltage, droop, and Q limits.
+  - Classic reactive mode writes `q_control_mode=1` when configured.
+  - Measurement rows/CSV/cache now record `v_setpoint_pu`.
+  - Private/public status summaries now show `V ref`.
+  - Verified targeted regression suites in the repo `venv`, covering config validation, schedule runtime, scheduler dispatch, measurement recording, dashboard intent wiring, shared-state contract, and control paths.
 - 2026-04-13:
-  - Added `runtime/soc_estimation.py` as the shared startup SoC seed and fallback-estimation helper used by control, measurement, and plant emulation.
-  - Made Modbus `soc` optional in schema validation.
-  - Measurement runtime now keeps per-plant `SocEstimator` state:
-    - sync to real SoC when present,
-    - estimate from `battery_active_power_kw` when absent.
-  - Local emulator SoC seed requests now still apply even when no `soc` register is configured.
-  - Added schema-aware setpoint dispatch:
-    - endpoints must provide either aggregate `p_setpoint`/`q_setpoint` or the full per-phase sextet,
-    - scheduler/control build write plans from that schema,
-    - per-phase mode splits totals equally across U/V/W points.
-  - Added trigger-aware setpoint apply flow:
-    - successful writes optionally pulse `trigger` high then low,
-    - scheduler retries after trigger failure even when registers already match,
-    - control-engine start flow resets `trigger` to `0` before prepare and fails early if reset fails.
-  - Updated start-command prepare semantics so run-allowed writes now use `start_command=1` instead of `2`.
-  - Expanded regression coverage for SoC fallback, config/schema validation, per-phase dispatch, and trigger-aware control/scheduler behavior.
+  - Added shared SoC fallback estimation and optional `soc` schema support.
+  - Added schema-aware aggregate vs per-phase dispatch and trigger-aware setpoint apply flow.
 - 2026-04-10:
   - Corrected LIB battery reactive-power sign inversion in `grid_map_runtime.py`.
-  - Wrote `docs/audits/20260410_grid_map_geometry_findings.md` for dashboard grid-map voltage-drop and geometry findings.
-  - Added mirrored backups of the original `line 843` digital-twin pickle state.
-  - Applied mirrored investigative patches to `grid_map_digital_twin/net_digital_twin.p` and `digital_twin_package/net_digital_twin.p`:
-    - lines `841-847` now use coordinate-derived lengths with a `10 m` minimum,
-    - line `848` now uses its coordinate-derived length,
-    - line `843` keeps original impedance-per-km values with shortened length and higher `max_i_ka`.
-- 2026-03-27:
-  - Replaced private/public dashboard tabs with menu-only route sections and added shared navigation helpers/tests.
-- 2026-03-13:
-  - Introduced split schedule maps (`day-ahead`, `mFRR`, `total`), dedicated mFRR cadence, schedule-intent history columns, and API-page mFRR polling telemetry.
+  - Preserved mirrored grid-map digital-twin investigative edits and audit notes.

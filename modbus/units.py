@@ -30,7 +30,7 @@ def infer_point_quantity(point_name):
         return "q"
     if name in {"v_poi", "v_poi_write"}:
         return "v"
-    if name in {"enable", "start_command", "stop_command", "trigger"}:
+    if name in {"enable", "start_command", "stop_command", "trigger", "q_control_mode"}:
         return "raw"
     return "unknown"
 

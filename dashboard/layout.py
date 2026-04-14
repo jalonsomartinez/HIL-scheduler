@@ -415,6 +415,29 @@ def build_dashboard_layout(
                                                                         className="form-row",
                                                                         style={"alignItems": "center", "gap": "10px"},
                                                                         children=[
+                                                                            html.Div("LIB Voltage", className="toggle-label"),
+                                                                            html.Div(
+                                                                                className="compact-toggle",
+                                                                                children=[
+                                                                                    html.Button("Activate", id="manual-toggle-lib-v-enable-btn", className="toggle-option toggle-option--positive", n_clicks=0),
+                                                                                    html.Button("Inactive", id="manual-toggle-lib-v-disable-btn", className="toggle-option toggle-option--negative active", n_clicks=0),
+                                                                                ],
+                                                                            ),
+                                                                            html.Button("Update", id="manual-toggle-lib-v-update-btn", className="btn btn-secondary", n_clicks=0),
+                                                                        ],
+                                                                    ),
+                                                                    html.Div(style={"height": "4px"}),
+                                                                    dcc.Graph(id="manual-graph-lib-v", className="plot-graph", style={"marginBottom": "6px"}),
+                                                                ],
+                                                            ),
+                                                            html.Div(
+                                                                className="manual-override-card",
+                                                                style={"paddingBottom": "10px"},
+                                                                children=[
+                                                                    html.Div(
+                                                                        className="form-row",
+                                                                        style={"alignItems": "center", "gap": "10px"},
+                                                                        children=[
                                                                             html.Div("VRFB Active Power", className="toggle-label"),
                                                                             html.Div(
                                                                                 className="compact-toggle",
@@ -453,6 +476,29 @@ def build_dashboard_layout(
                                                                     dcc.Graph(id="manual-graph-vrfb-q", className="plot-graph", style={"marginBottom": "6px"}),
                                                                 ],
                                                             ),
+                                                            html.Div(
+                                                                className="manual-override-card",
+                                                                style={"paddingBottom": "10px"},
+                                                                children=[
+                                                                    html.Div(
+                                                                        className="form-row",
+                                                                        style={"alignItems": "center", "gap": "10px"},
+                                                                        children=[
+                                                                            html.Div("VRFB Voltage", className="toggle-label"),
+                                                                            html.Div(
+                                                                                className="compact-toggle",
+                                                                                children=[
+                                                                                    html.Button("Activate", id="manual-toggle-vrfb-v-enable-btn", className="toggle-option toggle-option--positive", n_clicks=0),
+                                                                                    html.Button("Inactive", id="manual-toggle-vrfb-v-disable-btn", className="toggle-option toggle-option--negative active", n_clicks=0),
+                                                                                ],
+                                                                            ),
+                                                                            html.Button("Update", id="manual-toggle-vrfb-v-update-btn", className="btn btn-secondary", n_clicks=0),
+                                                                        ],
+                                                                    ),
+                                                                    html.Div(style={"height": "4px"}),
+                                                                    dcc.Graph(id="manual-graph-vrfb-v", className="plot-graph", style={"marginBottom": "6px"}),
+                                                                ],
+                                                            ),
                                                         ],
                                                     ),
                                                 ],
@@ -480,8 +526,10 @@ def build_dashboard_layout(
                                                                         options=[
                                                                             {"label": "LIB - P", "value": "lib_p"},
                                                                             {"label": "LIB - Q", "value": "lib_q"},
+                                                                            {"label": "LIB - V", "value": "lib_v"},
                                                                             {"label": "VRFB - P", "value": "vrfb_p"},
                                                                             {"label": "VRFB - Q", "value": "vrfb_q"},
+                                                                            {"label": "VRFB - V", "value": "vrfb_v"},
                                                                         ],
                                                                     ),
                                                                 ],

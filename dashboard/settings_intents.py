@@ -13,12 +13,18 @@ MANUAL_BUTTON_TRIGGER_MAP = {
     "manual-toggle-lib-q-enable-btn": ("lib_q", "activate"),
     "manual-toggle-lib-q-disable-btn": ("lib_q", "inactivate"),
     "manual-toggle-lib-q-update-btn": ("lib_q", "update"),
+    "manual-toggle-lib-v-enable-btn": ("lib_v", "activate"),
+    "manual-toggle-lib-v-disable-btn": ("lib_v", "inactivate"),
+    "manual-toggle-lib-v-update-btn": ("lib_v", "update"),
     "manual-toggle-vrfb-p-enable-btn": ("vrfb_p", "activate"),
     "manual-toggle-vrfb-p-disable-btn": ("vrfb_p", "inactivate"),
     "manual-toggle-vrfb-p-update-btn": ("vrfb_p", "update"),
     "manual-toggle-vrfb-q-enable-btn": ("vrfb_q", "activate"),
     "manual-toggle-vrfb-q-disable-btn": ("vrfb_q", "inactivate"),
     "manual-toggle-vrfb-q-update-btn": ("vrfb_q", "update"),
+    "manual-toggle-vrfb-v-enable-btn": ("vrfb_v", "activate"),
+    "manual-toggle-vrfb-v-disable-btn": ("vrfb_v", "inactivate"),
+    "manual-toggle-vrfb-v-update-btn": ("vrfb_v", "update"),
 }
 
 

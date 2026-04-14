@@ -6,7 +6,11 @@ import time
 from modbus.client import ModbusClient
 
 from modbus.codec import read_point_internal, write_point_internal
-from modbus.setpoint_io import build_setpoint_write_plan, write_setpoint_plan_with_optional_trigger
+from modbus.setpoint_io import (
+    build_setpoint_write_plan,
+    resolve_reactive_power_request,
+    write_setpoint_plan_with_optional_trigger,
+)
 
 
 def write_optional_command_point(endpoint_cfg, plant_label, point_name, value):
@@ -80,7 +84,15 @@ def set_enable(endpoint_cfg, plant_label, value):
             pass
 
 
-def send_setpoints(endpoint_cfg, plant_label, p_kw, q_kvar):
+def send_setpoints_detailed(
+    endpoint_cfg,
+    plant_label,
+    p_kw,
+    q_kvar,
+    *,
+    voltage_mode_active=False,
+    voltage_setpoint_pu=1.0,
+):
     client = ModbusClient(host=endpoint_cfg["host"], port=endpoint_cfg["port"])
     try:
         if not client.open():
@@ -89,8 +101,28 @@ def send_setpoints(endpoint_cfg, plant_label, p_kw, q_kvar):
                 plant_label,
                 endpoint_cfg["mode"],
             )
-            return False
-        write_plan = build_setpoint_write_plan(endpoint_cfg, p_kw, q_kvar)
+            return {"ok": False, "error": "connect_failed"}
+        reactive_result = resolve_reactive_power_request(
+            client,
+            endpoint_cfg,
+            requested_q_kvar=q_kvar,
+            voltage_mode_active=voltage_mode_active,
+            voltage_setpoint_pu=voltage_setpoint_pu,
+        )
+        if not bool(reactive_result.get("ok")):
+            logging.warning(
+                "Control I/O: %s reactive dispatch resolution failed (mode=%s error=%s).",
+                plant_label,
+                "voltage" if voltage_mode_active else "q",
+                reactive_result.get("error"),
+            )
+            return {"ok": False, "error": reactive_result.get("error"), "reactive_result": reactive_result}
+        write_plan = build_setpoint_write_plan(
+            endpoint_cfg,
+            p_kw,
+            reactive_result.get("requested_q_kvar", q_kvar),
+            reactive_control_mode=reactive_result.get("reactive_control_mode"),
+        )
         limit_result = dict((write_plan or {}).get("limit_result") or {})
         if bool(limit_result.get("any_clamped")):
             logging.warning(
@@ -111,15 +143,25 @@ def send_setpoints(endpoint_cfg, plant_label, p_kw, q_kvar):
                 plant_label,
                 trigger_result.get("message"),
             )
-        return bool(apply_result["ok"])
+        return {
+            "ok": bool(apply_result["ok"]),
+            "reactive_result": reactive_result,
+            "write_plan": write_plan,
+            "limit_result": limit_result,
+            "apply_result": apply_result,
+        }
     except Exception as exc:
         logging.error("Control I/O: setpoint write error (%s): %s", plant_label, exc)
-        return False
+        return {"ok": False, "error": str(exc)}
     finally:
         try:
             client.close()
         except Exception:
             pass
+
+
+def send_setpoints(endpoint_cfg, plant_label, p_kw, q_kvar):
+    return bool(send_setpoints_detailed(endpoint_cfg, plant_label, p_kw, q_kvar).get("ok"))
 
 
 def read_enable_state(endpoint_cfg):

@@ -1,41 +1,33 @@
 # Roadmap: HIL Scheduler
 
 ## Goal
-Increase operational confidence by stabilizing heterogeneous Modbus dispatch, multi-market schedule composition, and observability while preserving safe dual-plant control behavior.
+Increase operational confidence by stabilizing heterogeneous Modbus dispatch, including the new voltage-regulation path, while preserving safe dual-plant control behavior and clear observability.
 
 ## Priority Order
 1. Reliability guardrails
-- Keep compile/unit checks green for fetcher, scheduler, measurement, control, and dashboard paths.
-- Preserve strict config/schema validation for aggregate-vs-per-phase setpoint endpoints.
-- Validate SoC fallback behavior when hardware omits a direct `soc` register.
-- Validate `total = day-ahead + mFRR` behavior under real API payload variability.
-- Preserve local SoC continuity and safe-stop behavior while the dispatch stack evolves.
+- Keep compile and targeted unit checks green for scheduler, control, measurement, dashboard, and config paths.
+- Preserve strict config validation for aggregate/per-phase setpoints and `q_control_mode` + droop requirements.
+- Validate stale-API behavior with per-signal manual overrides, including manual voltage mode selection.
 
 2. Operational hardening
-- Confirm per-phase setpoint writes and trigger-latched apply behavior on real endpoints.
+- Confirm voltage-regulation behavior on real LIB endpoints with `q_control_mode`.
 - Decide whether trigger pulse timing should remain fixed or become configurable.
-- Confirm runtime mFRR polling cadence/telemetry accuracy in production-like runs.
-- Keep mFRR logging high-signal (transition INFO, steady-state DEBUG, failure ERROR).
 - Continue remote endpoint stability checks after pooled-session rollout.
 - Extend non-dispatch runtime paths if per-phase-only telemetry becomes a production requirement.
-- Reconcile grid-map pandapower geometry with electrical lengths before treating current local patches as canonical.
 
 3. UX and observability
-- Add lightweight regression coverage for schedule traces (`Pref`, `day-ahead`, `mfrr`).
-- Add lightweight regression coverage for menu-only route pages (private/public).
-- Keep private/public status summaries aligned and unambiguous.
-- Refine API-page messaging around polling cadence/windows if operator feedback requires it.
+- Keep private/public status summaries aligned around `V ref` and measured voltage.
+- Add any lightweight follow-up coverage needed for six-channel manual schedule UI behavior.
+- Refine operator messaging if voltage-mode field validation shows confusion around activation semantics.
 
 4. Scalability and maintainability
 - Evaluate history indexing/caching for large `data/` directories.
-- Continue low-risk dedup of shared schedule/runtime helpers.
+- Continue low-risk dedup of shared dispatch/runtime helpers.
 - Revisit per-session manual draft isolation if multi-operator workflows are needed.
-- Revisit credential storage/security if the threat model expands.
 
 ## Exit Criteria for Current Phase
-1. Total/day-ahead/mFRR schedules are correct and stable in live and historical views.
-2. Aggregate, per-phase, and trigger-latched setpoint endpoints all dispatch correctly with clear failure reporting.
-3. SoC remains usable through direct reads or estimator fallback without breaking recording/history flows.
-4. mFRR telemetry in the API page accurately reflects runtime state (`last`, `result`, `next`, errors).
-5. mFRR poll logs remain low-noise while preserving actionable operational signals.
-6. Core control, safe-stop, and transport behavior remains stable in local and remote operation.
+1. Aggregate, per-phase, trigger-latched, and voltage-regulation endpoints all dispatch correctly with clear failure reporting.
+2. Manual voltage override cleanly selects reactive mode and produces stable `Q` behavior in field validation.
+3. `v_setpoint_pu` remains correct and visible in live status and recorded telemetry.
+4. SoC remains usable through direct reads or estimator fallback without breaking recording/history flows.
+5. Core control, safe-stop, and transport behavior remains stable in local and remote operation.

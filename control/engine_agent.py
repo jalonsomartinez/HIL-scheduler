@@ -18,7 +18,7 @@ from control.flows import (
 )
 from control.modbus_io import (
     read_enable_state as read_enable_state_io,
-    send_setpoints as send_setpoints_io,
+    send_setpoints_detailed as send_setpoints_detailed_io,
     set_enable as set_enable_io,
     write_optional_command_point as write_optional_command_point_io,
     wait_until_battery_power_below_threshold as wait_until_battery_power_below_threshold_io,
@@ -34,7 +34,7 @@ from runtime.contracts import (
 )
 from runtime.paths import get_data_dir
 from runtime.soc_estimation import clamp_soc_pu, resolve_startup_soc_seed
-from scheduling.runtime import build_effective_schedule_frame, resolve_schedule_setpoint
+from scheduling.runtime import resolve_dispatch_bundle_from_sources
 from runtime.shared_state import snapshot_locked
 from time_utils import get_config_tz, now_tz
 
@@ -120,9 +120,16 @@ def _reset_trigger_to_normal(config, shared_data, plant_id):
     return result
 
 
-def _send_setpoints(config, shared_data, plant_id, p_kw, q_kvar):
+def _send_setpoints(config, shared_data, plant_id, p_kw, q_kvar, *, voltage_mode_active=False, voltage_setpoint_pu=1.0):
     cfg = _get_plant_modbus_config(config, shared_data, plant_id)
-    return send_setpoints_io(cfg, plant_id.upper(), p_kw, q_kvar)
+    return send_setpoints_detailed_io(
+        cfg,
+        plant_id.upper(),
+        p_kw,
+        q_kvar,
+        voltage_mode_active=voltage_mode_active,
+        voltage_setpoint_pu=voltage_setpoint_pu,
+    )
 
 
 def _read_enable_state(config, shared_data, plant_id, transport_mode=None):
@@ -443,22 +450,19 @@ def _get_latest_schedule_setpoint(config, shared_data, plant_id, tz):
             "manual_merge_enabled": dict(data.get("manual_schedule_merge_enabled_by_key", {})),
         },
     )
-    p_key, q_key = msm.manual_series_keys_for_plant(plant_id)
-    effective_df = build_effective_schedule_frame(
+    p_key, q_key, v_key = msm.manual_series_keys_for_plant(plant_id, include_voltage=True)
+    return resolve_dispatch_bundle_from_sources(
         source_snapshot["api_df"],
         source_snapshot["manual_series_map"].get(p_key),
         source_snapshot["manual_series_map"].get(q_key),
-        manual_p_enabled=bool(source_snapshot["manual_merge_enabled"].get(p_key, False)),
-        manual_q_enabled=bool(source_snapshot["manual_merge_enabled"].get(q_key, False)),
-        tz=tz,
-    )
-    p_kw, q_kvar, _ = resolve_schedule_setpoint(
-        effective_df,
+        source_snapshot["manual_series_map"].get(v_key),
         now_tz(config),
         tz,
+        manual_p_enabled=bool(source_snapshot["manual_merge_enabled"].get(p_key, False)),
+        manual_q_enabled=bool(source_snapshot["manual_merge_enabled"].get(q_key, False)),
+        manual_v_enabled=bool(source_snapshot["manual_merge_enabled"].get(v_key, False)),
         source="manual",
     )
-    return p_kw, q_kvar
 
 
 def _safe_stop_plant(config, shared_data, plant_id, *, threshold_kw=1.0, timeout_s=30):
@@ -466,7 +470,8 @@ def _safe_stop_plant(config, shared_data, plant_id, *, threshold_kw=1.0, timeout
 
     def _send_and_publish(pid, p_kw, q_kvar):
         limit_result = clamp_dispatch_setpoints(p_kw, q_kvar, resolve_plant_power_limits(config, pid))
-        ok = bool(_send_setpoints(config, shared_data, pid, p_kw, q_kvar))
+        send_result = _send_setpoints(config, shared_data, pid, p_kw, q_kvar)
+        ok = bool((send_result or {}).get("ok")) if isinstance(send_result, dict) else bool(send_result)
         gate = snapshot_locked(shared_data, lambda data: bool((data.get("scheduler_running_by_plant", {}) or {}).get(pid, False)))
         publish_dispatch_write_status(
             shared_data,
@@ -543,7 +548,17 @@ def _start_one_plant(
     reset_trigger_fn=None,
 ):
     set_enable_fn = set_enable_fn or (lambda pid, value: _set_enable(config, shared_data, pid, value))
-    send_setpoints_fn = send_setpoints_fn or (lambda pid, p, q: _send_setpoints(config, shared_data, pid, p, q))
+    send_setpoints_fn = send_setpoints_fn or (
+        lambda pid, p, q, voltage_mode_active=False, voltage_setpoint_pu=1.0: _send_setpoints(
+            config,
+            shared_data,
+            pid,
+            p,
+            q,
+            voltage_mode_active=voltage_mode_active,
+            voltage_setpoint_pu=voltage_setpoint_pu,
+        )
+    )
     get_latest_schedule_setpoint_fn = get_latest_schedule_setpoint_fn or (
         lambda pid: _get_latest_schedule_setpoint(config, shared_data, pid, tz)
     )
@@ -638,45 +653,74 @@ def _start_one_plant(
             },
         }
 
-    p_kw, q_kvar = get_latest_schedule_setpoint_fn(plant_id)
+    dispatch_bundle = get_latest_schedule_setpoint_fn(plant_id)
+    if isinstance(dispatch_bundle, dict):
+        p_kw = float(dispatch_bundle.get("p_kw", 0.0) or 0.0)
+        q_kvar = float(dispatch_bundle.get("q_kvar", 0.0) or 0.0)
+        voltage_mode_active = bool(dispatch_bundle.get("voltage_mode_active", False))
+        voltage_setpoint_pu = float(dispatch_bundle.get("voltage_setpoint_pu", 1.0) or 1.0)
+    else:
+        p_kw, q_kvar = dispatch_bundle
+        voltage_mode_active = False
+        voltage_setpoint_pu = 1.0
     limit_result = clamp_dispatch_setpoints(p_kw, q_kvar, resolve_plant_power_limits(config, plant_id))
     applied_p_kw = float(limit_result["applied_p_kw"])
     applied_q_kvar = float(limit_result["applied_q_kvar"])
     if dispatch_enabled:
-        send_ok = bool(send_setpoints_fn(plant_id, p_kw, q_kvar))
+        try:
+            send_result = send_setpoints_fn(
+                plant_id,
+                p_kw,
+                q_kvar,
+                voltage_mode_active=voltage_mode_active,
+                voltage_setpoint_pu=voltage_setpoint_pu,
+            )
+        except TypeError:
+            send_result = send_setpoints_fn(plant_id, p_kw, q_kvar)
+        send_ok = bool(send_result.get("ok")) if isinstance(send_result, dict) else bool(send_result)
+        reactive_result = dict((send_result or {}).get("reactive_result") or {}) if isinstance(send_result, dict) else {}
+        effective_limit_result = dict((send_result or {}).get("limit_result") or {}) if isinstance(send_result, dict) else {}
+        publish_limit_result = effective_limit_result or limit_result
         publish_dispatch_write_status(
             shared_data,
             plant_id,
             sending_enabled=True,
             attempted_at=now_fn(config),
             p_kw=applied_p_kw,
-            q_kvar=applied_q_kvar,
+            q_kvar=float(publish_limit_result.get("applied_q_kvar", applied_q_kvar)),
             source="control_engine.start",
             status="ok" if send_ok else "failed",
-            error=None if send_ok else "setpoint_write_failed",
+            error=None if send_ok else str(reactive_result.get("error") or "setpoint_write_failed"),
             scheduler_context={
-                "requested_p_kw": limit_result["requested_p_kw"],
-                "requested_q_kvar": limit_result["requested_q_kvar"],
-                "applied_p_kw": applied_p_kw,
-                "applied_q_kvar": applied_q_kvar,
-                "p_clamped": bool(limit_result["p_clamped"]),
-                "q_clamped": bool(limit_result["q_clamped"]),
-                "any_clamped": bool(limit_result["any_clamped"]),
+                "requested_p_kw": publish_limit_result.get("requested_p_kw", limit_result["requested_p_kw"]),
+                "requested_q_kvar": publish_limit_result.get("requested_q_kvar", limit_result["requested_q_kvar"]),
+                "applied_p_kw": publish_limit_result.get("applied_p_kw", applied_p_kw),
+                "applied_q_kvar": publish_limit_result.get("applied_q_kvar", applied_q_kvar),
+                "p_clamped": bool(publish_limit_result.get("p_clamped", limit_result["p_clamped"])),
+                "q_clamped": bool(publish_limit_result.get("q_clamped", limit_result["q_clamped"])),
+                "any_clamped": bool(publish_limit_result.get("any_clamped", limit_result["any_clamped"])),
+                "reactive_control_mode": reactive_result.get("reactive_control_mode"),
+                "voltage_mode_active": bool(voltage_mode_active),
+                "voltage_setpoint_pu": float(voltage_setpoint_pu),
+                "measured_v_poi_kv": reactive_result.get("measured_v_poi_kv"),
+                "measured_v_poi_pu": reactive_result.get("measured_v_poi_pu"),
             },
         )
         if send_ok:
             logging.info(
-                "ControlEngine: %s initial setpoints sent (P=%.3f kW Q=%.3f kvar).",
+                "ControlEngine: %s initial setpoints sent (P=%.3f kW Q=%.3f kvar mode=%s).",
                 plant_id.upper(),
-                applied_p_kw,
-                applied_q_kvar,
+                float(publish_limit_result.get("applied_p_kw", applied_p_kw)),
+                float(publish_limit_result.get("applied_q_kvar", applied_q_kvar)),
+                reactive_result.get("reactive_control_mode"),
             )
         else:
             logging.warning(
-                "ControlEngine: %s initial setpoint write failed (P=%.3f kW Q=%.3f kvar).",
+                "ControlEngine: %s initial setpoint write failed (P=%.3f kW Q=%.3f kvar error=%s).",
                 plant_id.upper(),
-                applied_p_kw,
-                applied_q_kvar,
+                float(publish_limit_result.get("applied_p_kw", applied_p_kw)),
+                float(publish_limit_result.get("applied_q_kvar", applied_q_kvar)),
+                reactive_result.get("error"),
             )
     else:
         send_ok = False
@@ -698,6 +742,8 @@ def _start_one_plant(
                 "p_clamped": bool(limit_result["p_clamped"]),
                 "q_clamped": bool(limit_result["q_clamped"]),
                 "any_clamped": bool(limit_result["any_clamped"]),
+                "voltage_mode_active": bool(voltage_mode_active),
+                "voltage_setpoint_pu": float(voltage_setpoint_pu),
             },
         )
         logging.info(
@@ -710,6 +756,13 @@ def _start_one_plant(
     with shared_data["lock"]:
         shared_data["plant_transition_by_plant"][plant_id] = "running"
 
+    final_initial_p_kw = applied_p_kw
+    final_initial_q_kvar = applied_q_kvar
+    if dispatch_enabled and isinstance(send_result, dict):
+        sent_limit_result = dict((send_result or {}).get("limit_result") or {})
+        final_initial_p_kw = float(sent_limit_result.get("applied_p_kw", final_initial_p_kw))
+        final_initial_q_kvar = float(sent_limit_result.get("applied_q_kvar", final_initial_q_kvar))
+
     return {
         "state": "succeeded",
         "message": None,
@@ -718,8 +771,8 @@ def _start_one_plant(
             "command_prepare_detail": command_prepare_detail,
             "enable_ok": True,
             "initial_setpoint_write_ok": bool(send_ok),
-            "initial_p_kw": applied_p_kw,
-            "initial_q_kvar": applied_q_kvar,
+            "initial_p_kw": final_initial_p_kw,
+            "initial_q_kvar": final_initial_q_kvar,
             "seed_result": seed_result,
             "dispatch_enabled": bool(dispatch_enabled),
             "initial_setpoint_write_skipped": (not bool(dispatch_enabled)),

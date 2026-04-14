@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from scheduling.runtime import build_effective_schedule_frame
+from scheduling.runtime import build_effective_schedule_frame, resolve_effective_dispatch_bundle
 
 
 class ScheduleRuntimeEndTimeTests(unittest.TestCase):
@@ -63,6 +63,39 @@ class ScheduleRuntimeEndTimeTests(unittest.TestCase):
         self.assertAlmostEqual(float(effective.loc[p_end, "power_setpoint_kw"]), 100.0)
         self.assertAlmostEqual(float(effective.loc[p_end, "reactive_power_setpoint_kvar"]), 50.0)
         self.assertAlmostEqual(float(effective.loc[q_end, "reactive_power_setpoint_kvar"]), 10.0)
+
+    def test_voltage_setpoint_defaults_to_one_pu_without_manual_voltage_value(self):
+        tz = ZoneInfo("Europe/Madrid")
+        base = pd.Timestamp("2026-02-26T10:00:00+01:00")
+        api_df = pd.DataFrame(
+            {
+                "power_setpoint_kw": [100.0],
+                "reactive_power_setpoint_kvar": [10.0],
+            },
+            index=pd.DatetimeIndex([base]),
+        )
+
+        effective = build_effective_schedule_frame(
+            api_df,
+            pd.DataFrame(columns=["setpoint"]),
+            pd.DataFrame(columns=["setpoint"]),
+            pd.DataFrame(columns=["setpoint"]),
+            manual_p_enabled=False,
+            manual_q_enabled=False,
+            manual_v_enabled=True,
+            tz=tz,
+        )
+        bundle = resolve_effective_dispatch_bundle(
+            effective,
+            base,
+            tz,
+            source="manual",
+            voltage_mode_active=True,
+        )
+
+        self.assertAlmostEqual(float(effective.loc[base, "voltage_setpoint_pu"]), 1.0)
+        self.assertAlmostEqual(float(bundle["voltage_setpoint_pu"]), 1.0)
+        self.assertTrue(bundle["voltage_mode_active"])
 
 
 if __name__ == "__main__":

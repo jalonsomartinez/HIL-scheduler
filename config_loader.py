@@ -35,6 +35,7 @@ DEFAULT_MODEL = {
         "q_min_kvar": -600.0,
     },
     "poi_voltage_kv": 20.0,
+    "voltage_control_droop_pu": None,
 }
 LEGACY_ALIAS_ENV_VAR = "HIL_ENABLE_LEGACY_CONFIG_ALIASES"
 ISTENTORE_API_PASSWORD_ENV_VAR = "HIL_API_PASSWORD"
@@ -301,7 +302,16 @@ def _normalize_model(raw_model, prefix):
             f"{prefix}.model.poi_voltage_kv",
             min_value=0.0,
         ),
+        "voltage_control_droop_pu": None,
     }
+    if "voltage_control_droop_pu" in raw_model and raw_model.get("voltage_control_droop_pu") is not None:
+        try:
+            droop_value = float(raw_model.get("voltage_control_droop_pu"))
+        except (TypeError, ValueError):
+            raise ValueError(f"Invalid {prefix}.model.voltage_control_droop_pu='{raw_model.get('voltage_control_droop_pu')}'. Must be > 0.")
+        if droop_value <= 0.0:
+            raise ValueError(f"Invalid {prefix}.model.voltage_control_droop_pu='{droop_value}'. Must be > 0.")
+        model["voltage_control_droop_pu"] = droop_value
     power_limits = model["power_limits"]
     if float(power_limits["p_min_kw"]) > float(power_limits["p_max_kw"]):
         raise ValueError(
@@ -385,6 +395,12 @@ def _normalize_plants_new_schema(yaml_config):
                 defaults_by_plant[plant_id],
             ),
         }
+        local_points = dict((local_endpoint or {}).get("points", {}) or {})
+        remote_points = dict((remote_endpoint or {}).get("points", {}) or {})
+        if ("q_control_mode" in local_points or "q_control_mode" in remote_points) and model.get("voltage_control_droop_pu") is None:
+            raise ValueError(
+                f"Missing required config key 'plants.{plant_id}.model.voltage_control_droop_pu' when q_control_mode is configured."
+            )
 
     return plants
 

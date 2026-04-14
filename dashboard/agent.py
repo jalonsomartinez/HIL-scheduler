@@ -1078,6 +1078,14 @@ def dashboard_agent(config, shared_data):
             Output("manual-toggle-lib-q-disable-btn", "disabled"),
             Output("manual-toggle-lib-q-update-btn", "children"),
             Output("manual-toggle-lib-q-update-btn", "disabled"),
+            Output("manual-toggle-lib-v-enable-btn", "children"),
+            Output("manual-toggle-lib-v-enable-btn", "className"),
+            Output("manual-toggle-lib-v-enable-btn", "disabled"),
+            Output("manual-toggle-lib-v-disable-btn", "children"),
+            Output("manual-toggle-lib-v-disable-btn", "className"),
+            Output("manual-toggle-lib-v-disable-btn", "disabled"),
+            Output("manual-toggle-lib-v-update-btn", "children"),
+            Output("manual-toggle-lib-v-update-btn", "disabled"),
             Output("manual-toggle-vrfb-p-enable-btn", "children"),
             Output("manual-toggle-vrfb-p-enable-btn", "className"),
             Output("manual-toggle-vrfb-p-enable-btn", "disabled"),
@@ -1094,6 +1102,14 @@ def dashboard_agent(config, shared_data):
             Output("manual-toggle-vrfb-q-disable-btn", "disabled"),
             Output("manual-toggle-vrfb-q-update-btn", "children"),
             Output("manual-toggle-vrfb-q-update-btn", "disabled"),
+            Output("manual-toggle-vrfb-v-enable-btn", "children"),
+            Output("manual-toggle-vrfb-v-enable-btn", "className"),
+            Output("manual-toggle-vrfb-v-enable-btn", "disabled"),
+            Output("manual-toggle-vrfb-v-disable-btn", "children"),
+            Output("manual-toggle-vrfb-v-disable-btn", "className"),
+            Output("manual-toggle-vrfb-v-disable-btn", "disabled"),
+            Output("manual-toggle-vrfb-v-update-btn", "children"),
+            Output("manual-toggle-vrfb-v-update-btn", "disabled"),
         ],
         [
             Input("interval-component", "n_intervals"),
@@ -1105,12 +1121,18 @@ def dashboard_agent(config, shared_data):
             Input("manual-toggle-lib-q-enable-btn", "n_clicks_timestamp"),
             Input("manual-toggle-lib-q-disable-btn", "n_clicks_timestamp"),
             Input("manual-toggle-lib-q-update-btn", "n_clicks_timestamp"),
+            Input("manual-toggle-lib-v-enable-btn", "n_clicks_timestamp"),
+            Input("manual-toggle-lib-v-disable-btn", "n_clicks_timestamp"),
+            Input("manual-toggle-lib-v-update-btn", "n_clicks_timestamp"),
             Input("manual-toggle-vrfb-p-enable-btn", "n_clicks_timestamp"),
             Input("manual-toggle-vrfb-p-disable-btn", "n_clicks_timestamp"),
             Input("manual-toggle-vrfb-p-update-btn", "n_clicks_timestamp"),
             Input("manual-toggle-vrfb-q-enable-btn", "n_clicks_timestamp"),
             Input("manual-toggle-vrfb-q-disable-btn", "n_clicks_timestamp"),
             Input("manual-toggle-vrfb-q-update-btn", "n_clicks_timestamp"),
+            Input("manual-toggle-vrfb-v-enable-btn", "n_clicks_timestamp"),
+            Input("manual-toggle-vrfb-v-disable-btn", "n_clicks_timestamp"),
+            Input("manual-toggle-vrfb-v-update-btn", "n_clicks_timestamp"),
         ],
         prevent_initial_call=False,
     )
@@ -1124,18 +1146,26 @@ def dashboard_agent(config, shared_data):
         lib_q_activate_ts,
         lib_q_inactivate_ts,
         lib_q_update_ts,
+        lib_v_activate_ts,
+        lib_v_inactivate_ts,
+        lib_v_update_ts,
         vrfb_p_activate_ts,
         vrfb_p_inactivate_ts,
         vrfb_p_update_ts,
         vrfb_q_activate_ts,
         vrfb_q_inactivate_ts,
         vrfb_q_update_ts,
+        vrfb_v_activate_ts,
+        vrfb_v_inactivate_ts,
+        vrfb_v_update_ts,
     ):
         ts_map = {
             "lib_p": {"activate": lib_p_activate_ts, "inactivate": lib_p_inactivate_ts, "update": lib_p_update_ts},
             "lib_q": {"activate": lib_q_activate_ts, "inactivate": lib_q_inactivate_ts, "update": lib_q_update_ts},
+            "lib_v": {"activate": lib_v_activate_ts, "inactivate": lib_v_inactivate_ts, "update": lib_v_update_ts},
             "vrfb_p": {"activate": vrfb_p_activate_ts, "inactivate": vrfb_p_inactivate_ts, "update": vrfb_p_update_ts},
             "vrfb_q": {"activate": vrfb_q_activate_ts, "inactivate": vrfb_q_inactivate_ts, "update": vrfb_q_update_ts},
+            "vrfb_v": {"activate": vrfb_v_activate_ts, "inactivate": vrfb_v_inactivate_ts, "update": vrfb_v_update_ts},
         }
         snapshot = _get_manual_series_snapshot()
         draft_series_map = snapshot["draft_series_map"]
@@ -1144,7 +1174,7 @@ def dashboard_agent(config, shared_data):
         now_value = now_tz(config)
 
         outputs = []
-        for key in ("lib_p", "lib_q", "vrfb_p", "vrfb_q"):
+        for key in ("lib_p", "lib_q", "lib_v", "vrfb_p", "vrfb_q", "vrfb_v"):
             runtime = dict(runtime_state_map.get(key, {}) or {})
             server_state = str(runtime.get("state") or ("active" if runtime.get("active") else "inactive"))
             click_ts = ts_map.get(key, {})
@@ -1201,12 +1231,18 @@ def dashboard_agent(config, shared_data):
             Input("manual-toggle-lib-q-enable-btn", "n_clicks"),
             Input("manual-toggle-lib-q-disable-btn", "n_clicks"),
             Input("manual-toggle-lib-q-update-btn", "n_clicks"),
+            Input("manual-toggle-lib-v-enable-btn", "n_clicks"),
+            Input("manual-toggle-lib-v-disable-btn", "n_clicks"),
+            Input("manual-toggle-lib-v-update-btn", "n_clicks"),
             Input("manual-toggle-vrfb-p-enable-btn", "n_clicks"),
             Input("manual-toggle-vrfb-p-disable-btn", "n_clicks"),
             Input("manual-toggle-vrfb-p-update-btn", "n_clicks"),
             Input("manual-toggle-vrfb-q-enable-btn", "n_clicks"),
             Input("manual-toggle-vrfb-q-disable-btn", "n_clicks"),
             Input("manual-toggle-vrfb-q-update-btn", "n_clicks"),
+            Input("manual-toggle-vrfb-v-enable-btn", "n_clicks"),
+            Input("manual-toggle-vrfb-v-disable-btn", "n_clicks"),
+            Input("manual-toggle-vrfb-v-update-btn", "n_clicks"),
         ],
         prevent_initial_call=True,
     )
@@ -1230,8 +1266,10 @@ def dashboard_agent(config, shared_data):
         [
             Output("manual-graph-lib-p", "figure"),
             Output("manual-graph-lib-q", "figure"),
+            Output("manual-graph-lib-v", "figure"),
             Output("manual-graph-vrfb-p", "figure"),
             Output("manual-graph-vrfb-q", "figure"),
+            Output("manual-graph-vrfb-v", "figure"),
         ],
         [
             Input("interval-component", "n_intervals"),
@@ -1251,6 +1289,7 @@ def dashboard_agent(config, shared_data):
         def fig_for(series_key):
             meta = msm.MANUAL_SERIES_META[series_key]
             is_p = meta["signal"] == "p"
+            is_v = meta["signal"] == "v"
             return create_manual_series_figure(
                 title=f"{meta['label']} (Manual Override)",
                 unit_label=meta["unit"],
@@ -1259,7 +1298,7 @@ def dashboard_agent(config, shared_data):
                 applied_enabled=bool(dict(runtime_state.get(series_key, {}) or {}).get("active", False)),
                 tz=tz,
                 plot_theme=plot_theme,
-                line_color=trace_colors["p_setpoint"] if is_p else trace_colors["q_setpoint"],
+                line_color=trace_colors["p_setpoint"] if is_p else (trace_colors["v_poi"] if is_v else trace_colors["q_setpoint"]),
                 x_window_start=window_start,
                 x_window_end=window_end,
                 uirevision_key=f"manual-{series_key}",
@@ -1268,8 +1307,10 @@ def dashboard_agent(config, shared_data):
         return (
             fig_for("lib_p"),
             fig_for("lib_q"),
+            fig_for("lib_v"),
             fig_for("vrfb_p"),
             fig_for("vrfb_q"),
+            fig_for("vrfb_v"),
         )
 
     @app.callback(
@@ -2173,6 +2214,7 @@ def dashboard_agent(config, shared_data):
                         _metric_cell(latest.get("p_poi_kw"), "kW", decimals=1),
                         _metric_cell(latest.get("q_setpoint_kvar"), "kvar", decimals=1),
                         _metric_cell(latest.get("q_poi_kvar"), "kvar", decimals=1),
+                        _metric_cell(latest.get("v_setpoint_pu"), "pu", decimals=3),
                         _metric_cell(latest.get("v_poi_kV"), "kV", decimals=voltage_decimals),
                     ]
                 )
@@ -2191,6 +2233,7 @@ def dashboard_agent(config, shared_data):
                             html.Th("P POI"),
                             html.Th("Q ref"),
                             html.Th("Q POI"),
+                            html.Th("V ref"),
                             html.Th("Voltage"),
                         ]
                     )
@@ -2233,13 +2276,15 @@ def dashboard_agent(config, shared_data):
 
         effective_schedule_map = {}
         for plant_id in plant_ids:
-            p_key, q_key = msm.manual_series_keys_for_plant(plant_id)
+            p_key, q_key, v_key = msm.manual_series_keys_for_plant(plant_id, include_voltage=True)
             effective_schedule_map[plant_id] = build_effective_schedule_frame(
                 api_schedule_map.get(plant_id, pd.DataFrame()),
                 manual_series_map.get(p_key, pd.DataFrame()),
                 manual_series_map.get(q_key, pd.DataFrame()),
+                manual_series_map.get(v_key, pd.DataFrame()),
                 manual_p_enabled=bool(manual_merge_enabled.get(p_key, False)),
                 manual_q_enabled=bool(manual_merge_enabled.get(q_key, False)),
+                manual_v_enabled=bool(manual_merge_enabled.get(v_key, False)),
                 tz=tz,
             )
 

@@ -915,6 +915,7 @@ def build_public_readonly_app(config, shared_data):
                         _metric_cell(latest.get("p_poi_kw"), "kW", decimals=1),
                         _metric_cell(latest.get("q_setpoint_kvar"), "kvar", decimals=1),
                         _metric_cell(latest.get("q_poi_kvar"), "kvar", decimals=1),
+                        _metric_cell(latest.get("v_setpoint_pu"), "pu", decimals=3),
                         _metric_cell(latest.get("v_poi_kV"), "kV", decimals=voltage_decimals),
                     ]
                 )
@@ -933,6 +934,7 @@ def build_public_readonly_app(config, shared_data):
                             html.Th("P POI"),
                             html.Th("Q ref"),
                             html.Th("Q POI"),
+                            html.Th("V ref"),
                             html.Th("Voltage"),
                         ]
                     )
@@ -945,13 +947,15 @@ def build_public_readonly_app(config, shared_data):
 
         effective_schedule_map = {}
         for plant_id in plant_ids:
-            p_key, q_key = msm.manual_series_keys_for_plant(plant_id)
+            p_key, q_key, v_key = msm.manual_series_keys_for_plant(plant_id, include_voltage=True)
             effective_schedule_map[plant_id] = build_effective_schedule_frame(
                 snapshot["api_schedule_map"].get(plant_id, pd.DataFrame()),
                 snapshot["manual_series_map"].get(p_key, pd.DataFrame()),
                 snapshot["manual_series_map"].get(q_key, pd.DataFrame()),
+                snapshot["manual_series_map"].get(v_key, pd.DataFrame()),
                 manual_p_enabled=bool(snapshot["manual_merge_enabled"].get(p_key, False)),
                 manual_q_enabled=bool(snapshot["manual_merge_enabled"].get(q_key, False)),
+                manual_v_enabled=bool(snapshot["manual_merge_enabled"].get(v_key, False)),
                 tz=tz,
             )
 

@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pandas as pd
 
 from config_loader import load_config
+import scheduling.manual_schedule_manager as msm
 from scheduling.agent import scheduler_agent
 from time_utils import now_tz
 from modbus.legacy_scaling import hw_to_kw, uint16_to_int
@@ -87,18 +88,8 @@ def _shared_data():
         "transport_mode": "local",
         "scheduler_running_by_plant": {"lib": True, "vrfb": False},
         "manual_schedule_df_by_plant": {"lib": pd.DataFrame(), "vrfb": pd.DataFrame()},
-        "manual_schedule_series_df_by_key": {
-            "lib_p": pd.DataFrame(columns=["setpoint"]),
-            "lib_q": pd.DataFrame(columns=["setpoint"]),
-            "vrfb_p": pd.DataFrame(columns=["setpoint"]),
-            "vrfb_q": pd.DataFrame(columns=["setpoint"]),
-        },
-        "manual_schedule_merge_enabled_by_key": {
-            "lib_p": False,
-            "lib_q": False,
-            "vrfb_p": False,
-            "vrfb_q": False,
-        },
+        "manual_schedule_series_df_by_key": msm.default_manual_series_map(),
+        "manual_schedule_merge_enabled_by_key": msm.default_manual_merge_enabled_map(default_enabled=False),
         "api_schedule_df_by_plant": {"lib": pd.DataFrame(), "vrfb": pd.DataFrame()},
     }
 

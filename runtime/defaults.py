@@ -18,6 +18,7 @@ DEFAULT_MEASUREMENT_COMPRESSION_TOLERANCES = {
     "p_poi_kw": 0.1,
     "q_poi_kvar": 0.1,
     "v_poi_kV": 0.001,
+    "v_setpoint_pu": 0.0,
 }
 
 DEFAULT_MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S = 3600.0

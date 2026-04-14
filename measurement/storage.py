@@ -22,6 +22,7 @@ MEASUREMENT_VALUE_COLUMNS = [
     "p_poi_kw",
     "q_poi_kvar",
     "v_poi_kV",
+    "v_setpoint_pu",
 ]
 MEASUREMENT_COLUMNS = ["timestamp"] + MEASUREMENT_VALUE_COLUMNS
 _DAILY_MEASUREMENT_FILE_RE = re.compile(r"^(?P<date>\d{8})_(?P<suffix>[a-z0-9_-]+)\.csv$", re.IGNORECASE)

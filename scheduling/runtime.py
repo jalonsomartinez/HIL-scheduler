@@ -112,32 +112,39 @@ def build_effective_schedule_frame(
     api_df,
     manual_p_df,
     manual_q_df,
+    manual_v_df=None,
     *,
     manual_p_enabled,
     manual_q_enabled,
+    manual_v_enabled=False,
     tz,
 ):
     """
     Build an effective per-plant schedule frame from API base plus manual per-signal overrides.
 
-    Output columns: `power_setpoint_kw`, `reactive_power_setpoint_kvar`.
+    Output columns: `power_setpoint_kw`, `reactive_power_setpoint_kvar`, `voltage_setpoint_pu`.
     """
     api_norm = normalize_schedule_index(api_df, tz)
     p_parts = split_manual_override_series(manual_p_df, tz)
     q_parts = split_manual_override_series(manual_q_df, tz)
+    v_parts = split_manual_override_series(manual_v_df, tz)
     p_norm = p_parts["series_df"]
     q_norm = q_parts["series_df"]
+    v_norm = v_parts["series_df"]
     p_end_ts = p_parts["end_ts"]
     q_end_ts = q_parts["end_ts"]
+    v_end_ts = v_parts["end_ts"]
 
     union_index = pd.DatetimeIndex([])
-    for df in (api_norm, p_norm, q_norm):
+    for df in (api_norm, p_norm, q_norm, v_norm):
         if df is not None and not df.empty:
             union_index = union_index.union(df.index)
     if p_end_ts is not None:
         union_index = union_index.union(pd.DatetimeIndex([pd.Timestamp(p_end_ts)]))
     if q_end_ts is not None:
         union_index = union_index.union(pd.DatetimeIndex([pd.Timestamp(q_end_ts)]))
+    if v_end_ts is not None:
+        union_index = union_index.union(pd.DatetimeIndex([pd.Timestamp(v_end_ts)]))
     union_index = union_index.sort_values()
     if len(union_index) == 0:
         return pd.DataFrame()
@@ -145,6 +152,7 @@ def build_effective_schedule_frame(
     effective = pd.DataFrame(index=union_index)
     effective["power_setpoint_kw"] = _ffill_column_on_union(api_norm, union_index, "power_setpoint_kw")
     effective["reactive_power_setpoint_kvar"] = _ffill_column_on_union(api_norm, union_index, "reactive_power_setpoint_kvar")
+    effective["voltage_setpoint_pu"] = 1.0
 
     if manual_p_enabled and p_norm is not None and not p_norm.empty and "setpoint" in p_norm.columns:
         p_override = pd.to_numeric(p_norm["setpoint"], errors="coerce").reindex(union_index).ffill()
@@ -160,11 +168,106 @@ def build_effective_schedule_frame(
             q_mask = q_mask & (effective.index < pd.Timestamp(q_end_ts))
         effective.loc[q_mask, "reactive_power_setpoint_kvar"] = q_override[q_mask]
 
+    if manual_v_enabled and v_norm is not None and not v_norm.empty and "setpoint" in v_norm.columns:
+        v_override = pd.to_numeric(v_norm["setpoint"], errors="coerce").reindex(union_index).ffill()
+        v_mask = v_override.notna()
+        if v_end_ts is not None:
+            v_mask = v_mask & (effective.index < pd.Timestamp(v_end_ts))
+        effective.loc[v_mask, "voltage_setpoint_pu"] = v_override[v_mask]
+
     effective["power_setpoint_kw"] = pd.to_numeric(effective["power_setpoint_kw"], errors="coerce").fillna(0.0)
     effective["reactive_power_setpoint_kvar"] = (
         pd.to_numeric(effective["reactive_power_setpoint_kvar"], errors="coerce").fillna(0.0)
     )
+    effective["voltage_setpoint_pu"] = pd.to_numeric(effective["voltage_setpoint_pu"], errors="coerce").fillna(1.0)
     return effective.sort_index()
+
+
+def resolve_effective_dispatch_bundle(
+    schedule_df,
+    now_value,
+    tz,
+    *,
+    source="manual",
+    api_validity_window=None,
+    voltage_mode_active=False,
+):
+    p_setpoint, q_setpoint, api_is_stale = resolve_schedule_setpoint(
+        schedule_df,
+        now_value,
+        tz,
+        source=source,
+        api_validity_window=api_validity_window,
+    )
+    voltage_setpoint_pu = 1.0
+    if schedule_df is not None and not schedule_df.empty:
+        normalized_df = normalize_schedule_index(schedule_df, tz)
+        if not normalized_df.empty:
+            row = normalized_df.asof(now_value)
+            if row is not None:
+                try:
+                    value = float(row.get("voltage_setpoint_pu", 1.0) or 1.0)
+                    if not pd.isna(value):
+                        voltage_setpoint_pu = value
+                except (TypeError, ValueError):
+                    voltage_setpoint_pu = 1.0
+    return {
+        "p_kw": float(p_setpoint),
+        "q_kvar": float(q_setpoint),
+        "voltage_setpoint_pu": float(voltage_setpoint_pu),
+        "voltage_mode_active": bool(voltage_mode_active),
+        "api_is_stale": api_is_stale,
+    }
+
+
+def resolve_dispatch_bundle_from_sources(
+    api_df,
+    manual_p_df,
+    manual_q_df,
+    manual_v_df,
+    now_value,
+    tz,
+    *,
+    manual_p_enabled,
+    manual_q_enabled,
+    manual_v_enabled,
+    source="api",
+    api_validity_window=None,
+):
+    p_setpoint, q_setpoint, api_is_stale = resolve_schedule_setpoint(
+        api_df,
+        now_value,
+        tz,
+        source=source,
+        api_validity_window=api_validity_window,
+    )
+    voltage_setpoint_pu = 1.0
+
+    if manual_p_enabled:
+        manual_p_value, manual_p_has = resolve_series_setpoint_asof(manual_p_df, now_value, tz)
+        manual_p_end = split_manual_override_series(manual_p_df, tz).get("end_ts")
+        if manual_p_has and (manual_p_end is None or pd.Timestamp(now_value) < pd.Timestamp(manual_p_end)):
+            p_setpoint = float(manual_p_value)
+
+    if manual_q_enabled:
+        manual_q_value, manual_q_has = resolve_series_setpoint_asof(manual_q_df, now_value, tz)
+        manual_q_end = split_manual_override_series(manual_q_df, tz).get("end_ts")
+        if manual_q_has and (manual_q_end is None or pd.Timestamp(now_value) < pd.Timestamp(manual_q_end)):
+            q_setpoint = float(manual_q_value)
+
+    if manual_v_enabled:
+        manual_v_value, manual_v_has = resolve_series_setpoint_asof(manual_v_df, now_value, tz)
+        manual_v_end = split_manual_override_series(manual_v_df, tz).get("end_ts")
+        if manual_v_has and (manual_v_end is None or pd.Timestamp(now_value) < pd.Timestamp(manual_v_end)):
+            voltage_setpoint_pu = float(manual_v_value)
+
+    return {
+        "p_kw": float(p_setpoint),
+        "q_kvar": float(q_setpoint),
+        "voltage_setpoint_pu": float(voltage_setpoint_pu),
+        "voltage_mode_active": bool(manual_v_enabled),
+        "api_is_stale": api_is_stale,
+    }
 
 
 def resolve_schedule_setpoint(
