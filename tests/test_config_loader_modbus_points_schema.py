@@ -319,14 +319,20 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
         self.assertEqual(point["unit"], "raw")
         self.assertEqual(point["word_count"], 1)
 
-    def test_accepts_optional_q_control_mode_when_droop_is_present(self):
+    def test_accepts_optional_q_control_mode_when_v_setpoint_is_present(self):
         payload = _load_yaml("config.yaml")
-        payload["plants"]["lib"]["model"]["voltage_control_droop_pu"] = 0.05
         payload["plants"]["lib"]["modbus"]["local"]["points"]["q_control_mode"] = {
             "address": 402,
             "format": "uint16",
             "access": "rw",
             "unit": "raw",
+            "eng_per_count": 1.0,
+        }
+        payload["plants"]["lib"]["modbus"]["local"]["points"]["v_setpoint"] = {
+            "address": 403,
+            "format": "uint16",
+            "access": "rw",
+            "unit": "V",
             "eng_per_count": 1.0,
         }
         path = _write_temp_yaml(payload)
@@ -335,16 +341,17 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
         finally:
             os.unlink(path)
 
-        model = config["PLANTS"]["lib"]["model"]
         point = config["PLANTS"]["lib"]["modbus"]["local"]["points"]["q_control_mode"]
-        self.assertEqual(float(model["voltage_control_droop_pu"]), 0.05)
+        v_point = config["PLANTS"]["lib"]["modbus"]["local"]["points"]["v_setpoint"]
         self.assertEqual(point["address"], 402)
         self.assertEqual(point["unit"], "raw")
         self.assertEqual(point["access"], "rw")
+        self.assertEqual(v_point["address"], 403)
+        self.assertEqual(v_point["unit"], "v")
 
-    def test_rejects_q_control_mode_without_droop(self):
+    def test_rejects_q_control_mode_without_v_setpoint(self):
         payload = _load_yaml("config.yaml")
-        payload["plants"]["lib"]["model"].pop("voltage_control_droop_pu", None)
+        payload["plants"]["lib"]["modbus"]["local"]["points"].pop("v_setpoint", None)
         payload["plants"]["lib"]["modbus"]["local"]["points"]["q_control_mode"] = {
             "address": 402,
             "format": "uint16",
@@ -354,7 +361,7 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
         }
         path = _write_temp_yaml(payload)
         try:
-            with self.assertRaisesRegex(ValueError, "voltage_control_droop_pu"):
+            with self.assertRaisesRegex(ValueError, "v_setpoint"):
                 load_config(path)
         finally:
             os.unlink(path)

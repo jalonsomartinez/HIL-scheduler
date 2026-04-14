@@ -196,6 +196,14 @@ class MeasurementAgentRecordingTests(unittest.TestCase):
                     "unit": "raw",
                     "eng_per_count": 1.0,
                 }
+                lib_endpoint["points"]["v_setpoint"] = {
+                    "name": "v_setpoint",
+                    "address": 31,
+                    "format": "uint16",
+                    "word_count": 1,
+                    "unit": "V",
+                    "eng_per_count": 1.0,
+                }
 
                 lib_registers = {}
                 for point_name, value in (

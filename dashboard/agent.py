@@ -74,6 +74,7 @@ from dashboard.settings_ui_state import (
 from grid_map_runtime import build_grid_map_figure_update, build_grid_map_meta_lines, snapshot_grid_map_runtime
 import scheduling.manual_schedule_manager as msm
 from measurement.storage import MEASUREMENT_COLUMNS
+from modbus.setpoint_io import voltage_control_mode_supported
 from runtime.contracts import resolve_modbus_endpoint, sanitize_plant_name
 from runtime.paths import get_assets_dir, get_data_dir, get_project_root
 from scheduling.runtime import build_effective_schedule_frame
@@ -315,8 +316,7 @@ def dashboard_agent(config, shared_data):
 
     def _reactive_mode_supported(plant_id, transport_mode):
         endpoint = resolve_modbus_endpoint(config, plant_id, transport_mode)
-        points = dict(endpoint.get("points", {}) or {})
-        return "q_control_mode" in points
+        return voltage_control_mode_supported(endpoint)
 
     def _toggle_confirm_request_for_transport(*, requested_side):
         side = "positive" if str(requested_side) == "positive" else "negative"
@@ -2334,7 +2334,7 @@ def dashboard_agent(config, shared_data):
 
         def _reactive_mode_supported(plant_id):
             endpoint = resolve_modbus_endpoint(config, plant_id, transport_mode)
-            return "q_control_mode" in dict((endpoint.get("points", {}) or {}))
+            return voltage_control_mode_supported(endpoint)
 
         def _is_q_control_mode_active(plant_id):
             observed = dict(observed_state_by_plant.get(plant_id, {}) or {})
@@ -2449,7 +2449,7 @@ def dashboard_agent(config, shared_data):
                 manual_v_enabled=bool(manual_merge_enabled.get(v_key, False)),
                 tz=tz,
                 grid_map_runtime=grid_map_runtime,
-                digital_twin_voltage_enabled=("q_control_mode" in dict((endpoint.get("points", {}) or {}))),
+                digital_twin_voltage_enabled=voltage_control_mode_supported(endpoint),
             )
 
         lib_schedule = normalize_schedule_index(effective_schedule_map.get("lib", pd.DataFrame()), tz)

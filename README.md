@@ -1,6 +1,6 @@
 # HIL Scheduler
 
-HIL Scheduler is a Python multi-agent app for dispatching active/reactive power setpoints to two logical battery plants (`LIB` and `VRFB`) through Modbus TCP, with a live Dash dashboard for control, monitoring, and recording.
+HIL Scheduler is a Python multi-agent app for dispatching active/reactive power setpoints and plant voltage setpoints to two logical battery plants (`LIB` and `VRFB`) through Modbus TCP, with a live Dash dashboard for control, monitoring, and recording.
 
 ## What It Does
 - Runs dual-plant scheduling (`manual` or `api` source).
@@ -33,6 +33,8 @@ Edit `config.yaml` as needed:
 - `startup.initial_soc_pu`: shared local-emulation startup SoC for all plants
 - `grid_map.voltage_write_modbus.{local,remote}`: optional standalone Modbus endpoint used to write `v_poi_write` back after digital-twin execution; plant endpoint point maps no longer carry `v_poi_write`
 - `plants.lib` / `plants.vrfb`: model limits, Modbus endpoints, register maps
+  - plant endpoints that support dashboard `V mode` must expose both `q_control_mode` and `v_setpoint`
+  - in `V mode`, the runtime writes `q_control_mode=3`, `P`, and `v_setpoint` directly to the plant
 - `time.timezone`: runtime timezone
 - `dashboard.private.host` / `dashboard.private.port`: private ops dashboard bind
 - `dashboard.public_readonly.enabled`: enable separate public read-only dashboard

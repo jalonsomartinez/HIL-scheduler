@@ -140,13 +140,21 @@ def summarize_plant_modbus_health(plant_observed_state, now_ts):
 
 def summarize_dispatch_write_status(dispatch_write_state, *, dispatch_enabled):
     state = dict(dispatch_write_state or {})
+    scheduler_ctx = dict(state.get("last_scheduler_context") or {})
     enabled_text = "Sending" if bool(dispatch_enabled) else "Paused"
     attempt_status = str(state.get("last_attempt_status") or "none").upper()
     attempt_at_text = _format_time(state.get("last_attempt_at")) if state.get("last_attempt_at") else "n/a"
     source = str(state.get("last_attempt_source") or "unknown")
     line1 = f"Dispatch: {enabled_text} | Last write: {attempt_status} @ {attempt_at_text}"
 
-    if state.get("last_attempt_p_kw") is None or state.get("last_attempt_q_kvar") is None:
+    voltage_mode_active = bool(scheduler_ctx.get("voltage_mode_active"))
+    voltage_setpoint_pu = scheduler_ctx.get("voltage_setpoint_pu")
+    if voltage_mode_active and state.get("last_attempt_p_kw") is not None and voltage_setpoint_pu is not None:
+        line2 = (
+            f"Last P/V: P={float(state.get('last_attempt_p_kw')):.3f} kW, "
+            f"V={float(voltage_setpoint_pu):.3f} pu | Source: {source}"
+        )
+    elif state.get("last_attempt_p_kw") is None or state.get("last_attempt_q_kvar") is None:
         line2 = "Last P/Q: n/a | Source: n/a"
     else:
         line2 = (
@@ -155,7 +163,6 @@ def summarize_dispatch_write_status(dispatch_write_state, *, dispatch_enabled):
         )
 
     lines = [line1, line2]
-    scheduler_ctx = dict(state.get("last_scheduler_context") or {})
     if source == "scheduler" and scheduler_ctx:
         def _readback_state(point_prefix):
             compare_source = str(scheduler_ctx.get(f"{point_prefix}_compare_source") or "unknown")
@@ -173,7 +180,10 @@ def summarize_dispatch_write_status(dispatch_write_state, *, dispatch_enabled):
                 return "cache"
             return compare_source
 
-        line1 += f" | RB P/Q={_readback_state('p')}/{_readback_state('q')}"
+        if voltage_mode_active:
+            line1 += f" | RB P/V={_readback_state('p')}/{_readback_state('v')}"
+        else:
+            line1 += f" | RB P/Q={_readback_state('p')}/{_readback_state('q')}"
         lines[0] = line1
     if state.get("last_error"):
         lines.append(f"Dispatch error: {_truncate(state.get('last_error'), max_chars=120)}")

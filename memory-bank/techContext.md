@@ -16,7 +16,7 @@
 - `measurement/agent.py` and `measurement/storage.py`: telemetry sampling, schedule-intent enrichment, CSV/cache normalization.
 - `dashboard/`: manual schedule UI, grid-map summary cards, status summaries, plots, and read-only public views.
 - `grid_map_runtime.py`: digital-twin execution, summary extraction, and shared grid-map runtime snapshot contract.
-- `modbus/setpoint_io.py`: aggregate/per-phase write planning, optional `q_control_mode`, and trigger-aware apply.
+- `modbus/setpoint_io.py`: aggregate/per-phase write planning, optional `q_control_mode`, optional plant `v_setpoint`, and trigger-aware apply.
 
 ## Configuration Schema
 Top-level keys remain:
@@ -30,16 +30,16 @@ Standalone grid-map config now includes:
   - missing `local` or `remote` subsection means voltage write is disabled for that transport.
 
 Plant schema now includes:
-- `plants.<id>.model.voltage_control_droop_pu`
-  - required if either transport endpoint for that plant defines `q_control_mode`,
-  - stored in per-plant model config and exposed through resolved endpoints.
 - `plants.<id>.modbus.{local,remote}.points.q_control_mode`
   - optional raw writable point,
   - used to select classic `Q` mode (`1`) or voltage mode (`3`).
+- `plants.<id>.modbus.{local,remote}.points.v_setpoint`
+  - required on any endpoint that exposes `q_control_mode`,
+  - stores the direct plant voltage target in physical `V` or `kV`.
 
 Current config reality:
-- LIB model now sets `voltage_control_droop_pu: 0.04`.
 - LIB local and remote endpoints now declare `q_control_mode` at address `82`.
+- LIB local and remote endpoints now declare plant `v_setpoint` points for direct voltage mode.
 - `config.yaml` now configures standalone grid-map `v_poi_write` endpoints for both local and remote transport under `grid_map.voltage_write_modbus`.
 
 ## Runtime Contracts Exposed by Config Loader
@@ -52,7 +52,6 @@ Important normalized keys include:
 Per-plant endpoint contracts now carry:
 - `power_limits`
 - `poi_voltage_kv`
-- `voltage_control_droop_pu`
 - normalized `points`
 
 Grid-map runtime snapshot now exposes a summary contract used outside the map page:
@@ -72,14 +71,15 @@ Grid-map runtime snapshot now exposes a summary contract used outside the map pa
   - voltage measurement: `kV`
   - voltage reference: `pu`
 - Raw/control points use `unit: raw`, including `trigger` and `q_control_mode`.
+- Plant `v_setpoint` uses voltage units (`V`/`kV`) and runtime converts from `pu` using `poi_voltage_kv`.
 
 ## Logging Behavior
 - Global log level is config-driven via `general.log_level`.
 - Scheduler dispatch logging now includes:
   - reactive control mode,
+  - write quantity mode (`pq` or `pv`),
   - voltage-mode flag,
-  - resolved `v_setpoint_pu`,
-  - measured `v_poi_pu` when voltage mode is active.
+  - resolved `v_setpoint_pu`.
 - Twin-derived voltage references do not add a separate logging stream; they are visible through the resolved `v_setpoint_pu` carried in dispatch status, measurements, and dashboards.
 - Grid-map voltage-write logging now references the standalone endpoint selected by active transport instead of plant IDs.
 - Control-path failures for voltage dispatch are surfaced explicitly instead of silently degrading to classic `Q` control.
@@ -87,6 +87,6 @@ Grid-map runtime snapshot now exposes a summary contract used outside the map pa
 ## Operational Constraints
 - Queue sizes are bounded and command execution remains serialized.
 - Trigger-based apply remains synchronous and adds blocking latency on trigger-configured endpoints.
-- Voltage regulation depends on a valid `v_poi` read from the active endpoint; missing reads are treated as dispatch failure in voltage mode.
+- Voltage mode depends on endpoints exposing both `q_control_mode` and `v_setpoint`; unsupported endpoints are rejected before dispatch.
 - API password persistence is still process-memory only.
 - `tests.test_local_runtime_smoke` still needs pooled-client adaptation.

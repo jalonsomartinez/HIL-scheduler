@@ -344,7 +344,6 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
         config["PLANTS"]["lib"]["modbus"]["local"]["port"] = 5020
         config["PLANTS"]["vrfb"]["modbus"]["local"]["host"] = "127.0.0.1"
         config["PLANTS"]["vrfb"]["modbus"]["local"]["port"] = 5021
-        config["PLANTS"]["lib"]["model"]["voltage_control_droop_pu"] = 0.05
 
         lib_endpoint = config["PLANTS"]["lib"]["modbus"]["local"]
         lib_points = lib_endpoint["points"]
@@ -387,7 +386,7 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
         self.assertEqual(int(scheduler_ctx.get("reactive_control_mode")), 1)
         self.assertFalse(bool(scheduler_ctx.get("voltage_mode_active")))
 
-    def test_scheduler_voltage_mode_computes_q_from_voltage_and_writes_mode_three(self):
+    def test_scheduler_voltage_mode_writes_v_setpoint_and_skips_q_write(self):
         _Registry.clear()
         _CountingModbusClient.reset()
         config = load_config("config.yaml")
@@ -397,12 +396,11 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
         config["PLANTS"]["lib"]["modbus"]["local"]["port"] = 5020
         config["PLANTS"]["vrfb"]["modbus"]["local"]["host"] = "127.0.0.1"
         config["PLANTS"]["vrfb"]["modbus"]["local"]["port"] = 5021
-        config["PLANTS"]["lib"]["model"]["voltage_control_droop_pu"] = 0.05
 
         lib_endpoint = config["PLANTS"]["lib"]["modbus"]["local"]
         lib_points = lib_endpoint["points"]
         q_reg = int(lib_points["q_setpoint"]["address"])
-        v_poi_reg = int(lib_points["v_poi"]["address"])
+        v_setpoint_reg = int(lib_points["v_setpoint"]["address"])
         lib_points["q_control_mode"] = {
             "name": "q_control_mode",
             "address": 96,
@@ -418,7 +416,7 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
         vrfb_bank = _FakeDataBank()
         _Registry.register("127.0.0.1", 5020, lib_bank)
         _Registry.register("127.0.0.1", 5021, vrfb_bank)
-        lib_bank.set_holding_registers(v_poi_reg, encode_point_internal_words(lib_endpoint, "v_poi", 19.8))
+        _seed_setpoints(lib_bank, lib_endpoint, 42.0, 5.0)
 
         now = now_tz(config)
         api_df = pd.DataFrame(
@@ -440,12 +438,15 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
                 thread.join(timeout=3)
 
         self.assertEqual(lib_bank.get_holding_registers(96, 1)[0], 3)
-        self.assertAlmostEqual(_read_kw(lib_bank, q_reg), 120.0, places=1)
+        self.assertAlmostEqual(_read_kw(lib_bank, q_reg), 5.0, places=1)
+        self.assertAlmostEqual(_read_point_internal_from_bank(lib_bank, lib_endpoint, "v_setpoint"), 20.0, places=6)
         scheduler_ctx = dict(shared_data["dispatch_write_status_by_plant"]["lib"].get("last_scheduler_context") or {})
         self.assertEqual(int(scheduler_ctx.get("reactive_control_mode")), 3)
         self.assertTrue(bool(scheduler_ctx.get("voltage_mode_active")))
         self.assertAlmostEqual(float(scheduler_ctx.get("voltage_setpoint_pu")), 1.0, places=6)
-        self.assertAlmostEqual(float(scheduler_ctx.get("measured_v_poi_pu")), 0.99, places=6)
+        self.assertEqual(scheduler_ctx.get("measured_v_poi_pu"), None)
+        self.assertEqual(scheduler_ctx.get("write_quantity_mode"), "pv")
+        self.assertIsNone(shared_data["dispatch_write_status_by_plant"]["lib"].get("last_success_q_kvar"))
 
     def test_scheduler_uses_digital_twin_voltage_setpoint_when_manual_voltage_is_missing(self):
         _Registry.clear()
@@ -457,12 +458,10 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
         config["PLANTS"]["lib"]["modbus"]["local"]["port"] = 5020
         config["PLANTS"]["vrfb"]["modbus"]["local"]["host"] = "127.0.0.1"
         config["PLANTS"]["vrfb"]["modbus"]["local"]["port"] = 5021
-        config["PLANTS"]["lib"]["model"]["voltage_control_droop_pu"] = 0.05
 
         lib_endpoint = config["PLANTS"]["lib"]["modbus"]["local"]
         lib_points = lib_endpoint["points"]
         q_reg = int(lib_points["q_setpoint"]["address"])
-        v_poi_reg = int(lib_points["v_poi"]["address"])
         lib_points["q_control_mode"] = {
             "name": "q_control_mode",
             "address": 96,
@@ -478,7 +477,7 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
         vrfb_bank = _FakeDataBank()
         _Registry.register("127.0.0.1", 5020, lib_bank)
         _Registry.register("127.0.0.1", 5021, vrfb_bank)
-        lib_bank.set_holding_registers(v_poi_reg, encode_point_internal_words(lib_endpoint, "v_poi", 19.8))
+        _seed_setpoints(lib_bank, lib_endpoint, 42.0, 5.0)
 
         now = now_tz(config)
         api_df = pd.DataFrame(
@@ -508,9 +507,12 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
                 thread.join(timeout=3)
 
         self.assertEqual(lib_bank.get_holding_registers(96, 1)[0], 3)
-        self.assertAlmostEqual(_read_kw(lib_bank, q_reg), -600.0, places=1)
+        self.assertAlmostEqual(_read_kw(lib_bank, q_reg), 5.0, places=1)
+        self.assertAlmostEqual(_read_point_internal_from_bank(lib_bank, lib_endpoint, "v_setpoint"), 18.0, places=6)
         scheduler_ctx = dict(shared_data["dispatch_write_status_by_plant"]["lib"].get("last_scheduler_context") or {})
         self.assertAlmostEqual(float(scheduler_ctx.get("voltage_setpoint_pu")), 0.9, places=6)
+        self.assertEqual(scheduler_ctx.get("write_quantity_mode"), "pv")
+        self.assertIsNone(shared_data["dispatch_write_status_by_plant"]["lib"].get("last_success_q_kvar"))
 
     def test_scheduler_clamps_total_before_per_phase_split(self):
         _Registry.clear()

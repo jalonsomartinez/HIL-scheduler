@@ -3,13 +3,14 @@
 import logging
 import time
 
-from modbus.codec import encode_point_internal_words, read_point_internal, read_point_words, write_point_internal
+from modbus.codec import encode_point_internal_words, read_point_words, write_point_internal
 from runtime.contracts import clamp_dispatch_setpoints, clamp_voltage_setpoint_pu
 
 AGGREGATE_SETPOINT_MODE = "aggregate"
 PER_PHASE_SETPOINT_MODE = "per_phase"
 TRIGGER_POINT_NAME = "trigger"
 Q_CONTROL_MODE_POINT_NAME = "q_control_mode"
+V_SETPOINT_POINT_NAME = "v_setpoint"
 REACTIVE_CONTROL_MODE_Q = 1
 REACTIVE_CONTROL_MODE_VOLTAGE = 3
 TRIGGER_APPLY_DELAY_S = 1.0
@@ -63,6 +64,15 @@ def q_control_mode_point_configured(endpoint_cfg):
     return Q_CONTROL_MODE_POINT_NAME in points
 
 
+def voltage_setpoint_point_configured(endpoint_cfg):
+    points = dict((endpoint_cfg or {}).get("points", {}) or {})
+    return V_SETPOINT_POINT_NAME in points
+
+
+def voltage_control_mode_supported(endpoint_cfg):
+    return bool(q_control_mode_point_configured(endpoint_cfg) and voltage_setpoint_point_configured(endpoint_cfg))
+
+
 def resolve_reactive_power_request(
     client,
     endpoint_cfg,
@@ -90,41 +100,14 @@ def resolve_reactive_power_request(
         result["ok"] = False
         result["error"] = "q_control_mode_not_configured"
         return result
-
-    try:
-        measured_v_poi_kv = read_point_internal(client, endpoint_cfg, "v_poi")
-    except Exception as exc:
-        logging.error("Modbus setpoint I/O: voltage read error for reactive dispatch: %s", exc)
-        measured_v_poi_kv = None
-    if measured_v_poi_kv is None:
+    if not voltage_setpoint_point_configured(endpoint_cfg):
         result["ok"] = False
-        result["error"] = "v_poi_unavailable"
+        result["error"] = "v_setpoint_not_configured"
         result["reactive_control_mode"] = REACTIVE_CONTROL_MODE_VOLTAGE
         return result
-
-    try:
-        poi_voltage_kv = float(endpoint_cfg.get("poi_voltage_kv"))
-        droop_pu = float(endpoint_cfg.get("voltage_control_droop_pu"))
-    except (TypeError, ValueError):
-        result["ok"] = False
-        result["error"] = "voltage_control_config_invalid"
-        result["reactive_control_mode"] = REACTIVE_CONTROL_MODE_VOLTAGE
-        return result
-    if poi_voltage_kv <= 0.0 or droop_pu <= 0.0:
-        result["ok"] = False
-        result["error"] = "voltage_control_config_invalid"
-        result["reactive_control_mode"] = REACTIVE_CONTROL_MODE_VOLTAGE
-        return result
-
-    limits = dict((endpoint_cfg or {}).get("power_limits", {}) or {})
-    q_max_kvar = float(limits.get("q_max_kvar", 0.0))
-    measured_v_poi_pu = float(measured_v_poi_kv) / poi_voltage_kv
-    computed_q_kvar = ((float(result["voltage_setpoint_pu"]) - measured_v_poi_pu) / droop_pu) * q_max_kvar
 
     result["reactive_control_mode"] = REACTIVE_CONTROL_MODE_VOLTAGE
-    result["requested_q_kvar"] = float(computed_q_kvar)
-    result["measured_v_poi_kv"] = float(measured_v_poi_kv)
-    result["measured_v_poi_pu"] = float(measured_v_poi_pu)
+    result["requested_q_kvar"] = None
     return result
 
 
@@ -141,19 +124,41 @@ def _control_mode_targets(endpoint_cfg, reactive_control_mode):
     ]
 
 
-def build_setpoint_write_plan(endpoint_cfg, p_kw, q_kvar, *, reactive_control_mode=None):
+def _voltage_targets(endpoint_cfg, voltage_setpoint_pu):
+    if not voltage_setpoint_point_configured(endpoint_cfg):
+        return []
+    poi_voltage_kv = float((endpoint_cfg or {}).get("poi_voltage_kv", 0.0) or 0.0)
+    voltage_setpoint_kv = poi_voltage_kv * float(clamp_voltage_setpoint_pu(voltage_setpoint_pu))
+    return [
+        {
+            "point_name": V_SETPOINT_POINT_NAME,
+            "internal_value": voltage_setpoint_kv,
+            "target_words": encode_point_internal_words(endpoint_cfg, V_SETPOINT_POINT_NAME, voltage_setpoint_kv),
+        }
+    ]
+
+
+def build_setpoint_write_plan(endpoint_cfg, p_kw, q_kvar, *, reactive_control_mode=None, voltage_setpoint_pu=1.0):
+    voltage_mode_active = int(reactive_control_mode or 0) == REACTIVE_CONTROL_MODE_VOLTAGE
     limit_result = clamp_dispatch_setpoints(
         p_kw,
-        q_kvar,
+        0.0 if voltage_mode_active else q_kvar,
         (endpoint_cfg or {}).get("power_limits"),
     )
+    if voltage_mode_active:
+        limit_result["requested_q_kvar"] = None
+        limit_result["applied_q_kvar"] = None
+        limit_result["q_clamped"] = False
+        limit_result["any_clamped"] = bool(limit_result.get("p_clamped", False))
     return {
         "mode": resolve_setpoint_mode(endpoint_cfg),
+        "write_quantity_mode": "pv" if voltage_mode_active else "pq",
         "reactive_control_mode": None if reactive_control_mode is None else int(reactive_control_mode),
         "limit_result": limit_result,
         "control_mode_targets": _control_mode_targets(endpoint_cfg, reactive_control_mode),
         "p_targets": _quantity_targets(endpoint_cfg, "p", limit_result["applied_p_kw"]),
-        "q_targets": _quantity_targets(endpoint_cfg, "q", limit_result["applied_q_kvar"]),
+        "q_targets": [] if voltage_mode_active else _quantity_targets(endpoint_cfg, "q", limit_result["applied_q_kvar"]),
+        "voltage_targets": _voltage_targets(endpoint_cfg, voltage_setpoint_pu) if voltage_mode_active else [],
     }
 
 
@@ -252,10 +257,12 @@ def write_setpoint_plan_with_optional_trigger(client, endpoint_cfg, write_plan, 
     if control_mode_ok:
         p_result = write_setpoint_targets(client, endpoint_cfg, (write_plan or {}).get("p_targets"))
         q_result = write_setpoint_targets(client, endpoint_cfg, (write_plan or {}).get("q_targets"))
+        voltage_result = write_setpoint_targets(client, endpoint_cfg, (write_plan or {}).get("voltage_targets"))
     else:
         p_result = {"ok": False, "results": []}
         q_result = {"ok": False, "results": []}
-    setpoints_ok = bool(control_mode_ok and p_result["ok"] and q_result["ok"])
+        voltage_result = {"ok": False, "results": []}
+    setpoints_ok = bool(control_mode_ok and p_result["ok"] and q_result["ok"] and voltage_result["ok"])
 
     if setpoints_ok:
         trigger_result = pulse_trigger(client, endpoint_cfg, delay_s=delay_s)
@@ -273,5 +280,6 @@ def write_setpoint_plan_with_optional_trigger(client, endpoint_cfg, write_plan, 
         "control_mode_result": control_mode_result,
         "p_result": p_result,
         "q_result": q_result,
+        "voltage_result": voltage_result,
         "trigger_result": trigger_result,
     }

@@ -27,7 +27,7 @@ from control.modbus_io import (
 from runtime.engine_command_cycle_runtime import run_command_with_lifecycle
 from runtime.engine_status_runtime import default_engine_status, update_engine_status
 from modbus.grouped_reads import build_read_groups, read_points_internal_grouped
-from modbus.setpoint_io import q_control_mode_point_configured
+from modbus.setpoint_io import q_control_mode_point_configured, voltage_control_mode_supported
 from runtime.contracts import (
     clamp_dispatch_setpoints,
     resolve_modbus_endpoint,
@@ -477,7 +477,7 @@ def _get_latest_schedule_setpoint(config, shared_data, plant_id, tz):
         selected_reactive_control_mode=source_snapshot["selected_reactive_mode"],
         source="manual",
         grid_map_runtime=snapshot_grid_map_runtime(shared_data),
-        digital_twin_voltage_enabled=q_control_mode_point_configured(endpoint),
+        digital_twin_voltage_enabled=voltage_control_mode_supported(endpoint),
     )
 
 
@@ -489,7 +489,7 @@ def _perform_transport_switch(config, shared_data, plant_ids, requested_mode, sa
         now_value = now_tz(config)
         for plant_id in plant_ids:
             endpoint = resolve_modbus_endpoint(config, plant_id, requested_mode)
-            if q_control_mode_point_configured(endpoint):
+            if voltage_control_mode_supported(endpoint):
                 continue
             selected_map[plant_id] = 1
             entry = dict(runtime_map.get(plant_id, {}) or {})
@@ -702,9 +702,14 @@ def _start_one_plant(
         p_kw, q_kvar = dispatch_bundle
         voltage_mode_active = False
         voltage_setpoint_pu = 1.0
-    limit_result = clamp_dispatch_setpoints(p_kw, q_kvar, resolve_plant_power_limits(config, plant_id))
+    limit_result = clamp_dispatch_setpoints(p_kw, 0.0 if voltage_mode_active else q_kvar, resolve_plant_power_limits(config, plant_id))
+    if voltage_mode_active:
+        limit_result["requested_q_kvar"] = None
+        limit_result["applied_q_kvar"] = None
+        limit_result["q_clamped"] = False
+        limit_result["any_clamped"] = bool(limit_result.get("p_clamped", False))
     applied_p_kw = float(limit_result["applied_p_kw"])
-    applied_q_kvar = float(limit_result["applied_q_kvar"])
+    applied_q_kvar = None if limit_result.get("applied_q_kvar") is None else float(limit_result["applied_q_kvar"])
     if dispatch_enabled:
         try:
             send_result = send_setpoints_fn(
@@ -726,7 +731,7 @@ def _start_one_plant(
             sending_enabled=True,
             attempted_at=now_fn(config),
             p_kw=applied_p_kw,
-            q_kvar=float(publish_limit_result.get("applied_q_kvar", applied_q_kvar)),
+            q_kvar=None if voltage_mode_active else float(publish_limit_result.get("applied_q_kvar", applied_q_kvar)),
             source="control_engine.start",
             status="ok" if send_ok else "failed",
             error=None if send_ok else str(reactive_result.get("error") or "setpoint_write_failed"),
@@ -735,6 +740,7 @@ def _start_one_plant(
                 "requested_q_kvar": publish_limit_result.get("requested_q_kvar", limit_result["requested_q_kvar"]),
                 "applied_p_kw": publish_limit_result.get("applied_p_kw", applied_p_kw),
                 "applied_q_kvar": publish_limit_result.get("applied_q_kvar", applied_q_kvar),
+                "write_quantity_mode": "pv" if voltage_mode_active else "pq",
                 "p_clamped": bool(publish_limit_result.get("p_clamped", limit_result["p_clamped"])),
                 "q_clamped": bool(publish_limit_result.get("q_clamped", limit_result["q_clamped"])),
                 "any_clamped": bool(publish_limit_result.get("any_clamped", limit_result["any_clamped"])),
@@ -746,21 +752,39 @@ def _start_one_plant(
             },
         )
         if send_ok:
-            logging.info(
-                "ControlEngine: %s initial setpoints sent (P=%.3f kW Q=%.3f kvar mode=%s).",
-                plant_id.upper(),
-                float(publish_limit_result.get("applied_p_kw", applied_p_kw)),
-                float(publish_limit_result.get("applied_q_kvar", applied_q_kvar)),
-                reactive_result.get("reactive_control_mode"),
-            )
+            if voltage_mode_active:
+                logging.info(
+                    "ControlEngine: %s initial setpoints sent (P=%.3f kW V=%.3f pu mode=%s).",
+                    plant_id.upper(),
+                    float(publish_limit_result.get("applied_p_kw", applied_p_kw)),
+                    float(voltage_setpoint_pu),
+                    reactive_result.get("reactive_control_mode"),
+                )
+            else:
+                logging.info(
+                    "ControlEngine: %s initial setpoints sent (P=%.3f kW Q=%.3f kvar mode=%s).",
+                    plant_id.upper(),
+                    float(publish_limit_result.get("applied_p_kw", applied_p_kw)),
+                    float(publish_limit_result.get("applied_q_kvar", applied_q_kvar)),
+                    reactive_result.get("reactive_control_mode"),
+                )
         else:
-            logging.warning(
-                "ControlEngine: %s initial setpoint write failed (P=%.3f kW Q=%.3f kvar error=%s).",
-                plant_id.upper(),
-                float(publish_limit_result.get("applied_p_kw", applied_p_kw)),
-                float(publish_limit_result.get("applied_q_kvar", applied_q_kvar)),
-                reactive_result.get("error"),
-            )
+            if voltage_mode_active:
+                logging.warning(
+                    "ControlEngine: %s initial setpoint write failed (P=%.3f kW V=%.3f pu error=%s).",
+                    plant_id.upper(),
+                    float(publish_limit_result.get("applied_p_kw", applied_p_kw)),
+                    float(voltage_setpoint_pu),
+                    reactive_result.get("error"),
+                )
+            else:
+                logging.warning(
+                    "ControlEngine: %s initial setpoint write failed (P=%.3f kW Q=%.3f kvar error=%s).",
+                    plant_id.upper(),
+                    float(publish_limit_result.get("applied_p_kw", applied_p_kw)),
+                    float(publish_limit_result.get("applied_q_kvar", applied_q_kvar)),
+                    reactive_result.get("error"),
+                )
     else:
         send_ok = False
         publish_dispatch_write_status(
@@ -769,7 +793,7 @@ def _start_one_plant(
             sending_enabled=False,
             attempted_at=now_fn(config),
             p_kw=applied_p_kw,
-            q_kvar=applied_q_kvar,
+            q_kvar=None if voltage_mode_active else applied_q_kvar,
             source="control_engine.start",
             status="skipped",
             error="dispatch_paused",
@@ -778,6 +802,7 @@ def _start_one_plant(
                 "requested_q_kvar": limit_result["requested_q_kvar"],
                 "applied_p_kw": applied_p_kw,
                 "applied_q_kvar": applied_q_kvar,
+                "write_quantity_mode": "pv" if voltage_mode_active else "pq",
                 "p_clamped": bool(limit_result["p_clamped"]),
                 "q_clamped": bool(limit_result["q_clamped"]),
                 "any_clamped": bool(limit_result["any_clamped"]),
@@ -785,12 +810,20 @@ def _start_one_plant(
                 "voltage_setpoint_pu": float(voltage_setpoint_pu),
             },
         )
-        logging.info(
-            "ControlEngine: %s initial setpoint write skipped because dispatch is paused (P=%.3f kW Q=%.3f kvar).",
-            plant_id.upper(),
-            applied_p_kw,
-            applied_q_kvar,
-        )
+        if voltage_mode_active:
+            logging.info(
+                "ControlEngine: %s initial setpoint write skipped because dispatch is paused (P=%.3f kW V=%.3f pu).",
+                plant_id.upper(),
+                applied_p_kw,
+                voltage_setpoint_pu,
+            )
+        else:
+            logging.info(
+                "ControlEngine: %s initial setpoint write skipped because dispatch is paused (P=%.3f kW Q=%.3f kvar).",
+                plant_id.upper(),
+                applied_p_kw,
+                applied_q_kvar,
+            )
 
     with shared_data["lock"]:
         shared_data["plant_transition_by_plant"][plant_id] = "running"
@@ -800,7 +833,10 @@ def _start_one_plant(
     if dispatch_enabled and isinstance(send_result, dict):
         sent_limit_result = dict((send_result or {}).get("limit_result") or {})
         final_initial_p_kw = float(sent_limit_result.get("applied_p_kw", final_initial_p_kw))
-        final_initial_q_kvar = float(sent_limit_result.get("applied_q_kvar", final_initial_q_kvar))
+        if sent_limit_result.get("applied_q_kvar") is None:
+            final_initial_q_kvar = None
+        else:
+            final_initial_q_kvar = float(sent_limit_result.get("applied_q_kvar", final_initial_q_kvar))
 
     return {
         "state": "succeeded",

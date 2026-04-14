@@ -3,6 +3,7 @@
 from dash import dcc, html
 
 from dashboard.grid_map import build_grid_map_page
+from modbus.setpoint_io import voltage_control_mode_supported
 
 
 def build_dashboard_layout(
@@ -17,8 +18,7 @@ def build_dashboard_layout(
     def _reactive_mode_supported_style(plant_id, transport_mode):
         plant_cfg = (config.get("PLANTS", {}) or {}).get(plant_id, {}) or {}
         endpoint = (((plant_cfg.get("modbus", {}) or {}).get(transport_mode, {})) or {})
-        points = dict(endpoint.get("points", {}) or {})
-        return {} if "q_control_mode" in points else {"display": "none"}
+        return {} if voltage_control_mode_supported(endpoint) else {"display": "none"}
 
     return html.Div(
         className="app-container",

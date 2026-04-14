@@ -29,7 +29,6 @@ def resolve_modbus_endpoint(config, plant_id, transport_mode):
         "word_order": endpoint.get("word_order"),
         "power_limits": copy.deepcopy(power_limits),
         "poi_voltage_kv": float((plant_cfg.get("model", {}) or {}).get("poi_voltage_kv", 20.0)),
-        "voltage_control_droop_pu": (plant_cfg.get("model", {}) or {}).get("voltage_control_droop_pu"),
         "points": copy.deepcopy(points),
     }
 

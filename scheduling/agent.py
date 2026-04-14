@@ -12,6 +12,7 @@ from modbus.setpoint_io import (
     build_setpoint_write_plan,
     read_setpoint_target_words,
     resolve_reactive_power_request,
+    voltage_control_mode_supported,
     write_setpoint_plan_with_optional_trigger,
 )
 from scheduling.runtime import resolve_dispatch_bundle_from_sources
@@ -151,7 +152,7 @@ def scheduler_agent(config, shared_data):
                     source="api",
                     api_validity_window=api_validity_window,
                     grid_map_runtime=grid_map_runtime,
-                    digital_twin_voltage_enabled=("q_control_mode" in dict((endpoint.get("points", {}) or {}))),
+                    digital_twin_voltage_enabled=voltage_control_mode_supported(endpoint),
                 )
                 requested_p_setpoint = float(dispatch_bundle["p_kw"])
                 requested_q_setpoint = float(dispatch_bundle["q_kvar"])
@@ -219,17 +220,19 @@ def scheduler_agent(config, shared_data):
                     force_setpoint_retry[plant_id] = True
                     continue
 
-                requested_q_for_plan = float(reactive_dispatch.get("requested_q_kvar", requested_q_setpoint))
+                requested_q_for_plan = reactive_dispatch.get("requested_q_kvar", requested_q_setpoint)
                 reactive_control_mode = reactive_dispatch.get("reactive_control_mode")
                 write_plan = build_setpoint_write_plan(
                     endpoint,
                     requested_p_setpoint,
                     requested_q_for_plan,
                     reactive_control_mode=reactive_control_mode,
+                    voltage_setpoint_pu=resolved_voltage_setpoint_pu,
                 )
                 limit_result = dict((write_plan or {}).get("limit_result") or {})
                 applied_p_setpoint = float(limit_result.get("applied_p_kw", requested_p_setpoint))
-                applied_q_setpoint = float(limit_result.get("applied_q_kvar", requested_q_for_plan))
+                applied_q_raw = limit_result.get("applied_q_kvar", requested_q_for_plan)
+                applied_q_setpoint = None if applied_q_raw is None else float(applied_q_raw)
 
                 control_mode_targets = list(write_plan.get("control_mode_targets") or [])
                 try:
@@ -250,6 +253,11 @@ def scheduler_agent(config, shared_data):
                 except Exception as exc:
                     logging.warning("Scheduler: %s Q setpoint readback failed: %s", plant_id.upper(), exc)
                     q_actual_words = {str(target["point_name"]): None for target in write_plan["q_targets"]}
+                try:
+                    v_actual_words = read_setpoint_target_words(client, endpoint, write_plan["voltage_targets"])
+                except Exception as exc:
+                    logging.warning("Scheduler: %s V setpoint readback failed: %s", plant_id.upper(), exc)
+                    v_actual_words = {str(target["point_name"]): None for target in write_plan["voltage_targets"]}
 
                 reactive_control_mode_readback_ok = all(
                     reactive_control_mode_actual_words.get(str(target["point_name"])) is not None
@@ -257,6 +265,7 @@ def scheduler_agent(config, shared_data):
                 )
                 p_readback_ok = all(p_actual_words.get(str(target["point_name"])) is not None for target in write_plan["p_targets"])
                 q_readback_ok = all(q_actual_words.get(str(target["point_name"])) is not None for target in write_plan["q_targets"])
+                v_readback_ok = all(v_actual_words.get(str(target["point_name"])) is not None for target in write_plan["voltage_targets"])
 
                 reactive_control_mode_readback_mismatch = None
                 if control_mode_targets and reactive_control_mode_readback_ok:
@@ -276,6 +285,12 @@ def scheduler_agent(config, shared_data):
                         list(q_actual_words.get(str(target["point_name"])) or []) != list(target["target_words"])
                         for target in write_plan["q_targets"]
                     )
+                v_readback_mismatch = None
+                if v_readback_ok:
+                    v_readback_mismatch = any(
+                        list(v_actual_words.get(str(target["point_name"])) or []) != list(target["target_words"])
+                        for target in write_plan["voltage_targets"]
+                    )
 
                 if not p_readback_ok:
                     p_compare_source = "cache_fallback"
@@ -283,12 +298,27 @@ def scheduler_agent(config, shared_data):
                 else:
                     p_compare_source = "readback"
                     p_should_write = bool(p_readback_mismatch)
-                if not q_readback_ok:
-                    q_compare_source = "cache_fallback"
-                    q_should_write = previous_q[plant_id] != applied_q_setpoint
+                if write_plan["q_targets"]:
+                    if not q_readback_ok:
+                        q_compare_source = "cache_fallback"
+                        q_should_write = previous_q[plant_id] != applied_q_setpoint
+                    else:
+                        q_compare_source = "readback"
+                        q_should_write = bool(q_readback_mismatch)
                 else:
-                    q_compare_source = "readback"
-                    q_should_write = bool(q_readback_mismatch)
+                    q_compare_source = "skipped_voltage_mode"
+                    q_should_write = False
+
+                if write_plan["voltage_targets"]:
+                    if not v_readback_ok:
+                        v_compare_source = "cache_fallback"
+                        v_should_write = force_setpoint_retry[plant_id] or True
+                    else:
+                        v_compare_source = "readback"
+                        v_should_write = bool(v_readback_mismatch)
+                else:
+                    v_compare_source = "not_requested"
+                    v_should_write = False
 
                 if control_mode_targets:
                     if not reactive_control_mode_readback_ok:
@@ -308,22 +338,33 @@ def scheduler_agent(config, shared_data):
                     or reactive_control_mode_should_write
                     or p_should_write
                     or q_should_write
+                    or v_should_write
                 )
                 if should_apply:
                     attempted_any = True
                     if bool(limit_result.get("any_clamped")):
-                        logging.warning(
-                            "Scheduler: %s setpoints clamped before write (requested P=%.3f Q=%.3f, applied P=%.3f Q=%.3f).",
-                            plant_id.upper(),
-                            float(limit_result.get("requested_p_kw", requested_p_setpoint)),
-                            float(limit_result.get("requested_q_kvar", requested_q_for_plan)),
-                            applied_p_setpoint,
-                            applied_q_setpoint,
-                        )
+                        if write_plan["write_quantity_mode"] == "pv":
+                            logging.warning(
+                                "Scheduler: %s setpoints clamped before write (requested P=%.3f, applied P=%.3f, V=%.3f pu).",
+                                plant_id.upper(),
+                                float(limit_result.get("requested_p_kw", requested_p_setpoint)),
+                                applied_p_setpoint,
+                                resolved_voltage_setpoint_pu,
+                            )
+                        else:
+                            logging.warning(
+                                "Scheduler: %s setpoints clamped before write (requested P=%.3f Q=%.3f, applied P=%.3f Q=%.3f).",
+                                plant_id.upper(),
+                                float(limit_result.get("requested_p_kw", requested_p_setpoint)),
+                                float(limit_result.get("requested_q_kvar", requested_q_for_plan)),
+                                applied_p_setpoint,
+                                applied_q_setpoint,
+                            )
                     apply_result = write_setpoint_plan_with_optional_trigger(client, endpoint, write_plan)
                     reactive_control_mode_write_ok = bool((apply_result.get("control_mode_result") or {}).get("ok"))
                     p_write_ok = bool((apply_result.get("p_result") or {}).get("ok"))
                     q_write_ok = bool((apply_result.get("q_result") or {}).get("ok"))
+                    v_write_ok = bool((apply_result.get("voltage_result") or {}).get("ok"))
                     trigger_result = dict(apply_result.get("trigger_result") or {})
                     trigger_write_ok = str(trigger_result.get("state")) in {"ok", "skipped"}
                     if bool(apply_result.get("ok")):
@@ -337,7 +378,7 @@ def scheduler_agent(config, shared_data):
                 if attempted_any:
                     attempted_results = [
                         value
-                        for value in (reactive_control_mode_write_ok, p_write_ok, q_write_ok)
+                        for value in (reactive_control_mode_write_ok, p_write_ok, q_write_ok, v_write_ok)
                         if value is not None
                     ]
                     ok_count = sum(1 for value in attempted_results if value is True)
@@ -360,7 +401,7 @@ def scheduler_agent(config, shared_data):
                         sending_enabled=True,
                         attempted_at=loop_now,
                         p_kw=applied_p_setpoint,
-                        q_kvar=applied_q_setpoint,
+                        q_kvar=None if write_plan["write_quantity_mode"] == "pv" else applied_q_setpoint,
                         source="scheduler",
                         status=attempt_status,
                         error=error_text,
@@ -371,6 +412,7 @@ def scheduler_agent(config, shared_data):
                             "manual_v_applied": bool(manual_v_applied),
                             "readback_compare_mode": "register_exact",
                             "setpoint_mode": write_plan["mode"],
+                            "write_quantity_mode": write_plan["write_quantity_mode"],
                             "reactive_control_mode": reactive_control_mode,
                             "reactive_control_mode_compare_source": reactive_control_mode_compare_source,
                             "reactive_control_mode_readback_ok": bool(reactive_control_mode_readback_ok),
@@ -381,37 +423,60 @@ def scheduler_agent(config, shared_data):
                             "measured_v_poi_pu": reactive_dispatch.get("measured_v_poi_pu"),
                             "p_compare_source": p_compare_source,
                             "q_compare_source": q_compare_source,
+                            "v_compare_source": v_compare_source,
                             "p_readback_ok": bool(p_readback_ok),
                             "q_readback_ok": bool(q_readback_ok),
+                            "v_readback_ok": bool(v_readback_ok),
                             "p_readback_mismatch": p_readback_mismatch,
                             "q_readback_mismatch": q_readback_mismatch,
+                            "v_readback_mismatch": v_readback_mismatch,
                             "requested_p_kw": float(limit_result.get("requested_p_kw", requested_p_setpoint)),
-                            "requested_q_kvar": float(limit_result.get("requested_q_kvar", requested_q_for_plan)),
+                            "requested_q_kvar": None if limit_result.get("requested_q_kvar") is None else float(limit_result.get("requested_q_kvar", requested_q_for_plan)),
                             "applied_p_kw": applied_p_setpoint,
-                            "applied_q_kvar": applied_q_setpoint,
+                            "applied_q_kvar": None if applied_q_setpoint is None else applied_q_setpoint,
                             "p_clamped": bool(limit_result.get("p_clamped", False)),
                             "q_clamped": bool(limit_result.get("q_clamped", False)),
                             "any_clamped": bool(limit_result.get("any_clamped", False)),
                         },
                     )
                     if fail_count > 0:
-                        logging.warning(
-                            "Scheduler: %s setpoint write %s (P=%s ok=%s, Q=%s ok=%s, trigger_ok=%s).",
-                            plant_id.upper(),
-                            attempt_status,
-                            f"{applied_p_setpoint:.3f}",
-                            p_write_ok,
-                            f"{applied_q_setpoint:.3f}",
-                            q_write_ok,
-                            trigger_write_ok,
-                        )
+                        if write_plan["write_quantity_mode"] == "pv":
+                            logging.warning(
+                                "Scheduler: %s setpoint write %s (P=%s ok=%s, V=%s pu ok=%s, trigger_ok=%s).",
+                                plant_id.upper(),
+                                attempt_status,
+                                f"{applied_p_setpoint:.3f}",
+                                p_write_ok,
+                                f"{resolved_voltage_setpoint_pu:.3f}",
+                                v_write_ok,
+                                trigger_write_ok,
+                            )
+                        else:
+                            logging.warning(
+                                "Scheduler: %s setpoint write %s (P=%s ok=%s, Q=%s ok=%s, trigger_ok=%s).",
+                                plant_id.upper(),
+                                attempt_status,
+                                f"{applied_p_setpoint:.3f}",
+                                p_write_ok,
+                                f"{applied_q_setpoint:.3f}",
+                                q_write_ok,
+                                trigger_write_ok,
+                            )
                     elif trigger_write_ok is False:
-                        logging.warning(
-                            "Scheduler: %s trigger pulse failed after setpoint write (P=%.3f Q=%.3f).",
-                            plant_id.upper(),
-                            applied_p_setpoint,
-                            applied_q_setpoint,
-                        )
+                        if write_plan["write_quantity_mode"] == "pv":
+                            logging.warning(
+                                "Scheduler: %s trigger pulse failed after setpoint write (P=%.3f V=%.3f pu).",
+                                plant_id.upper(),
+                                applied_p_setpoint,
+                                resolved_voltage_setpoint_pu,
+                            )
+                        else:
+                            logging.warning(
+                                "Scheduler: %s trigger pulse failed after setpoint write (P=%.3f Q=%.3f).",
+                                plant_id.upper(),
+                                applied_p_setpoint,
+                                applied_q_setpoint,
+                            )
 
             except Exception as exc:
                 logging.error("Scheduler error for %s: %s", plant_id.upper(), exc)

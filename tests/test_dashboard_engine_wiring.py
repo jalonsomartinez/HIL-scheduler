@@ -188,7 +188,7 @@ class DashboardEngineWiringTests(unittest.TestCase):
             "TIMEZONE_NAME": "Europe/Madrid",
             "PLANT_IDS": ("lib", "vrfb"),
             "PLANTS": {
-                "lib": {"modbus": {"local": {"points": {"q_control_mode": {"address": 1}}}}},
+                "lib": {"modbus": {"local": {"points": {"q_control_mode": {"address": 1}, "v_setpoint": {"address": 2}}}}},
                 "vrfb": {"modbus": {"local": {"points": {}}}},
             },
         }

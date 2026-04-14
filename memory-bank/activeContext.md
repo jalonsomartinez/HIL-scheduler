@@ -1,8 +1,8 @@
 # Active Context: HIL Scheduler
 
 ## Current Focus (Now)
-- Field-validate the new voltage-regulation reactive-control path on real hardware.
-- Confirm optional `q_control_mode` writes behave correctly on LIB local and remote endpoints.
+- Field-validate the new direct plant voltage-control path on real hardware.
+- Confirm `q_control_mode` + `v_setpoint` writes behave correctly on LIB local and remote endpoints.
 - Validate the new standalone grid-map `v_poi_write` Modbus endpoint on both local and newly configured remote transport.
 - Verify dashboard-selected `Q mode` / `V mode` behavior is usable and clearly communicates reactive-mode intent.
 - Validate the new digital-twin voltage-reference fallback and its clamp behavior on realistic network states.
@@ -10,8 +10,8 @@
 - Keep the current grid-map digital-twin audit trail intact during unrelated runtime work.
 
 ## Open Decisions and Risks
-- Voltage regulation currently uses `q_max_kvar` as the droop scaling base; field behavior may still motivate refinement.
-- Voltage mode depends on live `v_poi` reads; noisy or unavailable voltage telemetry now causes explicit dispatch failure instead of fallback.
+- `config.yaml` now carries assumed LIB `v_setpoint` register addresses that should be confirmed against the plant map before field use.
+- Voltage-mode status surfaces `v_setpoint_pu`, but legacy `q_setpoint` register sampling remains unchanged and may still reflect stale plant state in `V mode`.
 - The new remote standalone `grid_map.voltage_write_modbus.remote` endpoint still needs field validation on the target hardware path.
 - Trigger apply timing remains synchronous and may be too slow for some endpoints.
 - Per-phase-only endpoint configs are supported in scheduler/control dispatch, but local emulator write assumptions are still aggregate-oriented.
@@ -21,7 +21,6 @@
 ## Rolling Change Log (Compressed, 30-Day Window)
 - 2026-04-14:
   - Added plant-level voltage-regulation dispatch support behind optional Modbus point `q_control_mode`.
-  - Added required plant config `model.voltage_control_droop_pu` whenever `q_control_mode` is configured.
   - Moved `v_poi_write` out of plant Modbus point maps into standalone `grid_map.voltage_write_modbus.{local,remote}` config.
   - Grid-map runtime now resolves one standalone voltage-write endpoint per active transport and writes once per cycle through that endpoint.
   - Standalone grid-map voltage-write transport reuse now relies on the shared Modbus client pool when `host + port` matches another runtime client.
@@ -31,7 +30,9 @@
     - `vrfb_p`, `vrfb_q`, `vrfb_v`.
   - Voltage setpoint now defaults to `1.0 pu` when no manual voltage value is available.
   - Scheduler and control start flow now share voltage-aware dispatch-bundle resolution.
-  - Voltage mode writes `q_control_mode=3` and computes `Q` from measured `v_poi`, plant nominal voltage, droop, and Q limits.
+  - Voltage mode now writes `q_control_mode=3`, `P`, and plant `v_setpoint` directly; it no longer computes or writes `Q`.
+  - Endpoints that expose `q_control_mode` must now also expose plant `v_setpoint`.
+  - Removed plant-model droop config from runtime validation.
   - Classic reactive mode writes `q_control_mode=1` when configured.
   - Measurement rows/CSV/cache now record `v_setpoint_pu`.
   - Private/public status summaries now show `V ref`.

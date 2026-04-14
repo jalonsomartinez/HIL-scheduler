@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
-from control.modbus_io import send_setpoints, wait_until_battery_power_below_threshold
+from control.modbus_io import send_setpoints, send_setpoints_detailed, wait_until_battery_power_below_threshold
 from modbus.codec import read_point_internal
 
 
@@ -117,6 +117,42 @@ class ControlModbusIoTests(unittest.TestCase):
         self.assertTrue(result)
         self.assertAlmostEqual(read_point_internal(client, endpoint_cfg, "p_setpoint"), 50.0, places=6)
         self.assertAlmostEqual(read_point_internal(client, endpoint_cfg, "q_setpoint"), -5.0, places=6)
+
+    @patch("control.modbus_io.ModbusClient")
+    def test_send_setpoints_voltage_mode_writes_v_setpoint_and_skips_q_write(self, client_cls):
+        client = _MemoryModbusClient("127.0.0.1", 502)
+        client_cls.return_value = client
+        endpoint_cfg = {
+            "host": "127.0.0.1",
+            "port": 502,
+            "mode": "remote",
+            "byte_order": "big",
+            "word_order": "msw_first",
+            "poi_voltage_kv": 20.0,
+            "points": {
+                "p_setpoint": {"name": "p_setpoint", "address": 10, "format": "int16", "word_count": 1, "unit": "kW", "eng_per_count": 0.1},
+                "q_setpoint": {"name": "q_setpoint", "address": 11, "format": "int16", "word_count": 1, "unit": "kvar", "eng_per_count": 0.1},
+                "q_control_mode": {"name": "q_control_mode", "address": 12, "format": "uint16", "word_count": 1, "unit": "raw", "eng_per_count": 1.0},
+                "v_setpoint": {"name": "v_setpoint", "address": 13, "format": "uint16", "word_count": 1, "unit": "V", "eng_per_count": 1.0},
+            },
+        }
+        client.registers[11] = 123
+
+        result = send_setpoints_detailed(
+            endpoint_cfg,
+            "LIB",
+            90.0,
+            30.0,
+            voltage_mode_active=True,
+            voltage_setpoint_pu=0.95,
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(int(read_point_internal(client, endpoint_cfg, "q_control_mode")), 3)
+        self.assertAlmostEqual(read_point_internal(client, endpoint_cfg, "p_setpoint"), 90.0, places=6)
+        self.assertAlmostEqual(read_point_internal(client, endpoint_cfg, "v_setpoint"), 19.0, places=6)
+        self.assertAlmostEqual(read_point_internal(client, endpoint_cfg, "q_setpoint"), 12.3, places=6)
+        self.assertEqual(result["limit_result"]["applied_q_kvar"], None)
 
     @patch("modbus.setpoint_io._sleep")
     @patch("control.modbus_io.ModbusClient")

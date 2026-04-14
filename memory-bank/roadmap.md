@@ -6,11 +6,11 @@ Increase operational confidence by stabilizing heterogeneous Modbus dispatch, in
 ## Priority Order
 1. Reliability guardrails
 - Keep compile and targeted unit checks green for scheduler, control, measurement, dashboard, and config paths.
-- Preserve strict config validation for aggregate/per-phase setpoints and `q_control_mode` + droop requirements.
+- Preserve strict config validation for aggregate/per-phase setpoints and `q_control_mode` + `v_setpoint` requirements.
 - Validate stale-API behavior with per-signal manual overrides, including manual voltage mode selection.
 
 2. Operational hardening
-- Confirm voltage-regulation behavior on real LIB endpoints with `q_control_mode`.
+- Confirm direct plant voltage-control behavior on real LIB endpoints with `q_control_mode` + `v_setpoint`.
 - Confirm digital-twin-derived voltage reference behaves sensibly under realistic min/max/battery voltage combinations.
 - Decide whether trigger pulse timing should remain fixed or become configurable.
 - Continue remote endpoint stability checks after pooled-session rollout.

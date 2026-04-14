@@ -29,6 +29,7 @@ from measurement.storage import (
     normalize_measurements_df,
     rows_are_similar,
 )
+from modbus.setpoint_io import voltage_control_mode_supported
 from runtime.soc_estimation import SocEstimator, resolve_startup_soc_seed
 from runtime.contracts import sanitize_plant_name
 from runtime.defaults import (
@@ -808,7 +809,7 @@ def measurement_agent(config, shared_data):
                     selected_reactive_control_mode=selected_reactive_mode,
                     source="api",
                     grid_map_runtime=grid_map_runtime,
-                    digital_twin_voltage_enabled=("q_control_mode" in dict((endpoint.get("points", {}) or {}))),
+                    digital_twin_voltage_enabled=voltage_control_mode_supported(endpoint),
                 )
                 row["v_setpoint_pu"] = float(dispatch_bundle.get("voltage_setpoint_pu", 1.0))
 

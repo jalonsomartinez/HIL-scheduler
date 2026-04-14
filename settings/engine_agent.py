@@ -6,7 +6,7 @@ import time
 
 import pandas as pd
 
-from modbus.setpoint_io import q_control_mode_point_configured
+from modbus.setpoint_io import voltage_control_mode_supported
 from runtime.contracts import resolve_modbus_endpoint
 from runtime.api_runtime_state import (
     complete_api_connect_probe,
@@ -320,9 +320,9 @@ def _apply_reactive_mode_set(config, shared_data, command):
 
     transport_mode = snapshot_locked(shared_data, lambda data: data.get("transport_mode", "local"))
     endpoint = resolve_modbus_endpoint(config, plant_id, transport_mode)
-    supports_mode_toggle = q_control_mode_point_configured(endpoint)
+    supports_mode_toggle = voltage_control_mode_supported(endpoint)
     if requested_mode == 3 and not supports_mode_toggle:
-        error = _error_payload(now_value, "unsupported_mode", "Active endpoint does not expose q_control_mode.")
+        error = _error_payload(now_value, "unsupported_mode", "Active endpoint must expose both q_control_mode and v_setpoint.")
         with shared_data["lock"]:
             runtime_map = _ensure_reactive_mode_runtime_state_map(config, shared_data)
             entry = dict(runtime_map.get(plant_id, {}) or {})

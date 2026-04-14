@@ -25,8 +25,8 @@ Operators need one runtime that can safely execute multi-market battery schedule
   - voltage-setpoint override per plant.
 - Reactive dispatch behavior:
   - default mode is classic `Q` control using the resolved reactive-power setpoint,
-  - the private dashboard `Q mode` / `V mode` toggle is the authoritative reactive-mode selector when the active endpoint exposes `q_control_mode`,
-  - voltage mode computes `Q` from measured `v_poi`, configured nominal POI voltage, configured droop, and plant Q limits.
+  - the private dashboard `Q mode` / `V mode` toggle is the authoritative reactive-mode selector when the active endpoint exposes both `q_control_mode` and `v_setpoint`,
+  - voltage mode writes a direct plant voltage target instead of a reactive-power target.
 - Status summaries now show both measured voltage and voltage reference (`V ref`).
 - Voltage setpoint source precedence is:
   - current manual voltage value when present,
@@ -44,6 +44,6 @@ Operators need one runtime that can safely execute multi-market battery schedule
 ## Critical Workflows
 1. mFRR polling loop: fetch -> update per-plant mFRR maps -> recompute total schedule -> publish telemetry.
 2. Manual override editing: operator edits a per-signal series -> applies it -> runtime activates or updates only that signal.
-3. Voltage-regulation dispatch: operator selects `V mode` -> resolve `v_setpoint_pu` from manual-or-twin source -> compute `Q` from measured `v_poi` and droop -> write `q_control_mode=3` plus setpoints.
+3. Voltage-regulation dispatch: operator selects `V mode` -> resolve `v_setpoint_pu` from manual-or-twin source -> convert it to the plant voltage register unit -> write `q_control_mode=3`, `P`, and `v_setpoint`.
 4. Classic reactive dispatch: operator selects `Q mode` -> resolve `Q` setpoint -> write `q_control_mode=1` when available plus setpoints.
 5. Historical review: users compare total/day-ahead/mFRR intent, `V ref`, battery-voltage-aware grid-map summary, and measured plant response from CSV-backed history.

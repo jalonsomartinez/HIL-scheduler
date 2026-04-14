@@ -277,7 +277,7 @@ class SettingsEngineAgentTests(unittest.TestCase):
         shared = _shared()
         cfg = _config()
         cfg["PLANTS"] = {
-            "lib": {"modbus": {"local": {"points": {"q_control_mode": {"address": 1}}}}},
+            "lib": {"modbus": {"local": {"points": {"q_control_mode": {"address": 1}, "v_setpoint": {"address": 2}}}}},
             "vrfb": {"modbus": {"local": {"points": {}}}},
         }
         result = _execute_settings_command(

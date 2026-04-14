@@ -154,6 +154,30 @@ class DashboardControlHealthTests(unittest.TestCase):
         self.assertEqual(len(lines), 2)
         self.assertIn("RB P/Q=mismatch/read-fail->cache", lines[0])
 
+    def test_summarize_dispatch_write_status_uses_p_v_text_for_voltage_mode(self):
+        lines = summarize_dispatch_write_status(
+            {
+                "last_attempt_status": "ok",
+                "last_attempt_at": datetime(2026, 2, 25, 12, 0, 5, tzinfo=timezone.utc),
+                "last_attempt_p_kw": 12.3,
+                "last_attempt_q_kvar": None,
+                "last_attempt_source": "scheduler",
+                "last_scheduler_context": {
+                    "voltage_mode_active": True,
+                    "voltage_setpoint_pu": 0.97,
+                    "p_compare_source": "readback",
+                    "v_compare_source": "readback",
+                    "p_readback_ok": True,
+                    "v_readback_ok": True,
+                    "p_readback_mismatch": False,
+                    "v_readback_mismatch": True,
+                },
+            },
+            dispatch_enabled=True,
+        )
+        self.assertIn("Last P/V: P=12.300 kW, V=0.970 pu", lines[1])
+        self.assertIn("RB P/V=match/mismatch", lines[0])
+
 
 if __name__ == "__main__":
     unittest.main()

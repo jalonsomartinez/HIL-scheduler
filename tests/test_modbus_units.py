@@ -37,6 +37,8 @@ class ModbusUnitsTests(unittest.TestCase):
         self.assertAlmostEqual(internal_to_external("v_poi", "v", 20.0), 20000.0, places=6)
         self.assertAlmostEqual(external_to_internal("v_poi_write", "v", 400.0), 0.4, places=6)
         self.assertAlmostEqual(internal_to_external("v_poi_write", "kv", 0.4), 0.4, places=6)
+        self.assertAlmostEqual(external_to_internal("v_setpoint", "v", 20000.0), 20.0, places=6)
+        self.assertAlmostEqual(internal_to_external("v_setpoint", "kv", 20.0), 20.0, places=6)
 
     def test_invalid_unit_for_point_raises(self):
         with self.assertRaises(ValueError):
@@ -44,6 +46,7 @@ class ModbusUnitsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_point_unit("v_poi", "kvar")
         self.assertEqual(validate_point_unit("v_poi_write", "kV"), "kv")
+        self.assertEqual(validate_point_unit("v_setpoint", "V"), "v")
         self.assertEqual(validate_point_unit("trigger", "raw"), "raw")
         self.assertAlmostEqual(external_to_internal("trigger", "raw", 1.0), 1.0, places=6)
         self.assertAlmostEqual(internal_to_external("trigger", "raw", 0.0), 0.0, places=6)

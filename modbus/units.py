@@ -28,7 +28,7 @@ def infer_point_quantity(point_name):
         return "p"
     if name in {"q_setpoint", "q_u_setpoint", "q_v_setpoint", "q_w_setpoint", "q_battery", "q_poi"}:
         return "q"
-    if name in {"v_poi", "v_poi_write"}:
+    if name in {"v_poi", "v_poi_write", "v_setpoint"}:
         return "v"
     if name in {"enable", "start_command", "stop_command", "trigger", "q_control_mode"}:
         return "raw"

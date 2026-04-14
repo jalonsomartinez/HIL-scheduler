@@ -274,6 +274,7 @@ class ControlEngineAgentTests(unittest.TestCase):
                                 "p_setpoint": {"name": "p_setpoint", "address": 1, "format": "int16", "word_count": 1, "unit": "kW", "eng_per_count": 0.1},
                                 "q_setpoint": {"name": "q_setpoint", "address": 2, "format": "int16", "word_count": 1, "unit": "kvar", "eng_per_count": 0.1},
                                 "q_control_mode": {"name": "q_control_mode", "address": 3, "format": "uint16", "word_count": 1, "unit": "raw", "eng_per_count": 1.0},
+                                "v_setpoint": {"name": "v_setpoint", "address": 4, "format": "uint16", "word_count": 1, "unit": "V", "eng_per_count": 1.0},
                             },
                         }
                     }

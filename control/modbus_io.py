@@ -122,17 +122,27 @@ def send_setpoints_detailed(
             p_kw,
             reactive_result.get("requested_q_kvar", q_kvar),
             reactive_control_mode=reactive_result.get("reactive_control_mode"),
+            voltage_setpoint_pu=reactive_result.get("voltage_setpoint_pu", voltage_setpoint_pu),
         )
         limit_result = dict((write_plan or {}).get("limit_result") or {})
         if bool(limit_result.get("any_clamped")):
-            logging.warning(
-                "Control I/O: %s setpoints clamped before write (requested P=%.3f Q=%.3f, applied P=%.3f Q=%.3f).",
-                plant_label,
-                float(limit_result.get("requested_p_kw", 0.0)),
-                float(limit_result.get("requested_q_kvar", 0.0)),
-                float(limit_result.get("applied_p_kw", 0.0)),
-                float(limit_result.get("applied_q_kvar", 0.0)),
-            )
+            if str(write_plan.get("write_quantity_mode")) == "pv":
+                logging.warning(
+                    "Control I/O: %s setpoints clamped before write (requested P=%.3f, applied P=%.3f, V=%.3f pu).",
+                    plant_label,
+                    float(limit_result.get("requested_p_kw", 0.0)),
+                    float(limit_result.get("applied_p_kw", 0.0)),
+                    float(reactive_result.get("voltage_setpoint_pu", voltage_setpoint_pu)),
+                )
+            else:
+                logging.warning(
+                    "Control I/O: %s setpoints clamped before write (requested P=%.3f Q=%.3f, applied P=%.3f Q=%.3f).",
+                    plant_label,
+                    float(limit_result.get("requested_p_kw", 0.0)),
+                    float(limit_result.get("requested_q_kvar", 0.0)),
+                    float(limit_result.get("applied_p_kw", 0.0)),
+                    float(limit_result.get("applied_q_kvar", 0.0)),
+                )
         apply_result = write_setpoint_plan_with_optional_trigger(client, endpoint_cfg, write_plan)
         trigger_result = dict(apply_result.get("trigger_result") or {})
         if str(trigger_result.get("state")) == "ok":

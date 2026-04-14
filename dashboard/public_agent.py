@@ -40,6 +40,7 @@ from dashboard.ui_state import (
 )
 import scheduling.manual_schedule_manager as msm
 from measurement.storage import MEASUREMENT_COLUMNS
+from modbus.setpoint_io import voltage_control_mode_supported
 from grid_map_runtime import build_grid_map_figure_update, build_grid_map_meta_lines, snapshot_grid_map_runtime
 from runtime.contracts import resolve_modbus_endpoint, sanitize_plant_name
 from runtime.paths import get_assets_dir, get_data_dir, get_project_root
@@ -960,7 +961,7 @@ def build_public_readonly_app(config, shared_data):
                 manual_v_enabled=bool(snapshot["manual_merge_enabled"].get(v_key, False)),
                 tz=tz,
                 grid_map_runtime=grid_map_runtime,
-                digital_twin_voltage_enabled=("q_control_mode" in dict((endpoint.get("points", {}) or {}))),
+                digital_twin_voltage_enabled=voltage_control_mode_supported(endpoint),
             )
 
         def plant_control_labels(plant_id):
