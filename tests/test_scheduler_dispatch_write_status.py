@@ -447,6 +447,71 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
         self.assertAlmostEqual(float(scheduler_ctx.get("voltage_setpoint_pu")), 1.0, places=6)
         self.assertAlmostEqual(float(scheduler_ctx.get("measured_v_poi_pu")), 0.99, places=6)
 
+    def test_scheduler_uses_digital_twin_voltage_setpoint_when_manual_voltage_is_missing(self):
+        _Registry.clear()
+        _CountingModbusClient.reset()
+        config = load_config("config.yaml")
+        config["SCHEDULER_PERIOD_S"] = 0.1
+        config["ISTENTORE_SCHEDULE_PERIOD_MINUTES"] = 15
+        config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["lib"]["modbus"]["local"]["port"] = 5020
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["port"] = 5021
+        config["PLANTS"]["lib"]["model"]["voltage_control_droop_pu"] = 0.05
+
+        lib_endpoint = config["PLANTS"]["lib"]["modbus"]["local"]
+        lib_points = lib_endpoint["points"]
+        q_reg = int(lib_points["q_setpoint"]["address"])
+        v_poi_reg = int(lib_points["v_poi"]["address"])
+        lib_points["q_control_mode"] = {
+            "name": "q_control_mode",
+            "address": 96,
+            "format": "uint16",
+            "word_count": 1,
+            "byte_count": 2,
+            "access": "rw",
+            "unit": "raw",
+            "eng_per_count": 1.0,
+        }
+
+        lib_bank = _FakeDataBank()
+        vrfb_bank = _FakeDataBank()
+        _Registry.register("127.0.0.1", 5020, lib_bank)
+        _Registry.register("127.0.0.1", 5021, vrfb_bank)
+        lib_bank.set_holding_registers(v_poi_reg, encode_point_internal_words(lib_endpoint, "v_poi", 19.8))
+
+        now = now_tz(config)
+        api_df = pd.DataFrame(
+            {"power_setpoint_kw": [42.0], "reactive_power_setpoint_kvar": [5.0]},
+            index=pd.DatetimeIndex([now - pd.Timedelta(minutes=1)]),
+        )
+        shared_data = _shared_data()
+        with shared_data["lock"]:
+            shared_data["api_schedule_df_by_plant"]["lib"] = api_df
+            shared_data["reactive_control_mode_by_plant"]["lib"] = 3
+            shared_data["grid_map_runtime"] = {
+                "stale": False,
+                "summary": {
+                    "battery_voltage_pu": 0.05,
+                    "min_voltage_pu": 0.97,
+                    "max_voltage_pu": 1.01,
+                },
+            }
+
+        with patch("scheduling.agent.ModbusClient", _CountingModbusClient):
+            thread = threading.Thread(target=scheduler_agent, args=(config, shared_data), daemon=True)
+            thread.start()
+            try:
+                time.sleep(0.35)
+            finally:
+                shared_data["shutdown_event"].set()
+                thread.join(timeout=3)
+
+        self.assertEqual(lib_bank.get_holding_registers(96, 1)[0], 3)
+        self.assertAlmostEqual(_read_kw(lib_bank, q_reg), -600.0, places=1)
+        scheduler_ctx = dict(shared_data["dispatch_write_status_by_plant"]["lib"].get("last_scheduler_context") or {})
+        self.assertAlmostEqual(float(scheduler_ctx.get("voltage_setpoint_pu")), 0.9, places=6)
+
     def test_scheduler_clamps_total_before_per_phase_split(self):
         _Registry.clear()
         _CountingModbusClient.reset()

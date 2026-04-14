@@ -3,7 +3,8 @@
 ## Current Focus (Now)
 - Field-validate the new voltage-regulation reactive-control path on real hardware.
 - Confirm optional `q_control_mode` writes behave correctly on LIB local and remote endpoints.
-- Verify manual voltage override UX is usable and clearly communicates that activation switches reactive mode.
+- Verify dashboard-selected `Q mode` / `V mode` behavior is usable and clearly communicates reactive-mode intent.
+- Validate the new digital-twin voltage-reference fallback and its clamp behavior on realistic network states.
 - Preserve telemetry/history compatibility while recording `v_setpoint_pu`.
 - Keep the current grid-map digital-twin audit trail intact during unrelated runtime work.
 
@@ -28,6 +29,9 @@
   - Classic reactive mode writes `q_control_mode=1` when configured.
   - Measurement rows/CSV/cache now record `v_setpoint_pu`.
   - Private/public status summaries now show `V ref`.
+  - Reactive-mode selection is now owned by the dashboard `Q mode` / `V mode` toggle instead of manual-voltage activation.
+  - Added digital-twin voltage-reference fallback for plants with `q_control_mode`, using `battery_voltage_pu + 1.0 - (max_voltage_pu + min_voltage_pu) / 2`, with final clamp to `[0.9, 1.1]`.
+  - Grid Map summary cards now show battery voltage from the digital twin summary.
   - Verified targeted regression suites in the repo `venv`, covering config validation, schedule runtime, scheduler dispatch, measurement recording, dashboard intent wiring, shared-state contract, and control paths.
 - 2026-04-13:
   - Added shared SoC fallback estimation and optional `soc` schema support.

@@ -25,10 +25,15 @@ Operators need one runtime that can safely execute multi-market battery schedule
   - voltage-setpoint override per plant.
 - Reactive dispatch behavior:
   - default mode is classic `Q` control using the resolved reactive-power setpoint,
-  - activating the manual voltage channel for a plant switches that plant to voltage regulation when the active endpoint exposes `q_control_mode`,
+  - the private dashboard `Q mode` / `V mode` toggle is the authoritative reactive-mode selector when the active endpoint exposes `q_control_mode`,
   - voltage mode computes `Q` from measured `v_poi`, configured nominal POI voltage, configured droop, and plant Q limits.
 - Status summaries now show both measured voltage and voltage reference (`V ref`).
-- Voltage setpoint currently comes only from manual schedule and defaults to `1.0 pu` when no manual voltage value is available.
+- Voltage setpoint source precedence is:
+  - current manual voltage value when present,
+  - otherwise digital-twin-derived voltage reference from battery voltage plus global min/max voltage summary,
+  - otherwise fallback `1.0 pu`,
+  - then clamp the resolved runtime value to `[0.9, 1.1]`.
+- Grid Map summaries now show digital-twin battery voltage alongside min/max voltage and loading cards.
 
 ## UX Intent
 - Keep operator-facing schedule semantics stable while exposing the new voltage-control path without creating a second UI workflow.
@@ -39,6 +44,6 @@ Operators need one runtime that can safely execute multi-market battery schedule
 ## Critical Workflows
 1. mFRR polling loop: fetch -> update per-plant mFRR maps -> recompute total schedule -> publish telemetry.
 2. Manual override editing: operator edits a per-signal series -> applies it -> runtime activates or updates only that signal.
-3. Voltage-regulation dispatch: active manual voltage channel -> resolve `v_setpoint_pu` -> compute `Q` from measured `v_poi` and droop -> write `q_control_mode=3` plus setpoints.
-4. Classic reactive dispatch: inactive manual voltage channel -> resolve `Q` setpoint -> write `q_control_mode=1` when available plus setpoints.
-5. Historical review: users compare total/day-ahead/mFRR intent, `V ref`, and measured plant response from CSV-backed history.
+3. Voltage-regulation dispatch: operator selects `V mode` -> resolve `v_setpoint_pu` from manual-or-twin source -> compute `Q` from measured `v_poi` and droop -> write `q_control_mode=3` plus setpoints.
+4. Classic reactive dispatch: operator selects `Q mode` -> resolve `Q` setpoint -> write `q_control_mode=1` when available plus setpoints.
+5. Historical review: users compare total/day-ahead/mFRR intent, `V ref`, battery-voltage-aware grid-map summary, and measured plant response from CSV-backed history.

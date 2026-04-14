@@ -62,6 +62,7 @@ def _metric_card(title, value_text, status_modifier="normal"):
 
 def build_grid_map_summary_cards(summary):
     summary = dict(summary or {})
+    battery_voltage = _coerce_float(summary.get("battery_voltage_pu"))
     min_voltage = _coerce_float(summary.get("min_voltage_pu"))
     max_voltage = _coerce_float(summary.get("max_voltage_pu"))
     voltage_violations = int(summary.get("num_voltage_violations", 0) or 0)
@@ -69,6 +70,7 @@ def build_grid_map_summary_cards(summary):
     overloaded_lines = int(summary.get("num_overloaded_lines", 0) or 0)
 
     return [
+        _metric_card("Battery Voltage", "n/a" if battery_voltage is None else f"{battery_voltage:.4f} pu"),
         _metric_card("Lowest Voltage", "n/a" if min_voltage is None else f"{min_voltage:.4f} pu", "alert" if min_voltage is not None and min_voltage < 0.95 else "normal"),
         _metric_card("Highest Voltage", "n/a" if max_voltage is None else f"{max_voltage:.4f} pu", "alert" if max_voltage is not None and max_voltage > 1.05 else "normal"),
         _metric_card("Out-of-Range Buses", f"{voltage_violations}", "alert" if voltage_violations > 0 else "ok"),

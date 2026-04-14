@@ -8,6 +8,7 @@ from datetime import timedelta
 
 import pandas as pd
 
+from grid_map_runtime import snapshot_grid_map_runtime
 from runtime.api_runtime_state import ensure_api_connection_runtime, publish_api_posting_health
 from istentore_api import AuthenticationError, IstentoreAPI, IstentoreAPIError
 from measurement.posting import build_post_items
@@ -736,6 +737,7 @@ def measurement_agent(config, shared_data):
         manual_series_map = snapshot.get("manual_series_map", {})
         manual_merge_enabled = snapshot.get("manual_merge_enabled", {})
         reactive_mode_by_plant = snapshot.get("reactive_mode_by_plant", {})
+        grid_map_runtime = snapshot_grid_map_runtime(shared_data)
 
         for plant_id in plant_ids:
             state = plant_states[plant_id]
@@ -805,6 +807,8 @@ def measurement_agent(config, shared_data):
                     manual_v_enabled=bool(manual_merge_enabled.get(v_key, False)),
                     selected_reactive_control_mode=selected_reactive_mode,
                     source="api",
+                    grid_map_runtime=grid_map_runtime,
+                    digital_twin_voltage_enabled=("q_control_mode" in dict((endpoint.get("points", {}) or {}))),
                 )
                 row["v_setpoint_pu"] = float(dispatch_bundle.get("voltage_setpoint_pu", 1.0))
 

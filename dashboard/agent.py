@@ -2182,6 +2182,7 @@ def dashboard_agent(config, shared_data):
             }
 
         status_now = now_tz(config)
+        grid_map_runtime = snapshot_grid_map_runtime(shared_data)
         enable_state_by_plant = {}
         observed_effective_stale_by_plant = {}
         for plant_id in plant_ids:
@@ -2280,14 +2281,14 @@ def dashboard_agent(config, shared_data):
                 return None
             return number
 
-        def _metric_cell(value, unit, *, decimals):
+        def _metric_cell(value, unit, *, decimals, dimmed=False, empty_text="—"):
             number = _coerce_float(value)
             if number is None:
-                return html.Td("—", className="public-summary-empty public-summary-measurement-cell")
+                return html.Td(str(empty_text), className="public-summary-empty public-summary-measurement-cell")
             value_text = f"{number:.{int(decimals)}f}"
             return html.Td(
                 html.Div(
-                    className="public-summary-metric",
+                    className="public-summary-metric public-summary-metric--dimmed" if dimmed else "public-summary-metric",
                     children=[
                         html.Span(value_text, className="public-summary-value"),
                         html.Span(unit, className="public-summary-unit"),
@@ -2331,6 +2332,22 @@ def dashboard_agent(config, shared_data):
         def _desired_reactive_mode_label(plant_id):
             return _reactive_mode_label(reactive_mode_by_plant.get(plant_id, 1))
 
+        def _reactive_mode_supported(plant_id):
+            endpoint = resolve_modbus_endpoint(config, plant_id, transport_mode)
+            return "q_control_mode" in dict((endpoint.get("points", {}) or {}))
+
+        def _is_q_control_mode_active(plant_id):
+            observed = dict(observed_state_by_plant.get(plant_id, {}) or {})
+            if not bool(observed_effective_stale_by_plant.get(plant_id, True)):
+                try:
+                    return int(observed.get("q_control_mode_state")) == 1
+                except (TypeError, ValueError):
+                    pass
+            try:
+                return int(reactive_mode_by_plant.get(plant_id, 1)) == 1
+            except (TypeError, ValueError):
+                return True
+
         table_rows = []
         for plant_id in plant_ids:
             latest = _latest_measurements_row(plant_id)
@@ -2348,8 +2365,11 @@ def dashboard_agent(config, shared_data):
                         _metric_cell(latest.get("p_poi_kw"), "kW", decimals=1),
                         _metric_cell(latest.get("q_setpoint_kvar"), "kvar", decimals=1),
                         _metric_cell(latest.get("q_poi_kvar"), "kvar", decimals=1),
-                        html.Td(_current_reactive_mode_label(plant_id), className="public-summary-measurement-cell"),
-                        _metric_cell(latest.get("v_setpoint_pu"), "pu", decimals=3),
+                        (
+                            _metric_cell(latest.get("v_setpoint_pu"), "pu", decimals=3, dimmed=_is_q_control_mode_active(plant_id))
+                            if _reactive_mode_supported(plant_id)
+                            else html.Td("-", className="public-summary-empty public-summary-measurement-cell")
+                        ),
                         _metric_cell(latest.get("v_poi_kV"), "kV", decimals=voltage_decimals),
                     ]
                 )
@@ -2368,7 +2388,6 @@ def dashboard_agent(config, shared_data):
                             html.Th("P POI"),
                             html.Th("Q ref"),
                             html.Th("Q POI"),
-                            html.Th("Q mode"),
                             html.Th("V ref"),
                             html.Th("Voltage"),
                         ]
@@ -2419,6 +2438,7 @@ def dashboard_agent(config, shared_data):
         effective_schedule_map = {}
         for plant_id in plant_ids:
             p_key, q_key, v_key = msm.manual_series_keys_for_plant(plant_id, include_voltage=True)
+            endpoint = resolve_modbus_endpoint(config, plant_id, transport_mode)
             effective_schedule_map[plant_id] = build_effective_schedule_frame(
                 api_schedule_map.get(plant_id, pd.DataFrame()),
                 manual_series_map.get(p_key, pd.DataFrame()),
@@ -2428,6 +2448,8 @@ def dashboard_agent(config, shared_data):
                 manual_q_enabled=bool(manual_merge_enabled.get(q_key, False)),
                 manual_v_enabled=bool(manual_merge_enabled.get(v_key, False)),
                 tz=tz,
+                grid_map_runtime=grid_map_runtime,
+                digital_twin_voltage_enabled=("q_control_mode" in dict((endpoint.get("points", {}) or {}))),
             )
 
         lib_schedule = normalize_schedule_index(effective_schedule_map.get("lib", pd.DataFrame()), tz)

@@ -41,7 +41,7 @@ from dashboard.ui_state import (
 import scheduling.manual_schedule_manager as msm
 from measurement.storage import MEASUREMENT_COLUMNS
 from grid_map_runtime import build_grid_map_figure_update, build_grid_map_meta_lines, snapshot_grid_map_runtime
-from runtime.contracts import sanitize_plant_name
+from runtime.contracts import resolve_modbus_endpoint, sanitize_plant_name
 from runtime.paths import get_assets_dir, get_data_dir, get_project_root
 from runtime.shared_state import snapshot_locked
 from scheduling.runtime import build_effective_schedule_frame
@@ -793,6 +793,7 @@ def build_public_readonly_app(config, shared_data):
         )
 
         status_now = now_tz(config)
+        grid_map_runtime = snapshot_grid_map_runtime(shared_data)
         enable_state_by_plant = {}
         for plant_id in plant_ids:
             observed = dict(snapshot["observed_state_by_plant"].get(plant_id, {}) or {})
@@ -948,6 +949,7 @@ def build_public_readonly_app(config, shared_data):
         effective_schedule_map = {}
         for plant_id in plant_ids:
             p_key, q_key, v_key = msm.manual_series_keys_for_plant(plant_id, include_voltage=True)
+            endpoint = resolve_modbus_endpoint(config, plant_id, snapshot["transport_mode"])
             effective_schedule_map[plant_id] = build_effective_schedule_frame(
                 snapshot["api_schedule_map"].get(plant_id, pd.DataFrame()),
                 snapshot["manual_series_map"].get(p_key, pd.DataFrame()),
@@ -957,6 +959,8 @@ def build_public_readonly_app(config, shared_data):
                 manual_q_enabled=bool(snapshot["manual_merge_enabled"].get(q_key, False)),
                 manual_v_enabled=bool(snapshot["manual_merge_enabled"].get(v_key, False)),
                 tz=tz,
+                grid_map_runtime=grid_map_runtime,
+                digital_twin_voltage_enabled=("q_control_mode" in dict((endpoint.get("points", {}) or {}))),
             )
 
         def plant_control_labels(plant_id):

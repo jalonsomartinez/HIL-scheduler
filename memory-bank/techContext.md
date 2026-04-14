@@ -14,7 +14,8 @@
 - `scheduling/agent.py`: periodic dispatch loop and scheduler write-status publication.
 - `control/modbus_io.py` and `control/engine_agent.py`: control-path Modbus writes and start/stop flows.
 - `measurement/agent.py` and `measurement/storage.py`: telemetry sampling, schedule-intent enrichment, CSV/cache normalization.
-- `dashboard/`: manual schedule UI, status summaries, plots, and read-only public views.
+- `dashboard/`: manual schedule UI, grid-map summary cards, status summaries, plots, and read-only public views.
+- `grid_map_runtime.py`: digital-twin execution, summary extraction, and shared grid-map runtime snapshot contract.
 - `modbus/setpoint_io.py`: aggregate/per-phase write planning, optional `q_control_mode`, and trigger-aware apply.
 
 ## Configuration Schema
@@ -45,6 +46,14 @@ Per-plant endpoint contracts now carry:
 - `voltage_control_droop_pu`
 - normalized `points`
 
+Grid-map runtime snapshot now exposes a summary contract used outside the map page:
+- `battery_voltage_pu`
+- `min_voltage_pu`
+- `max_voltage_pu`
+- `num_voltage_violations`
+- `max_line_loading_pct`
+- `num_overloaded_lines`
+
 ## Modbus and Unit Conventions
 - Holding registers only.
 - Supported point formats: `int16`, `uint16`, `int32`, `uint32`, `float32`.
@@ -62,6 +71,7 @@ Per-plant endpoint contracts now carry:
   - voltage-mode flag,
   - resolved `v_setpoint_pu`,
   - measured `v_poi_pu` when voltage mode is active.
+- Twin-derived voltage references do not add a separate logging stream; they are visible through the resolved `v_setpoint_pu` carried in dispatch status, measurements, and dashboards.
 - Control-path failures for voltage dispatch are surfaced explicitly instead of silently degrading to classic `Q` control.
 
 ## Operational Constraints

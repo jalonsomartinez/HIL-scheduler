@@ -18,7 +18,8 @@ HIL Scheduler is a dual-plant control runtime for LIB and VRFB batteries. It com
   - `day-ahead` from market id 4,
   - `mFRR` from market id 3 on its own cadence,
   - `total` authoritative dispatch schedule,
-  - manual per-signal overrides for `P`, `Q`, and voltage setpoint.
+  - manual per-signal overrides for `P`, `Q`, and voltage setpoint,
+  - digital-twin fallback voltage reference for plants whose active endpoint exposes `q_control_mode`.
 - Dispatch model:
   - scheduler/control write aggregate or equal per-phase setpoints depending on endpoint schema,
   - optional `q_control_mode` selects reactive control mode when configured,
@@ -42,7 +43,10 @@ HIL Scheduler is a dual-plant control runtime for LIB and VRFB batteries. It com
 
 ## Success Criteria
 1. Dispatch uses the correct `total` schedule and applies correctly on aggregate, per-phase, trigger-latched, and optional voltage-regulation endpoints.
-2. Manual voltage override activates voltage mode cleanly and defaults to `1.0 pu` when no voltage value is available.
+2. Reactive mode selection and voltage-reference sourcing stay coherent:
+   - dashboard-selected `Q`/`V` mode dispatches correctly,
+   - manual voltage overrides twin-derived voltage reference when present,
+   - fallback remains bounded and safe.
 3. Measurement/history remain backward-compatible while preserving schedule-intent columns and `v_setpoint_pu`.
-4. Operator/public dashboards preserve existing controls while exposing `V ref` clearly.
+4. Operator/public dashboards preserve existing controls while exposing `V ref` clearly, and the Grid Map summary surfaces battery voltage from the digital twin.
 5. Core control, safe-stop, and transport behavior remain stable in local and remote operation.

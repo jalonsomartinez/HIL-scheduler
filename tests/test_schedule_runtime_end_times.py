@@ -3,7 +3,11 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from scheduling.runtime import build_effective_schedule_frame, resolve_effective_dispatch_bundle
+from scheduling.runtime import (
+    build_effective_schedule_frame,
+    resolve_dispatch_bundle_from_sources,
+    resolve_effective_dispatch_bundle,
+)
 
 
 class ScheduleRuntimeEndTimeTests(unittest.TestCase):
@@ -126,6 +130,88 @@ class ScheduleRuntimeEndTimeTests(unittest.TestCase):
 
         self.assertAlmostEqual(float(effective.loc[base, "voltage_setpoint_pu"]), 1.1)
         self.assertAlmostEqual(float(bundle["voltage_setpoint_pu"]), 1.1)
+
+    def test_digital_twin_voltage_setpoint_is_used_when_manual_voltage_is_unavailable(self):
+        tz = ZoneInfo("Europe/Madrid")
+        base = pd.Timestamp("2026-02-26T10:00:00+01:00")
+        api_df = pd.DataFrame(
+            {"power_setpoint_kw": [100.0], "reactive_power_setpoint_kvar": [10.0]},
+            index=pd.DatetimeIndex([base]),
+        )
+        grid_map_runtime = {
+            "stale": False,
+            "summary": {
+                "battery_voltage_pu": 0.05,
+                "min_voltage_pu": 0.97,
+                "max_voltage_pu": 1.01,
+            },
+        }
+
+        effective = build_effective_schedule_frame(
+            api_df,
+            pd.DataFrame(columns=["setpoint"]),
+            pd.DataFrame(columns=["setpoint"]),
+            pd.DataFrame(columns=["setpoint"]),
+            manual_p_enabled=False,
+            manual_q_enabled=False,
+            manual_v_enabled=True,
+            tz=tz,
+            grid_map_runtime=grid_map_runtime,
+            digital_twin_voltage_enabled=True,
+        )
+        bundle = resolve_dispatch_bundle_from_sources(
+            api_df,
+            pd.DataFrame(columns=["setpoint"]),
+            pd.DataFrame(columns=["setpoint"]),
+            pd.DataFrame(columns=["setpoint"]),
+            base,
+            tz,
+            manual_p_enabled=False,
+            manual_q_enabled=False,
+            manual_v_enabled=True,
+            selected_reactive_control_mode=3,
+            source="api",
+            grid_map_runtime=grid_map_runtime,
+            digital_twin_voltage_enabled=True,
+        )
+
+        self.assertAlmostEqual(float(effective.loc[base, "voltage_setpoint_pu"]), 0.9, places=6)
+        self.assertAlmostEqual(float(bundle["voltage_setpoint_pu"]), 0.9, places=6)
+
+    def test_manual_voltage_still_overrides_digital_twin_source(self):
+        tz = ZoneInfo("Europe/Madrid")
+        base = pd.Timestamp("2026-02-26T10:00:00+01:00")
+        api_df = pd.DataFrame(
+            {"power_setpoint_kw": [100.0], "reactive_power_setpoint_kvar": [10.0]},
+            index=pd.DatetimeIndex([base]),
+        )
+        manual_v_df = pd.DataFrame({"setpoint": [0.96]}, index=pd.DatetimeIndex([base]))
+        grid_map_runtime = {
+            "stale": False,
+            "summary": {
+                "battery_voltage_pu": 0.05,
+                "min_voltage_pu": 0.97,
+                "max_voltage_pu": 1.01,
+            },
+        }
+
+        bundle = resolve_dispatch_bundle_from_sources(
+            api_df,
+            pd.DataFrame(columns=["setpoint"]),
+            pd.DataFrame(columns=["setpoint"]),
+            manual_v_df,
+            base,
+            tz,
+            manual_p_enabled=False,
+            manual_q_enabled=False,
+            manual_v_enabled=True,
+            selected_reactive_control_mode=3,
+            source="api",
+            grid_map_runtime=grid_map_runtime,
+            digital_twin_voltage_enabled=True,
+        )
+
+        self.assertAlmostEqual(float(bundle["voltage_setpoint_pu"]), 0.96, places=6)
 
 
 if __name__ == "__main__":

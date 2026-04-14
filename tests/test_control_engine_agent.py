@@ -4,9 +4,12 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
+import pandas as pd
+
 from control.command_runtime import enqueue_control_command
 from control.engine_agent import (
     _execute_command,
+    _get_latest_schedule_setpoint,
     _publish_observed_state,
     _run_single_engine_cycle,
     _safe_stop_plant,
@@ -253,6 +256,50 @@ class ControlEngineAgentTests(unittest.TestCase):
         self.assertAlmostEqual(float(scheduler_ctx.get("requested_q_kvar")), -3.0, places=6)
         self.assertAlmostEqual(float(scheduler_ctx.get("applied_p_kw")), 10.0, places=6)
         self.assertAlmostEqual(float(scheduler_ctx.get("applied_q_kvar")), -2.0, places=6)
+
+    def test_get_latest_schedule_setpoint_uses_digital_twin_voltage_source_when_available(self):
+        shared_data = _shared_data()
+        now_value = datetime(2026, 2, 25, 12, 0, tzinfo=timezone.utc)
+        config = {
+            "TIMEZONE_NAME": "UTC",
+            "PLANTS": {
+                "lib": {
+                    "modbus": {
+                        "remote": {
+                            "host": "127.0.0.1",
+                            "port": 502,
+                            "byte_order": "big",
+                            "word_order": "msw_first",
+                            "points": {
+                                "p_setpoint": {"name": "p_setpoint", "address": 1, "format": "int16", "word_count": 1, "unit": "kW", "eng_per_count": 0.1},
+                                "q_setpoint": {"name": "q_setpoint", "address": 2, "format": "int16", "word_count": 1, "unit": "kvar", "eng_per_count": 0.1},
+                                "q_control_mode": {"name": "q_control_mode", "address": 3, "format": "uint16", "word_count": 1, "unit": "raw", "eng_per_count": 1.0},
+                            },
+                        }
+                    }
+                }
+            },
+        }
+        with shared_data["lock"]:
+            shared_data["api_schedule_df_by_plant"] = {
+                "lib": pd.DataFrame(
+                    {"power_setpoint_kw": [12.0], "reactive_power_setpoint_kvar": [4.0]},
+                    index=pd.DatetimeIndex([now_value - timedelta(minutes=1)]),
+                )
+            }
+            shared_data["grid_map_runtime"] = {
+                "stale": False,
+                "summary": {
+                    "battery_voltage_pu": 0.05,
+                    "min_voltage_pu": 0.97,
+                    "max_voltage_pu": 1.01,
+                },
+            }
+
+        with patch("control.engine_agent.now_tz", return_value=now_value):
+            bundle = _get_latest_schedule_setpoint(config, shared_data, "lib", timezone.utc)
+
+        self.assertAlmostEqual(float(bundle["voltage_setpoint_pu"]), 0.9, places=6)
 
     def test_start_one_plant_resets_trigger_before_prepare_enable_and_setpoints(self):
         shared_data = _shared_data()

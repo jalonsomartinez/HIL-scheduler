@@ -4,6 +4,7 @@ import time
 import pandas as pd
 from modbus.client import ModbusClient
 
+from grid_map_runtime import snapshot_grid_map_runtime
 from runtime.dispatch_write_runtime import publish_dispatch_write_status, set_dispatch_sending_enabled
 import scheduling.manual_schedule_manager as msm
 from runtime.contracts import resolve_modbus_endpoint
@@ -108,6 +109,7 @@ def scheduler_agent(config, shared_data):
         manual_series_map = snapshot["manual_series_map"]
         manual_merge_enabled = snapshot["manual_merge_enabled"]
         reactive_mode_by_plant = snapshot["reactive_mode_by_plant"]
+        grid_map_runtime = snapshot_grid_map_runtime(shared_data)
 
         for plant_id in plant_ids:
             try:
@@ -148,6 +150,8 @@ def scheduler_agent(config, shared_data):
                     selected_reactive_control_mode=selected_reactive_mode,
                     source="api",
                     api_validity_window=api_validity_window,
+                    grid_map_runtime=grid_map_runtime,
+                    digital_twin_voltage_enabled=("q_control_mode" in dict((endpoint.get("points", {}) or {}))),
                 )
                 requested_p_setpoint = float(dispatch_bundle["p_kw"])
                 requested_q_setpoint = float(dispatch_bundle["q_kvar"])

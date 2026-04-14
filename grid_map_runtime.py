@@ -1744,6 +1744,7 @@ def build_power_flow_summary(result: dict[str, Any]) -> dict[str, Any]:
     results_tables = dict(result.get("results_tables", {}) or {})
     vm_series = _series_from_results(results_tables, "res_bus", "vm_pu")
     line_loading = _series_from_results(results_tables, "res_line", "loading_percent")
+    battery_voltage_pu = _coerce_float(result.get("battery_bus_vm_pu"))
 
     min_voltage = _coerce_float(result.get("min_voltage_pu"))
     max_voltage = _coerce_float(result.get("max_voltage_pu"))
@@ -1768,6 +1769,7 @@ def build_power_flow_summary(result: dict[str, Any]) -> dict[str, Any]:
         overloaded_lines = int((line_loading > GRID_MAP_LINE_LOADING_LIMIT_PCT).sum()) if not line_loading.empty else 0
 
     return {
+        "battery_voltage_pu": battery_voltage_pu,
         "min_voltage_pu": min_voltage,
         "max_voltage_pu": max_voltage,
         "num_voltage_violations": int(voltage_violations or 0),

@@ -358,6 +358,11 @@ a {
     gap: 4px;
 }
 
+.public-summary-metric--dimmed .public-summary-value,
+.public-summary-metric--dimmed .public-summary-unit {
+    color: #a7b7b1;
+}
+
 .public-summary-measurement-cell {
     text-align: right;
 }

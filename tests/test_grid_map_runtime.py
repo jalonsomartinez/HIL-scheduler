@@ -652,6 +652,7 @@ class GridMapRuntimeTests(unittest.TestCase):
             "trafo_order": [21],
         }
         result = {
+            "battery_bus_vm_pu": 1.02,
             "min_voltage_pu": 0.96,
             "max_voltage_pu": 1.06,
             "max_line_loading_pct": 110.0,
@@ -667,11 +668,23 @@ class GridMapRuntimeTests(unittest.TestCase):
         summary = gmr.build_power_flow_summary(result)
         dynamic = gmr.build_dynamic_payload(result, topology_cache)
 
+        self.assertAlmostEqual(float(summary["battery_voltage_pu"]), 1.02, places=6)
         self.assertEqual(summary["num_voltage_violations"], 1)
         self.assertEqual(summary["num_overloaded_lines"], 1)
         self.assertEqual(dynamic["bus"]["3"]["status"], "violation")
         self.assertEqual(dynamic["line"]["12"]["status"], "overloaded")
         self.assertEqual(dynamic["trafo"]["21"]["status"], "ok")
+
+    def test_build_power_flow_summary_leaves_battery_voltage_empty_when_missing(self):
+        result = {
+            "results_tables": {
+                "res_bus": pd.DataFrame({"vm_pu": [0.99, 1.01]}, index=[1, 2]),
+            },
+        }
+
+        summary = gmr.build_power_flow_summary(result)
+
+        self.assertIsNone(summary["battery_voltage_pu"])
 
     def test_build_dynamic_payload_keeps_operational_voltage_violation_limits(self):
         topology_cache = {

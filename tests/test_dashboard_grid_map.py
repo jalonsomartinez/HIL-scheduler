@@ -3,6 +3,7 @@ import unittest
 from dashboard.grid_map import (
     GRID_MAP_INTERACTION_PAUSE_WINDOW_S,
     build_grid_map_page,
+    build_grid_map_summary_cards,
     build_grid_map_status_text,
     is_grid_map_refresh_paused,
     register_grid_map_interaction,
@@ -62,6 +63,22 @@ class DashboardGridMapTests(unittest.TestCase):
         self.assertIn("background=satellite", paused_text)
         self.assertIn("map_refresh=live", live_text)
         self.assertIn("map_refresh=paused", paused_text)
+
+    def test_build_grid_map_summary_cards_includes_battery_voltage(self):
+        cards = build_grid_map_summary_cards(
+            {
+                "battery_voltage_pu": 1.0234,
+                "min_voltage_pu": 0.98,
+                "max_voltage_pu": 1.02,
+                "num_voltage_violations": 0,
+                "max_line_loading_pct": 75.0,
+                "num_overloaded_lines": 0,
+            }
+        )
+
+        first_card_children = list(cards[0].children)
+        self.assertEqual(first_card_children[0].children, "Battery Voltage")
+        self.assertEqual(first_card_children[1].children, "1.0234 pu")
 
     def test_build_grid_map_page_places_status_below_graph(self):
         page = build_grid_map_page(prefix="", title="Grid Map")

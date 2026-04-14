@@ -188,6 +188,14 @@ class MeasurementAgentRecordingTests(unittest.TestCase):
 
                 lib_endpoint = _aggregate_endpoint("127.0.0.1", 15020)
                 vrfb_endpoint = _per_phase_endpoint("127.0.0.1", 15021)
+                lib_endpoint["points"]["q_control_mode"] = {
+                    "name": "q_control_mode",
+                    "address": 30,
+                    "format": "uint16",
+                    "word_count": 1,
+                    "unit": "raw",
+                    "eng_per_count": 1.0,
+                }
 
                 lib_registers = {}
                 for point_name, value in (
@@ -222,6 +230,14 @@ class MeasurementAgentRecordingTests(unittest.TestCase):
                     (lib_endpoint["host"], lib_endpoint["port"]): lib_registers,
                     (vrfb_endpoint["host"], vrfb_endpoint["port"]): vrfb_registers,
                 }
+                shared_data["grid_map_runtime"] = {
+                    "stale": False,
+                    "summary": {
+                        "battery_voltage_pu": 0.05,
+                        "min_voltage_pu": 0.97,
+                        "max_voltage_pu": 1.01,
+                    },
+                }
 
                 stop_timer = threading.Timer(1.4, shared_data["shutdown_event"].set)
                 stop_timer.start()
@@ -253,7 +269,7 @@ class MeasurementAgentRecordingTests(unittest.TestCase):
                 self.assertFalse(vrfb_rows.empty)
                 self.assertAlmostEqual(float(lib_rows.iloc[-1]["p_setpoint_kw"]), 10.0, places=6)
                 self.assertAlmostEqual(float(lib_rows.iloc[-1]["q_setpoint_kvar"]), 1.0, places=6)
-                self.assertAlmostEqual(float(lib_rows.iloc[-1]["v_setpoint_pu"]), 1.0, places=6)
+                self.assertAlmostEqual(float(lib_rows.iloc[-1]["v_setpoint_pu"]), 0.9, places=6)
                 self.assertAlmostEqual(float(vrfb_rows.iloc[-1]["p_setpoint_kw"]), 16.0, places=6)
                 self.assertAlmostEqual(float(vrfb_rows.iloc[-1]["q_setpoint_kvar"]), 1.5, places=6)
                 self.assertAlmostEqual(float(vrfb_rows.iloc[-1]["v_setpoint_pu"]), 1.0, places=6)

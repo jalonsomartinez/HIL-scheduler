@@ -9,6 +9,7 @@ import pandas as pd
 from modbus.client import ModbusClient
 
 import scheduling.manual_schedule_manager as msm
+from grid_map_runtime import snapshot_grid_map_runtime
 from control.command_runtime import mark_command_finished, mark_command_running
 from runtime.dispatch_write_runtime import publish_dispatch_write_status, set_dispatch_sending_enabled
 from control.flows import (
@@ -456,11 +457,13 @@ def _get_latest_schedule_setpoint(config, shared_data, plant_id, tz):
             "manual_series_map": dict(data.get("manual_schedule_series_df_by_key", {})),
             "manual_merge_enabled": dict(data.get("manual_schedule_merge_enabled_by_key", {})),
             "selected_reactive_mode": int((data.get("reactive_control_mode_by_plant", {}) or {}).get(plant_id, 1) or 1),
+            "transport_mode": data.get("transport_mode", "local"),
         },
     )
     if source_snapshot["selected_reactive_mode"] not in {1, 3}:
         source_snapshot["selected_reactive_mode"] = 1
     p_key, q_key, v_key = msm.manual_series_keys_for_plant(plant_id, include_voltage=True)
+    endpoint = resolve_modbus_endpoint(config, plant_id, source_snapshot["transport_mode"])
     return resolve_dispatch_bundle_from_sources(
         source_snapshot["api_df"],
         source_snapshot["manual_series_map"].get(p_key),
@@ -473,6 +476,8 @@ def _get_latest_schedule_setpoint(config, shared_data, plant_id, tz):
         manual_v_enabled=bool(source_snapshot["manual_merge_enabled"].get(v_key, False)),
         selected_reactive_control_mode=source_snapshot["selected_reactive_mode"],
         source="manual",
+        grid_map_runtime=snapshot_grid_map_runtime(shared_data),
+        digital_twin_voltage_enabled=q_control_mode_point_configured(endpoint),
     )
 
 
