@@ -770,6 +770,7 @@ def build_public_readonly_app(config, shared_data):
                 "transition_by_plant": dict(data.get("plant_transition_by_plant", {})),
                 "recording_files": dict(data.get("measurements_filename_by_plant", {})),
                 "observed_state_by_plant": dict(data.get("plant_observed_state_by_plant", {})),
+                "reactive_mode_by_plant": dict(data.get("reactive_control_mode_by_plant", {})),
                 "control_engine_status": dict(data.get("control_engine_status", {})),
                 "fetcher_status": dict((data.get("data_fetcher_status", {}) or {})),
                 "api_schedule_map": {
@@ -902,7 +903,8 @@ def build_public_readonly_app(config, shared_data):
 
         def _is_q_control_mode_active(plant_id):
             observed = dict(snapshot["observed_state_by_plant"].get(plant_id, {}) or {})
-            if not bool(snapshot["observed_effective_stale_by_plant"].get(plant_id, True)):
+            effective_stale = is_observed_state_effectively_stale(observed, now_ts=status_now)
+            if not bool(effective_stale):
                 try:
                     return int(observed.get("q_control_mode_state")) == 1
                 except (TypeError, ValueError):
