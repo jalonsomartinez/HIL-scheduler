@@ -8,7 +8,13 @@
   - setpoint writes use exactly one family:
     - aggregate: `p_setpoint`, `q_setpoint`,
     - per-phase: `p_u_setpoint`, `p_v_setpoint`, `p_w_setpoint`, `q_u_setpoint`, `q_v_setpoint`, `q_w_setpoint`,
-  - optional raw points include `trigger`, `start_command`, `stop_command`, `v_poi_write`, `q_control_mode`.
+  - optional raw points include `trigger`, `start_command`, `stop_command`, `q_control_mode`.
+- Grid-map voltage-write contract:
+  - optional standalone endpoint lives at `grid_map.voltage_write_modbus.{local,remote}`,
+  - each configured transport endpoint supports exactly one point: `v_poi_write`,
+  - active transport mode selects which endpoint is used,
+  - grid-map writes happen once per cycle through this standalone endpoint,
+  - digital-twin simulation `P/Q` inputs still come from LIB measured power, not from the standalone voltage-write endpoint.
 - Manual schedule selectors:
   - series keys: `lib_p`, `lib_q`, `lib_v`, `vrfb_p`, `vrfb_q`, `vrfb_v`,
   - enabled flags live in `manual_schedule_merge_enabled_by_key`.
@@ -48,6 +54,12 @@ Important maps:
   - activates, updates, and inactivates manual `P`, `Q`, and voltage series through one common path.
 
 ## Operational Patterns
+- Grid-map runtime pattern:
+  1. select LIB battery `P/Q` from fresh observed state when available,
+  2. otherwise fall back to latest LIB measurement cache row,
+  3. run the digital twin with those LIB power inputs,
+  4. if `grid_map.voltage_write_modbus.<active transport>` is configured, write `v_poi_write` once through that endpoint,
+  5. rely on the shared Modbus client pool to reuse the underlying TCP transport automatically when `host + port` matches another runtime client.
 - Manual override pattern:
   1. API base setpoint is resolved first with staleness handling.
   2. Manual `P` and `Q` overrides replace only their signals when active and in-range.

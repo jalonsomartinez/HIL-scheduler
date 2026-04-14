@@ -352,6 +352,81 @@ def _normalize_transport_endpoint(raw_endpoint, prefix, default_host, default_po
     return endpoint
 
 
+def _normalize_voltage_write_points(raw_points, prefix):
+    if raw_points is None:
+        raise ValueError(f"Missing required config key '{prefix}.points'.")
+    if not isinstance(raw_points, dict):
+        raise ValueError(f"Invalid {prefix}.points: expected mapping.")
+
+    point_names = tuple(str(name) for name in raw_points.keys())
+    if "v_poi_write" not in raw_points:
+        raise ValueError(
+            f"Missing required Modbus points at {prefix}.points: v_poi_write"
+        )
+    extra_points = [name for name in point_names if name != "v_poi_write"]
+    if extra_points:
+        raise ValueError(
+            f"Invalid {prefix}.points: only v_poi_write is supported for grid_map.voltage_write_modbus."
+        )
+
+    return {
+        "v_poi_write": _normalize_modbus_point(
+            "v_poi_write",
+            raw_points.get("v_poi_write"),
+            prefix,
+        )
+    }
+
+
+def _normalize_voltage_write_endpoint(raw_endpoint, prefix, default_host, default_port):
+    if raw_endpoint is None:
+        return None
+    if not isinstance(raw_endpoint, dict):
+        raise ValueError(f"Invalid {prefix}: expected mapping.")
+    if "registers" in raw_endpoint:
+        raise ValueError(
+            f"Config key '{prefix}.registers' is no longer supported. "
+            f"Use '{prefix}.points' with structured point definitions."
+        )
+
+    return {
+        "host": str(raw_endpoint.get("host", default_host)),
+        "port": _parse_int(raw_endpoint.get("port", default_port), default_port, f"{prefix}.port", min_value=1),
+        "byte_order": _parse_choice_required(raw_endpoint.get("byte_order"), MODBUS_BYTE_ORDERS, f"{prefix}.byte_order"),
+        "word_order": _parse_choice_required(raw_endpoint.get("word_order"), MODBUS_WORD_ORDERS, f"{prefix}.word_order"),
+        "points": _normalize_voltage_write_points(raw_endpoint.get("points"), prefix),
+    }
+
+
+def _normalize_grid_map_voltage_write_modbus(yaml_config):
+    grid_map_cfg = yaml_config.get("grid_map", {})
+    voltage_write_cfg = (grid_map_cfg.get("voltage_write_modbus") if isinstance(grid_map_cfg, dict) else None) or {}
+    if not isinstance(voltage_write_cfg, dict):
+        raise ValueError("Invalid grid_map.voltage_write_modbus: expected mapping.")
+
+    local_endpoint = None
+    remote_endpoint = None
+    if "local" in voltage_write_cfg and voltage_write_cfg.get("local") is not None:
+        local_endpoint = _normalize_voltage_write_endpoint(
+            voltage_write_cfg.get("local"),
+            "grid_map.voltage_write_modbus.local",
+            "localhost",
+            5020,
+        )
+    if "remote" in voltage_write_cfg and voltage_write_cfg.get("remote") is not None:
+        remote_endpoint = _normalize_voltage_write_endpoint(
+            voltage_write_cfg.get("remote"),
+            "grid_map.voltage_write_modbus.remote",
+            "10.117.133.21",
+            502,
+        )
+
+    return {
+        "local": local_endpoint,
+        "remote": remote_endpoint,
+    }
+
+
 def _normalize_plants_new_schema(yaml_config):
     plants_raw = yaml_config.get("plants", {})
     defaults_by_plant = {
@@ -397,6 +472,12 @@ def _normalize_plants_new_schema(yaml_config):
         }
         local_points = dict((local_endpoint or {}).get("points", {}) or {})
         remote_points = dict((remote_endpoint or {}).get("points", {}) or {})
+        for transport_mode, point_map in (("local", local_points), ("remote", remote_points)):
+            if "v_poi_write" in point_map:
+                raise ValueError(
+                    f"Config key 'plants.{plant_id}.modbus.{transport_mode}.points.v_poi_write' is no longer supported. "
+                    f"Move it to 'grid_map.voltage_write_modbus.{transport_mode}.points.v_poi_write'."
+                )
         if ("q_control_mode" in local_points or "q_control_mode" in remote_points) and model.get("voltage_control_droop_pu") is None:
             raise ValueError(
                 f"Missing required config key 'plants.{plant_id}.model.voltage_control_droop_pu' when q_control_mode is configured."
@@ -630,6 +711,7 @@ def load_config(config_path="config.yaml"):
         "dashboard.grid_map.background_mode",
         strict=True,
     )
+    config["GRID_MAP_VOLTAGE_WRITE_MODBUS"] = _normalize_grid_map_voltage_write_modbus(yaml_config)
 
     recording_cfg = yaml_config.get("recording", {})
     compression_cfg = recording_cfg.get("compression", {})

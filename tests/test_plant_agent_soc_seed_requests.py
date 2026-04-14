@@ -246,6 +246,16 @@ class PlantAgentVoltageMirroringTests(unittest.TestCase):
         config["PLANTS"]["lib"]["modbus"]["local"]["port"] = 5160
         config["PLANTS"]["vrfb"]["modbus"]["local"]["host"] = "127.0.0.1"
         config["PLANTS"]["vrfb"]["modbus"]["local"]["port"] = 5161
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["points"]["v_poi_write"] = {
+            "name": "v_poi_write",
+            "address": 30,
+            "format": "uint16",
+            "word_count": 1,
+            "byte_count": 2,
+            "access": "rw",
+            "unit": "v",
+            "eng_per_count": 1.0,
+        }
         shared_data = _build_shared_data(config)
 
         thread = None

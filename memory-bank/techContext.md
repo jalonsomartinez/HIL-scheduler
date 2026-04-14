@@ -20,7 +20,14 @@
 
 ## Configuration Schema
 Top-level keys remain:
-- `general`, `time`, `schedule`, `startup`, `timing`, `dashboard`, `recording`, `istentore_api`, `plants`.
+- `general`, `time`, `schedule`, `startup`, `timing`, `dashboard`, `grid_map`, `recording`, `istentore_api`, `plants`.
+
+Standalone grid-map config now includes:
+- `grid_map.voltage_write_modbus.{local,remote}`
+  - optional full Modbus endpoint schema,
+  - same endpoint fields as plant transports: `host`, `port`, `byte_order`, `word_order`, `points`,
+  - exactly one supported point: `v_poi_write`,
+  - missing `local` or `remote` subsection means voltage write is disabled for that transport.
 
 Plant schema now includes:
 - `plants.<id>.model.voltage_control_droop_pu`
@@ -33,12 +40,14 @@ Plant schema now includes:
 Current config reality:
 - LIB model now sets `voltage_control_droop_pu: 0.04`.
 - LIB local and remote endpoints now declare `q_control_mode` at address `82`.
+- `config.yaml` now configures standalone grid-map `v_poi_write` endpoints for both local and remote transport under `grid_map.voltage_write_modbus`.
 
 ## Runtime Contracts Exposed by Config Loader
 Important normalized keys include:
 - `PLANTS`, `PLANT_IDS`
 - `STARTUP_TRANSPORT_MODE`, `STARTUP_SCHEDULE_SOURCE`, `STARTUP_INITIAL_SOC_PU`
 - `MEASUREMENT_COMPRESSION_ENABLED`, `MEASUREMENT_COMPRESSION_TOLERANCES`
+- `GRID_MAP_VOLTAGE_WRITE_MODBUS`
 
 Per-plant endpoint contracts now carry:
 - `power_limits`
@@ -72,6 +81,7 @@ Grid-map runtime snapshot now exposes a summary contract used outside the map pa
   - resolved `v_setpoint_pu`,
   - measured `v_poi_pu` when voltage mode is active.
 - Twin-derived voltage references do not add a separate logging stream; they are visible through the resolved `v_setpoint_pu` carried in dispatch status, measurements, and dashboards.
+- Grid-map voltage-write logging now references the standalone endpoint selected by active transport instead of plant IDs.
 - Control-path failures for voltage dispatch are surfaced explicitly instead of silently degrading to classic `Q` control.
 
 ## Operational Constraints

@@ -3,6 +3,7 @@
 ## Current Focus (Now)
 - Field-validate the new voltage-regulation reactive-control path on real hardware.
 - Confirm optional `q_control_mode` writes behave correctly on LIB local and remote endpoints.
+- Validate the new standalone grid-map `v_poi_write` Modbus endpoint on both local and newly configured remote transport.
 - Verify dashboard-selected `Q mode` / `V mode` behavior is usable and clearly communicates reactive-mode intent.
 - Validate the new digital-twin voltage-reference fallback and its clamp behavior on realistic network states.
 - Preserve telemetry/history compatibility while recording `v_setpoint_pu`.
@@ -11,6 +12,7 @@
 ## Open Decisions and Risks
 - Voltage regulation currently uses `q_max_kvar` as the droop scaling base; field behavior may still motivate refinement.
 - Voltage mode depends on live `v_poi` reads; noisy or unavailable voltage telemetry now causes explicit dispatch failure instead of fallback.
+- The new remote standalone `grid_map.voltage_write_modbus.remote` endpoint still needs field validation on the target hardware path.
 - Trigger apply timing remains synchronous and may be too slow for some endpoints.
 - Per-phase-only endpoint configs are supported in scheduler/control dispatch, but local emulator write assumptions are still aggregate-oriented.
 - API password remains process-memory only.
@@ -20,6 +22,10 @@
 - 2026-04-14:
   - Added plant-level voltage-regulation dispatch support behind optional Modbus point `q_control_mode`.
   - Added required plant config `model.voltage_control_droop_pu` whenever `q_control_mode` is configured.
+  - Moved `v_poi_write` out of plant Modbus point maps into standalone `grid_map.voltage_write_modbus.{local,remote}` config.
+  - Grid-map runtime now resolves one standalone voltage-write endpoint per active transport and writes once per cycle through that endpoint.
+  - Standalone grid-map voltage-write transport reuse now relies on the shared Modbus client pool when `host + port` matches another runtime client.
+  - Added remote standalone `v_poi_write` config in `config.yaml`.
   - Extended manual schedule/runtime state from four signals to six:
     - `lib_p`, `lib_q`, `lib_v`,
     - `vrfb_p`, `vrfb_q`, `vrfb_v`.

@@ -34,6 +34,17 @@ def resolve_modbus_endpoint(config, plant_id, transport_mode):
     }
 
 
+def resolve_grid_map_voltage_write_endpoint(config, transport_mode):
+    """Resolve the optional standalone grid-map voltage-write endpoint."""
+    endpoints_cfg = dict(config.get("GRID_MAP_VOLTAGE_WRITE_MODBUS", {}) or {})
+    endpoint = endpoints_cfg.get(str(transport_mode or "local"))
+    if not isinstance(endpoint, dict) or not endpoint:
+        return None
+    resolved = copy.deepcopy(endpoint)
+    resolved["mode"] = str(transport_mode or "local")
+    return resolved
+
+
 def resolve_plant_power_limits(config, plant_id):
     """Resolve normalized configured P/Q limits for a plant."""
     plants_cfg = config.get("PLANTS", {})

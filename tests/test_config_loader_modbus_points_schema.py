@@ -183,7 +183,51 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
         self.assertEqual(points["v_poi"]["unit"], "kv")
         self.assertEqual(points["soc"]["unit"], "pc")
 
-    def test_accepts_optional_v_poi_write_voltage_point(self):
+    def test_accepts_grid_map_voltage_write_modbus_local_endpoint(self):
+        payload = _load_yaml("config.yaml")
+        payload.setdefault("grid_map", {}).setdefault("voltage_write_modbus", {})["local"] = {
+            "host": "127.0.0.1",
+            "port": 15020,
+            "byte_order": "big",
+            "word_order": "msw_first",
+            "points": {
+                "v_poi_write": {
+                    "address": 400,
+                    "format": "uint16",
+                    "access": "w",
+                    "unit": "V",
+                    "eng_per_count": 1.0,
+                }
+            },
+        }
+        path = _write_temp_yaml(payload)
+        try:
+            config = load_config(path)
+        finally:
+            os.unlink(path)
+
+        point = config["GRID_MAP_VOLTAGE_WRITE_MODBUS"]["local"]["points"]["v_poi_write"]
+        self.assertEqual(point["address"], 400)
+        self.assertEqual(point["access"], "w")
+        self.assertEqual(point["unit"], "v")
+        self.assertEqual(point["word_count"], 1)
+        remote_point = config["GRID_MAP_VOLTAGE_WRITE_MODBUS"]["remote"]["points"]["v_poi_write"]
+        self.assertEqual(remote_point["address"], 4)
+
+    def test_accepts_missing_grid_map_voltage_write_modbus_remote_endpoint(self):
+        payload = _load_yaml("config.yaml")
+        payload.setdefault("grid_map", {}).setdefault("voltage_write_modbus", {}).pop("remote", None)
+        path = _write_temp_yaml(payload)
+        try:
+            config = load_config(path)
+        finally:
+            os.unlink(path)
+
+        self.assertIn("local", config["GRID_MAP_VOLTAGE_WRITE_MODBUS"])
+        self.assertIn("remote", config["GRID_MAP_VOLTAGE_WRITE_MODBUS"])
+        self.assertIsNone(config["GRID_MAP_VOLTAGE_WRITE_MODBUS"]["remote"])
+
+    def test_rejects_plant_level_v_poi_write_point(self):
         payload = _load_yaml("config.yaml")
         payload["plants"]["lib"]["modbus"]["local"]["points"]["v_poi_write"] = {
             "address": 400,
@@ -194,15 +238,65 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
         }
         path = _write_temp_yaml(payload)
         try:
-            config = load_config(path)
+            with self.assertRaisesRegex(ValueError, "grid_map.voltage_write_modbus.local.points.v_poi_write"):
+                load_config(path)
         finally:
             os.unlink(path)
 
-        point = config["PLANTS"]["lib"]["modbus"]["local"]["points"]["v_poi_write"]
-        self.assertEqual(point["address"], 400)
-        self.assertEqual(point["access"], "w")
-        self.assertEqual(point["unit"], "v")
-        self.assertEqual(point["word_count"], 1)
+    def test_rejects_grid_map_voltage_write_modbus_without_v_poi_write(self):
+        payload = _load_yaml("config.yaml")
+        payload.setdefault("grid_map", {}).setdefault("voltage_write_modbus", {})["local"] = {
+            "host": "127.0.0.1",
+            "port": 15020,
+            "byte_order": "big",
+            "word_order": "msw_first",
+            "points": {
+                "trigger": {
+                    "address": 401,
+                    "format": "uint16",
+                    "access": "w",
+                    "unit": "raw",
+                    "eng_per_count": 1.0,
+                }
+            },
+        }
+        path = _write_temp_yaml(payload)
+        try:
+            with self.assertRaisesRegex(ValueError, "Missing required Modbus points.*v_poi_write"):
+                load_config(path)
+        finally:
+            os.unlink(path)
+
+    def test_rejects_grid_map_voltage_write_modbus_with_extra_points(self):
+        payload = _load_yaml("config.yaml")
+        payload.setdefault("grid_map", {}).setdefault("voltage_write_modbus", {})["local"] = {
+            "host": "127.0.0.1",
+            "port": 15020,
+            "byte_order": "big",
+            "word_order": "msw_first",
+            "points": {
+                "v_poi_write": {
+                    "address": 400,
+                    "format": "uint16",
+                    "access": "w",
+                    "unit": "V",
+                    "eng_per_count": 1.0,
+                },
+                "trigger": {
+                    "address": 401,
+                    "format": "uint16",
+                    "access": "w",
+                    "unit": "raw",
+                    "eng_per_count": 1.0,
+                },
+            },
+        }
+        path = _write_temp_yaml(payload)
+        try:
+            with self.assertRaisesRegex(ValueError, "only v_poi_write is supported"):
+                load_config(path)
+        finally:
+            os.unlink(path)
 
     def test_accepts_optional_trigger_point(self):
         payload = _load_yaml("config.yaml")
@@ -250,6 +344,7 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
 
     def test_rejects_q_control_mode_without_droop(self):
         payload = _load_yaml("config.yaml")
+        payload["plants"]["lib"]["model"].pop("voltage_control_droop_pu", None)
         payload["plants"]["lib"]["modbus"]["local"]["points"]["q_control_mode"] = {
             "address": 402,
             "format": "uint16",

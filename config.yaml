@@ -49,6 +49,23 @@ dashboard:
     auth:
       mode: "basic"  # basic | none
 
+grid_map:
+  voltage_write_modbus:
+    local:
+      host: "localhost"
+      port: 5021
+      byte_order: big
+      word_order: msw_first
+      points:
+        v_poi_write: {address: 297, format: uint16, access: rw, unit: V, eng_per_count: 1.0}
+    remote:
+      host: "10.117.133.27"
+      port: 502
+      byte_order: big
+      word_order: msw_first
+      points:
+        v_poi_write: {address: 4, format: uint16, access: rw, unit: V, eng_per_count: 1.0}        
+
 recording:
   compression:
     enabled: true
@@ -89,7 +106,6 @@ plants:
           q_poi: {address: 292, format: int16, access: r, unit: kvar, eng_per_count: 0.1}
           q_battery: {address: 272, format: int16, access: r, unit: kvar, eng_per_count: 0.1}
           v_poi: {address: 296, format: uint16, access: r, unit: V, eng_per_count: 1.0}
-          v_poi_write: {address: 297, format: uint16, access: rw, unit: V, eng_per_count: 1.0}
           enable: {address: 1, format: uint16, access: rw, unit: raw, eng_per_count: 1.0}
           soc: {address: 281, format: uint16, access: r, unit: pu, eng_per_count: 0.0001} # pc is percentage
           stop_command: {address: 85, format: uint16, access: w, unit: raw, eng_per_count: 1.0}
@@ -141,12 +157,11 @@ plants:
           q_poi: {address: 15, format: int16, access: r, unit: kvar, eng_per_count: 0.1}
           q_battery: {address: 15, format: int16, access: r, unit: kvar, eng_per_count: 0.1}
           v_poi: {address: 29, format: uint16, access: r, unit: V, eng_per_count: 1.0}
-          v_poi_write: {address: 30, format: uint16, access: rw, unit: V, eng_per_count: 1.0}
           enable: {address: 7, format: uint16, access: rw, unit: raw, eng_per_count: 1.0}
           soc: {address: 22, format: uint16, access: r, unit: pu, eng_per_count: 0.0001} # pc is percentage
           start_command: {address: 5, format: uint16, access: w, unit: raw, eng_per_count: 1.0} # 1: start, 0: stop. Este registro debe estar a 1 para permitir la operación normal de la batería. Si se pone a 0, la batería se detiene y no responde a comandos de potencia.
       remote:
-        host: "7c30070c1f50.sn.mynetname.net" #"10.117.133.12" #
+        host: "10.117.133.12" #"7c30070c1f50.sn.mynetname.net" #
         port: 502
         byte_order: big
         word_order: msw_first
@@ -162,7 +177,6 @@ plants:
           q_poi: {address: 26136, format: float32, access: r, unit: var, eng_per_count: 1.0} 
           q_battery: {address: 26136, format: float32, access: r, unit: var, eng_per_count: 1.0}
           v_poi: {address: 26102, format: float32, access: r, unit: V, eng_per_count: 1.732}
-          #v_poi_write: {address: 30, format: uint16, access: rw, unit: V, eng_per_count: 1.0}
           enable: {address: 17002, format: uint32, access: rw, unit: raw, eng_per_count: 1.0}
           #soc: {address: 22, format: uint16, access: r, unit: pu, eng_per_count: 0.0001} 
           start_command: {address: 17000, format: uint32, access: rw, unit: raw, eng_per_count: 1.0}

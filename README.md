@@ -31,6 +31,7 @@ Edit `config.yaml` as needed:
 - `startup.schedule_source`: `manual` or `api`
 - `startup.transport_mode`: `local` or `remote`
 - `startup.initial_soc_pu`: shared local-emulation startup SoC for all plants
+- `grid_map.voltage_write_modbus.{local,remote}`: optional standalone Modbus endpoint used to write `v_poi_write` back after digital-twin execution; plant endpoint point maps no longer carry `v_poi_write`
 - `plants.lib` / `plants.vrfb`: model limits, Modbus endpoints, register maps
 - `time.timezone`: runtime timezone
 - `dashboard.private.host` / `dashboard.private.port`: private ops dashboard bind

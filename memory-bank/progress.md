@@ -3,6 +3,7 @@
 ## Working Now
 - Validating voltage-regulation reactive control on top of the existing heterogeneous Modbus dispatch stack.
 - Confirming `q_control_mode` behavior on the currently configured LIB endpoint set.
+- Validating the standalone grid-map `v_poi_write` endpoint migration, including the newly configured remote transport target.
 - Verifying `v_setpoint_pu` continuity through measurement, cache, CSV, status summaries, and digital-twin fallback.
 - Keeping trigger-aware apply and SoC fallback behavior stable after the dispatch expansion.
 
@@ -24,7 +25,11 @@
   - manual voltage override remains highest priority
   - digital-twin voltage reference feeds eligible plants when manual voltage is absent
   - corrected twin formula uses battery voltage plus average of global min/max voltage
-5. Existing hardening streams
+5. Grid-map Modbus hardening
+  - `v_poi_write` moved to standalone `grid_map.voltage_write_modbus.{local,remote}`
+  - plant point maps now reject `v_poi_write`
+  - standalone write path reuses pooled Modbus transport automatically on matching `host + port`
+6. Existing hardening streams
   - trigger-aware apply sequencing
   - SoC estimation fallback
   - mFRR observability
@@ -46,6 +51,7 @@
 7. Voltage mode currently hard-fails when `v_poi` is unreadable; there is no degraded fallback policy.
 8. Trigger-latched setpoint apply still blocks for about two seconds per successful apply with default helper timing.
 9. The current grid-map pandapower pickle contains investigative edits for transformer-header lines `841-848` that are documented but not yet validated as final network parameters.
+10. The new remote standalone `grid_map.voltage_write_modbus` target is configured but still needs field validation.
 
 ## Current Project Phase
 Heterogeneous Modbus dispatch hardening with voltage-regulation rollout, alongside SoC continuity support, schedule observability work, and grid-map digital-twin audit follow-up.
