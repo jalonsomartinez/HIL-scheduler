@@ -17,6 +17,10 @@ from typing import Any
 
 import pandas as pd
 import plotly.graph_objects as go
+try:
+    from dash import Patch
+except Exception:  # pragma: no cover - fallback for lightweight non-dashboard environments
+    Patch = None
 
 from dashboard.plotting import DEFAULT_PLOT_THEME
 from modbus.client import ModbusClient
@@ -946,6 +950,52 @@ def _apply_dynamic_payload_to_figure_dict(
     figure_dict["data"] = data
     figure_dict["layout"] = layout
     return figure_dict
+
+
+def _build_low_trace_figure_patch(
+    topology_cache: dict[str, Any],
+    dynamic_payload: dict[str, Any] | None,
+    *,
+    dynamic_revision: int,
+):
+    if Patch is None:
+        return None
+
+    trace_roles = dict(topology_cache.get("trace_roles", {}) or {})
+    primary_key = _render_primary_key(topology_cache)
+    secondary_key = _render_secondary_key(topology_cache)
+    dynamic_payload_dict = dict(dynamic_payload or {})
+    trace_payload = _build_dynamic_trace_payload(
+        topology_cache,
+        dict(dynamic_payload_dict.get("bus", {}) or {}),
+        dict(dynamic_payload_dict.get("line", {}) or {}),
+    )
+    line_traces = dict(trace_payload.get("line_traces", {}) or {})
+    hover_trace = dict(trace_payload.get("line_hover_trace", {}) or {})
+    bus_trace = dict(trace_payload.get("bus_trace", {}) or {})
+
+    patch = Patch()
+    for bucket_name in GRID_MAP_LINE_BUCKETS:
+        trace_index = trace_roles.get(_bucket_trace_role(bucket_name))
+        if trace_index is None:
+            continue
+        bucket_payload = dict(line_traces.get(bucket_name, {}) or {})
+        patch["data"][int(trace_index)][primary_key] = list(bucket_payload.get(primary_key, []) or [])
+        patch["data"][int(trace_index)][secondary_key] = list(bucket_payload.get(secondary_key, []) or [])
+
+    hover_trace_index = trace_roles.get(GRID_MAP_TRACE_ROLE_LINE_HOVER)
+    if hover_trace_index is not None:
+        patch["data"][int(hover_trace_index)][primary_key] = list(hover_trace.get(primary_key, []) or [])
+        patch["data"][int(hover_trace_index)][secondary_key] = list(hover_trace.get(secondary_key, []) or [])
+        patch["data"][int(hover_trace_index)]["text"] = list(hover_trace.get("text", []) or [])
+
+    bus_trace_index = trace_roles.get(GRID_MAP_TRACE_ROLE_BUS)
+    if bus_trace_index is not None:
+        patch["data"][int(bus_trace_index)]["marker"]["color"] = list(bus_trace.get("color", []) or [])
+        patch["data"][int(bus_trace_index)]["text"] = list(bus_trace.get("text", []) or [])
+
+    patch["layout"]["meta"]["grid_map_dynamic_revision"] = int(dynamic_revision or 0)
+    return patch
 
 
 def _render_primary_key(topology_cache: dict[str, Any]) -> str:
@@ -2580,7 +2630,7 @@ def build_grid_map_figure_update(
     *,
     title: str = "Distribution Grid Map",
     uirevision_key: str = "grid-map",
-) -> go.Figure | None:
+) -> go.Figure | Any | None:
     runtime_state = dict(runtime_state or {})
     topology_cache = runtime_state.get("topology_cache")
     topology_revision = runtime_state.get("topology_revision")
@@ -2649,6 +2699,13 @@ def build_grid_map_figure_update(
         return None
 
     if str(topology_cache.get("figure_renderer") or "") == "low-trace":
+        patch = _build_low_trace_figure_patch(
+            topology_cache,
+            dynamic_payload,
+            dynamic_revision=dynamic_revision,
+        )
+        if patch is not None:
+            return patch
         dynamic_payload_dict = dict(dynamic_payload or {})
         return go.Figure(
             _build_low_trace_figure_dict(

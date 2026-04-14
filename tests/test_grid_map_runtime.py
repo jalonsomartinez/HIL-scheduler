@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 
 import pandas as pd
+from dash import Patch
 
 import grid_map_runtime as gmr
 
@@ -1165,7 +1166,7 @@ class GridMapRuntimeTests(unittest.TestCase):
 
         self.assertIsNone(update)
 
-    def test_build_grid_map_figure_update_low_trace_returns_new_figure_when_dynamic_revision_changes(self):
+    def test_build_grid_map_figure_update_low_trace_returns_patch_when_dynamic_revision_changes(self):
         topology_cache = {
             "figure_renderer": "low-trace",
             "coordinate_mode": "schematic",
@@ -1203,14 +1204,144 @@ class GridMapRuntimeTests(unittest.TestCase):
         }
         current_figure = {"layout": {"meta": {"grid_map_topology_revision": 7007, "grid_map_dynamic_revision": 1}}}
 
-        figure = gmr.build_grid_map_figure_update(runtime_state, current_figure, uirevision_key="refresh-key")
+        update = gmr.build_grid_map_figure_update(runtime_state, current_figure, uirevision_key="refresh-key")
 
-        self.assertIsNotNone(figure)
-        self.assertEqual(figure.layout.uirevision, "refresh-key")
-        self.assertEqual(figure.layout.meta["grid_map_dynamic_revision"], 2)
-        self.assertEqual(len(figure.data), 6)
-        self.assertEqual(list(figure.data[4].text), ["Line 11<br>Loading=20.0%", "Line 12<br>Loading=120.0%"])
-        self.assertEqual(list(figure.data[5].text), ["Bus 1<br>Voltage=0.9400 pu", "Bus 2<br>Voltage=1.0000 pu", "Bus 3<br>Voltage=1.0600 pu"])
+        self.assertIsInstance(update, Patch)
+        operations = list(update.to_plotly_json().get("operations", []))
+        locations = [tuple(op.get("location", [])) for op in operations]
+        self.assertIn(("data", 0, "x"), locations)
+        self.assertIn(("data", 1, "x"), locations)
+        self.assertIn(("data", 2, "x"), locations)
+        self.assertIn(("data", 4, "text"), locations)
+        self.assertIn(("data", 5, "marker", "color"), locations)
+        self.assertIn(("data", 5, "text"), locations)
+        self.assertIn(("layout", "meta", "grid_map_dynamic_revision"), locations)
+        self.assertNotIn(("layout", "uirevision"), locations)
+
+        op_by_location = {tuple(op.get("location", [])): op for op in operations}
+        self.assertEqual(
+            op_by_location[("data", 4, "text")]["params"]["value"],
+            ["Line 11<br>Loading=20.0%", "Line 12<br>Loading=120.0%"],
+        )
+        self.assertEqual(
+            op_by_location[("data", 5, "text")]["params"]["value"],
+            ["Bus 1<br>Voltage=0.9400 pu", "Bus 2<br>Voltage=1.0000 pu", "Bus 3<br>Voltage=1.0600 pu"],
+        )
+        self.assertEqual(op_by_location[("layout", "meta", "grid_map_dynamic_revision")]["params"]["value"], 2)
+
+    def test_build_grid_map_figure_update_low_trace_patch_rebuckets_line_coordinates(self):
+        topology_cache = {
+            "figure_renderer": "low-trace",
+            "coordinate_mode": "schematic",
+            "map_background_mode": "none",
+            "map_background_enabled": False,
+            "metadata": {"battery_bus": 2},
+            "bounds": {"x_min": 0.0, "x_max": 3.0, "y_min": 0.0, "y_max": 1.0},
+            "bus_order": [1, 2, 3, 4],
+            "bus_coords": {"1": [0.0, 0.0], "2": [1.0, 0.0], "3": [2.0, 0.0], "4": [3.0, 0.0]},
+            "line_order": [11, 12, 13],
+            "line_paths": {
+                "11": [[0.0, 0.0], [1.0, 0.0]],
+                "12": [[1.0, 0.0], [2.0, 0.0]],
+                "13": [[2.0, 0.0], [3.0, 0.0]],
+            },
+            "line_center_points": {"11": [0.5, 0.0], "12": [1.5, 0.0], "13": [2.5, 0.0]},
+            "line_hover_order": [11, 12, 13],
+            "trace_roles": {role: idx for idx, role in enumerate(gmr._trace_roles())},
+            "trafo_order": [],
+            "trafo_paths": {},
+            "topology_revision": 7108,
+        }
+        runtime_state = {
+            "topology_cache": topology_cache,
+            "topology_revision": 7108,
+            "dynamic_revision": 4,
+            "dynamic_payload": {
+                "bus": {
+                    "1": {"vm_pu": 0.98},
+                    "2": {"vm_pu": 1.00},
+                    "3": {"vm_pu": 1.02},
+                    "4": {"vm_pu": 1.04},
+                },
+                "line": {
+                    "11": {"loading_pct": 20.0, "hover": "Line 11<br>Loading=20.0%"},
+                    "12": {"loading_pct": 80.0, "hover": "Line 12<br>Loading=80.0%"},
+                    "13": {"loading_pct": 120.0, "hover": "Line 13<br>Loading=120.0%"},
+                },
+            },
+        }
+        current_figure = {"layout": {"meta": {"grid_map_topology_revision": 7108, "grid_map_dynamic_revision": 3}}}
+
+        update = gmr.build_grid_map_figure_update(runtime_state, current_figure, uirevision_key="rebucket-key")
+
+        self.assertIsInstance(update, Patch)
+        op_by_location = {tuple(op.get("location", [])): op for op in update.to_plotly_json().get("operations", [])}
+        self.assertEqual(op_by_location[("data", 0, "x")]["params"]["value"], [0.0, 1.0, None])
+        self.assertEqual(op_by_location[("data", 1, "x")]["params"]["value"], [1.0, 2.0, None])
+        self.assertEqual(op_by_location[("data", 2, "x")]["params"]["value"], [2.0, 3.0, None])
+        self.assertEqual(
+            op_by_location[("data", 4, "text")]["params"]["value"],
+            ["Line 11<br>Loading=20.0%", "Line 12<br>Loading=80.0%", "Line 13<br>Loading=120.0%"],
+        )
+
+    def test_build_grid_map_figure_update_low_trace_patch_keeps_geographic_layout_state(self):
+        topology_cache = {
+            "figure_renderer": "low-trace",
+            "coordinate_mode": "geographic",
+            "map_background_mode": "satellite",
+            "map_background_enabled": True,
+            "metadata": {"battery_bus": 2},
+            "geographic_center": {"lon": -5.175, "lat": 40.715},
+            "geographic_bounds": {"west": -5.18, "east": -5.17, "south": 40.71, "north": 40.72},
+            "bus_order": [1, 2, 3],
+            "geographic_bus_coords": {"1": [-5.18, 40.71], "2": [-5.175, 40.715], "3": [-5.17, 40.72]},
+            "line_order": [11, 12],
+            "geographic_line_paths": {
+                "11": [[-5.18, 40.71], [-5.175, 40.715]],
+                "12": [[-5.175, 40.715], [-5.17, 40.72]],
+            },
+            "line_center_points": {"11": [-5.1775, 40.7125], "12": [-5.1725, 40.7175]},
+            "line_hover_order": [11, 12],
+            "trace_roles": {role: idx for idx, role in enumerate(gmr._trace_roles())},
+            "trafo_order": [],
+            "trafo_paths": {},
+            "geographic_trafo_paths": {},
+            "topology_revision": 7209,
+        }
+        runtime_state = {
+            "topology_cache": topology_cache,
+            "topology_revision": 7209,
+            "dynamic_revision": 8,
+            "dynamic_payload": {
+                "bus": {
+                    "1": {"vm_pu": 0.97, "hover": "Bus 1<br>Voltage=0.9700 pu"},
+                    "2": {"vm_pu": 1.01, "hover": "Bus 2<br>Voltage=1.0100 pu"},
+                    "3": {"vm_pu": 1.06, "hover": "Bus 3<br>Voltage=1.0600 pu"},
+                },
+                "line": {
+                    "11": {"loading_pct": 40.0, "hover": "Line 11<br>Loading=40.0%"},
+                    "12": {"loading_pct": 105.0, "hover": "Line 12<br>Loading=105.0%"},
+                },
+            },
+        }
+        current_figure = {
+            "layout": {
+                "meta": {"grid_map_topology_revision": 7209, "grid_map_dynamic_revision": 7},
+                "map": {"style": "preserve-me", "center": {"lon": -5.17, "lat": 40.72}, "zoom": 17.5},
+                "uirevision": "existing-ui",
+            }
+        }
+
+        update = gmr.build_grid_map_figure_update(runtime_state, current_figure, uirevision_key="geo-key")
+
+        self.assertIsInstance(update, Patch)
+        operations = list(update.to_plotly_json().get("operations", []))
+        locations = [tuple(op.get("location", [])) for op in operations]
+        self.assertIn(("data", 0, "lon"), locations)
+        self.assertIn(("data", 4, "lon"), locations)
+        self.assertIn(("layout", "meta", "grid_map_dynamic_revision"), locations)
+        self.assertFalse(any(location[:2] == ("layout", "map") for location in locations))
+        self.assertFalse(any(location == ("layout", "uirevision") for location in locations))
 
 
 
