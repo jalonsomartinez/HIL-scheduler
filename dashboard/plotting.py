@@ -4,6 +4,7 @@ import plotly.graph_objects as go
 import pandas as pd
 from plotly.subplots import make_subplots
 
+from measurement.storage import DIGITAL_TWIN_SUMMARY_MEASUREMENT_COLUMNS
 from time_utils import normalize_datetime_series, normalize_schedule_index
 
 
@@ -30,6 +31,11 @@ DEFAULT_TRACE_COLORS = {
     "v_poi": "#c66a00",
     "api_lib": "#00945a",
     "api_vrfb": "#3f65c8",
+    "grid_map_battery_voltage": "#2f6db4",
+    "grid_map_min_voltage": "#c66a00",
+    "grid_map_max_voltage": "#7b59b5",
+    "grid_map_max_line_loading": "#c83b3b",
+    "grid_map_overloaded_lines": "#234038",
 }
 
 
@@ -482,4 +488,132 @@ def create_manual_series_figure(
     fig.update_layout(title=dict(text=title, x=0.02, xanchor="left", y=0.96))
     fig.update_yaxes(title_text=unit_label)
     fig.update_xaxes(title_text="Time")
+    return fig
+
+
+def create_grid_map_history_figure(
+    measurements_df,
+    *,
+    tz,
+    plot_theme,
+    trace_colors,
+    uirevision_key="grid-map-history",
+    title="Grid Map / Digital Twin",
+):
+    fig = make_subplots(
+        rows=3,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.08,
+        specs=[[{}], [{"secondary_y": True}], [{}]],
+        subplot_titles=(
+            "Voltage Summary (pu)",
+            "Line Loading Summary",
+            "Voltage Bucket Node Counts",
+        ),
+    )
+
+    metric_columns = list(DIGITAL_TWIN_SUMMARY_MEASUREMENT_COLUMNS)
+    if measurements_df is None or measurements_df.empty:
+        df = pd.DataFrame(columns=["timestamp"] + metric_columns)
+    else:
+        df = measurements_df.copy()
+        if "timestamp" in df.columns:
+            df["datetime"] = normalize_datetime_series(df["timestamp"], tz)
+            df = df.dropna(subset=["datetime"])
+        else:
+            df["datetime"] = []
+        for column in metric_columns:
+            if column not in df.columns:
+                df[column] = pd.NA
+
+    def _add_trace(column, *, name, row, color, secondary_y=False, dash=None):
+        if df.empty or column not in df.columns:
+            return False
+        series = pd.to_numeric(df[column], errors="coerce")
+        if series.dropna().empty:
+            return False
+        fig.add_trace(
+            go.Scatter(
+                x=df["datetime"],
+                y=series,
+                mode="lines",
+                name=name,
+                line=dict(color=color, width=2, dash=dash or "solid"),
+            ),
+            row=row,
+            col=1,
+            secondary_y=secondary_y,
+        )
+        return True
+
+    traces_added = False
+    traces_added |= _add_trace(
+        "grid_map_battery_voltage_pu",
+        name="Battery Voltage",
+        row=1,
+        color=trace_colors["grid_map_battery_voltage"],
+    )
+    traces_added |= _add_trace(
+        "grid_map_min_voltage_pu",
+        name="Lowest Voltage",
+        row=1,
+        color=trace_colors["grid_map_min_voltage"],
+    )
+    traces_added |= _add_trace(
+        "grid_map_max_voltage_pu",
+        name="Highest Voltage",
+        row=1,
+        color=trace_colors["grid_map_max_voltage"],
+    )
+    traces_added |= _add_trace(
+        "grid_map_max_line_loading_pct",
+        name="Highest Line Loading",
+        row=2,
+        color=trace_colors["grid_map_max_line_loading"],
+    )
+    traces_added |= _add_trace(
+        "grid_map_num_overloaded_lines",
+        name="Overloaded Lines",
+        row=2,
+        color=trace_colors["grid_map_overloaded_lines"],
+        secondary_y=True,
+        dash="dash",
+    )
+
+    bucket_specs = [
+        ("grid_map_voltage_bucket_lt_0_925_count", "<0.925", "#c83b3b"),
+        ("grid_map_voltage_bucket_0_925_to_0_95_count", "0.925-0.95", "#d97a1f"),
+        ("grid_map_voltage_bucket_0_95_to_0_975_count", "0.95-0.975", "#d7b62a"),
+        ("grid_map_voltage_bucket_0_975_to_1_025_count", "0.975-1.025", "#96cc56"),
+        ("grid_map_voltage_bucket_1_025_to_1_05_count", "1.025-1.05", "#2e8f85"),
+        ("grid_map_voltage_bucket_1_05_to_1_075_count", "1.05-1.075", "#5d97c9"),
+        ("grid_map_voltage_bucket_gte_1_075_count", ">=1.075", "#446fbe"),
+    ]
+    for column, label, color in bucket_specs:
+        traces_added |= _add_trace(column, name=label, row=3, color=color)
+
+    if not traces_added:
+        fig.add_annotation(
+            text="No Grid Map / Digital Twin measurements found in the selected range.",
+            xref="paper",
+            yref="paper",
+            x=0.5,
+            y=0.5,
+            showarrow=False,
+        )
+
+    apply_figure_theme(
+        fig,
+        plot_theme,
+        height=720,
+        margin=dict(l=50, r=50, t=90, b=30),
+        uirevision=uirevision_key,
+    )
+    fig.update_layout(title=dict(text=title, x=0.02, xanchor="left", y=0.99))
+    fig.update_xaxes(title_text="Time", row=3, col=1)
+    fig.update_yaxes(title_text="pu", row=1, col=1)
+    fig.update_yaxes(title_text="%", row=2, col=1, secondary_y=False)
+    fig.update_yaxes(title_text="Count", row=2, col=1, secondary_y=True)
+    fig.update_yaxes(title_text="Nodes", row=3, col=1)
     return fig

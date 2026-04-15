@@ -6,8 +6,8 @@ from typing import Any
 
 import pandas as pd
 
-from measurement.storage import MEASUREMENT_COLUMNS, load_file_for_cache
-from time_utils import normalize_timestamp_value, serialize_iso_with_tz
+from measurement.storage import DIGITAL_TWIN_SUMMARY_MEASUREMENT_COLUMNS, MEASUREMENT_COLUMNS, load_file_for_cache
+from time_utils import normalize_datetime_series, normalize_timestamp_value, serialize_iso_with_tz
 
 
 _HISTORY_FILE_RE = re.compile(r"^\d{8}_(?P<suffix>[a-z0-9_-]+)\.csv$", re.IGNORECASE)
@@ -202,3 +202,49 @@ def serialize_measurements_for_download(df, tz):
     result = result[MEASUREMENT_COLUMNS].copy()
     result["timestamp"] = result["timestamp"].apply(lambda value: serialize_iso_with_tz(value, tz=tz))
     return result
+
+
+def coalesce_digital_twin_measurements(frames, tz):
+    """Merge duplicated system-level digital-twin metrics across plant measurement frames."""
+    metric_columns = list(DIGITAL_TWIN_SUMMARY_MEASUREMENT_COLUMNS)
+    normalized_frames = []
+    for frame in list(frames or []):
+        if frame is None or frame.empty:
+            continue
+        current = frame.copy()
+        if "timestamp" not in current.columns:
+            continue
+        current["timestamp"] = normalize_datetime_series(current["timestamp"], tz)
+        current = current.dropna(subset=["timestamp"])
+        keep_columns = ["timestamp"] + [column for column in metric_columns if column in current.columns]
+        current = current[keep_columns].copy()
+        for column in metric_columns:
+            if column not in current.columns:
+                current[column] = pd.NA
+        current = current[["timestamp"] + metric_columns]
+        if current[metric_columns].dropna(how="all").empty:
+            continue
+        populated_columns = ["timestamp"] + [column for column in metric_columns if not current[column].dropna().empty]
+        normalized_frames.append(current[populated_columns].copy())
+
+    if not normalized_frames:
+        return pd.DataFrame(columns=["timestamp"] + metric_columns)
+
+    combined = pd.concat(normalized_frames, ignore_index=True)
+    for column in metric_columns:
+        if column not in combined.columns:
+            combined[column] = pd.NA
+    combined = combined[["timestamp"] + metric_columns]
+    combined = combined.sort_values("timestamp").reset_index(drop=True)
+
+    def _first_non_null(series):
+        non_null = series.dropna()
+        return non_null.iloc[0] if not non_null.empty else pd.NA
+
+    coalesced = (
+        combined.groupby("timestamp", sort=True, as_index=False)[metric_columns]
+        .agg(_first_non_null)
+        .sort_values("timestamp")
+        .reset_index(drop=True)
+    )
+    return coalesced[["timestamp"] + metric_columns]

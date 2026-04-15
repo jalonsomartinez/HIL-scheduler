@@ -10,6 +10,21 @@ import pandas as pd
 from runtime.contracts import sanitize_plant_name
 from time_utils import normalize_datetime_series, normalize_timestamp_value, serialize_iso_with_tz
 
+DIGITAL_TWIN_SUMMARY_MEASUREMENT_COLUMNS = [
+    "grid_map_battery_voltage_pu",
+    "grid_map_min_voltage_pu",
+    "grid_map_max_voltage_pu",
+    "grid_map_max_line_loading_pct",
+    "grid_map_num_overloaded_lines",
+    "grid_map_voltage_bucket_lt_0_925_count",
+    "grid_map_voltage_bucket_0_925_to_0_95_count",
+    "grid_map_voltage_bucket_0_95_to_0_975_count",
+    "grid_map_voltage_bucket_0_975_to_1_025_count",
+    "grid_map_voltage_bucket_1_025_to_1_05_count",
+    "grid_map_voltage_bucket_1_05_to_1_075_count",
+    "grid_map_voltage_bucket_gte_1_075_count",
+]
+
 MEASUREMENT_VALUE_COLUMNS = [
     "p_setpoint_kw",
     "p_schedule_total_kw",
@@ -23,7 +38,7 @@ MEASUREMENT_VALUE_COLUMNS = [
     "q_poi_kvar",
     "v_poi_kV",
     "v_setpoint_pu",
-]
+] + DIGITAL_TWIN_SUMMARY_MEASUREMENT_COLUMNS
 MEASUREMENT_COLUMNS = ["timestamp"] + MEASUREMENT_VALUE_COLUMNS
 _DAILY_MEASUREMENT_FILE_RE = re.compile(r"^(?P<date>\d{8})_(?P<suffix>[a-z0-9_-]+)\.csv$", re.IGNORECASE)
 
@@ -141,6 +156,8 @@ def rows_are_similar(prev_row, new_row, tolerances):
     for column in MEASUREMENT_VALUE_COLUMNS:
         prev_value = prev_row.get(column)
         new_value = new_row.get(column)
+        if pd.isna(prev_value) and pd.isna(new_value):
+            continue
         if pd.isna(prev_value) or pd.isna(new_value):
             return False
         try:

@@ -9,6 +9,7 @@ import pandas as pd
 from dashboard.history import (
     build_slider_marks,
     clamp_epoch_range,
+    coalesce_digital_twin_measurements,
     load_cropped_measurements_for_range,
     scan_measurement_history_index,
     serialize_measurements_for_download,
@@ -115,6 +116,33 @@ class DashboardHistoryTests(unittest.TestCase):
         marks = build_slider_marks(1_000, 11_000, tz, max_marks=5)
         self.assertGreaterEqual(len(marks), 2)
         self.assertLessEqual(len(marks), 5)
+
+    def test_coalesce_digital_twin_measurements_prefers_first_non_null_per_timestamp(self):
+        tz = ZoneInfo("Europe/Madrid")
+        lib_df = pd.DataFrame(
+            [
+                {
+                    "timestamp": "2026-02-21T13:10:03+01:00",
+                    "grid_map_battery_voltage_pu": 1.01,
+                    "grid_map_max_line_loading_pct": pd.NA,
+                }
+            ]
+        )
+        vrfb_df = pd.DataFrame(
+            [
+                {
+                    "timestamp": "2026-02-21T13:10:03+01:00",
+                    "grid_map_battery_voltage_pu": pd.NA,
+                    "grid_map_max_line_loading_pct": 77.0,
+                }
+            ]
+        )
+
+        merged = coalesce_digital_twin_measurements([lib_df, vrfb_df], tz)
+
+        self.assertEqual(len(merged), 1)
+        self.assertAlmostEqual(float(merged.iloc[0]["grid_map_battery_voltage_pu"]), 1.01, places=6)
+        self.assertAlmostEqual(float(merged.iloc[0]["grid_map_max_line_loading_pct"]), 77.0, places=6)
 
 
 if __name__ == "__main__":

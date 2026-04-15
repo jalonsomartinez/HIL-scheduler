@@ -19,6 +19,18 @@ DEFAULT_MEASUREMENT_COMPRESSION_TOLERANCES = {
     "q_poi_kvar": 0.1,
     "v_poi_kV": 0.001,
     "v_setpoint_pu": 0.0,
+    "grid_map_battery_voltage_pu": 0.0001,
+    "grid_map_min_voltage_pu": 0.0001,
+    "grid_map_max_voltage_pu": 0.0001,
+    "grid_map_max_line_loading_pct": 0.1,
+    "grid_map_num_overloaded_lines": 0.0,
+    "grid_map_voltage_bucket_lt_0_925_count": 0.0,
+    "grid_map_voltage_bucket_0_925_to_0_95_count": 0.0,
+    "grid_map_voltage_bucket_0_95_to_0_975_count": 0.0,
+    "grid_map_voltage_bucket_0_975_to_1_025_count": 0.0,
+    "grid_map_voltage_bucket_1_025_to_1_05_count": 0.0,
+    "grid_map_voltage_bucket_1_05_to_1_075_count": 0.0,
+    "grid_map_voltage_bucket_gte_1_075_count": 0.0,
 }
 
 DEFAULT_MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S = 3600.0

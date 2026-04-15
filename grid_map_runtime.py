@@ -141,6 +141,15 @@ GRID_MAP_TRACE_ROLE_LINE_HOVER = "line_hover"
 GRID_MAP_TRACE_ROLE_BUS = "bus"
 
 GRID_MAP_LINE_BUCKETS = ("normal", "warning", "overloaded")
+GRID_MAP_VOLTAGE_BUCKET_SPECS = (
+    ("grid_map_voltage_bucket_lt_0_925_count", None, 0.925),
+    ("grid_map_voltage_bucket_0_925_to_0_95_count", 0.925, 0.95),
+    ("grid_map_voltage_bucket_0_95_to_0_975_count", 0.95, 0.975),
+    ("grid_map_voltage_bucket_0_975_to_1_025_count", 0.975, 1.025),
+    ("grid_map_voltage_bucket_1_025_to_1_05_count", 1.025, 1.05),
+    ("grid_map_voltage_bucket_1_05_to_1_075_count", 1.05, 1.075),
+    ("grid_map_voltage_bucket_gte_1_075_count", 1.075, None),
+)
 
 _SIMULATOR_MODULE = None
 
@@ -1795,6 +1804,7 @@ def build_power_flow_summary(result: dict[str, Any]) -> dict[str, Any]:
     vm_series = _series_from_results(results_tables, "res_bus", "vm_pu")
     line_loading = _series_from_results(results_tables, "res_line", "loading_percent")
     battery_voltage_pu = _coerce_float(result.get("battery_bus_vm_pu"))
+    finite_vm_series = vm_series[pd.notna(vm_series)] if not vm_series.empty else pd.Series(dtype=float)
 
     min_voltage = _coerce_float(result.get("min_voltage_pu"))
     max_voltage = _coerce_float(result.get("max_voltage_pu"))
@@ -1809,14 +1819,28 @@ def build_power_flow_summary(result: dict[str, Any]) -> dict[str, Any]:
 
     voltage_violations = result.get("num_voltage_violations")
     if voltage_violations is None:
-        if vm_series.empty:
+        if finite_vm_series.empty:
             voltage_violations = 0
         else:
-            voltage_violations = int(((vm_series < GRID_MAP_VOLTAGE_MIN_PU) | (vm_series > GRID_MAP_VOLTAGE_MAX_PU)).sum())
+            voltage_violations = int(
+                ((finite_vm_series < GRID_MAP_VOLTAGE_MIN_PU) | (finite_vm_series > GRID_MAP_VOLTAGE_MAX_PU)).sum()
+            )
 
     overloaded_lines = result.get("num_overloaded_lines")
     if overloaded_lines is None:
         overloaded_lines = int((line_loading > GRID_MAP_LINE_LOADING_LIMIT_PCT).sum()) if not line_loading.empty else 0
+
+    voltage_bucket_counts = {}
+    for bucket_name, lower_bound, upper_bound in GRID_MAP_VOLTAGE_BUCKET_SPECS:
+        if finite_vm_series.empty:
+            voltage_bucket_counts[bucket_name] = 0
+            continue
+        mask = pd.Series(True, index=finite_vm_series.index)
+        if lower_bound is not None:
+            mask &= finite_vm_series >= float(lower_bound)
+        if upper_bound is not None:
+            mask &= finite_vm_series < float(upper_bound)
+        voltage_bucket_counts[bucket_name] = int(mask.sum())
 
     return {
         "battery_voltage_pu": battery_voltage_pu,
@@ -1825,6 +1849,7 @@ def build_power_flow_summary(result: dict[str, Any]) -> dict[str, Any]:
         "num_voltage_violations": int(voltage_violations or 0),
         "max_line_loading_pct": max_line_loading,
         "num_overloaded_lines": int(overloaded_lines or 0),
+        **voltage_bucket_counts,
     }
 
 

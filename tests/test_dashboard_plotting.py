@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 try:
     import pandas as pd
 
-    from dashboard.plotting import DEFAULT_PLOT_THEME, DEFAULT_TRACE_COLORS, create_plant_figure
+    from dashboard.plotting import DEFAULT_PLOT_THEME, DEFAULT_TRACE_COLORS, create_grid_map_history_figure, create_plant_figure
     _IMPORT_ERROR = None
 except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent test skip
     pd = None
@@ -78,6 +78,29 @@ def _voltage_axis_range(fig):
     return list(axis_range)
 
 
+def _grid_map_measurements_df(*timestamps):
+    rows = []
+    for idx, ts in enumerate(timestamps, start=1):
+        rows.append(
+            {
+                "timestamp": ts,
+                "grid_map_battery_voltage_pu": 1.0 + (idx * 0.001),
+                "grid_map_min_voltage_pu": 0.97,
+                "grid_map_max_voltage_pu": 1.03,
+                "grid_map_max_line_loading_pct": 70.0 + idx,
+                "grid_map_num_overloaded_lines": idx - 1,
+                "grid_map_voltage_bucket_lt_0_925_count": idx,
+                "grid_map_voltage_bucket_0_925_to_0_95_count": idx + 1,
+                "grid_map_voltage_bucket_0_95_to_0_975_count": idx + 2,
+                "grid_map_voltage_bucket_0_975_to_1_025_count": idx + 3,
+                "grid_map_voltage_bucket_1_025_to_1_05_count": idx + 4,
+                "grid_map_voltage_bucket_1_05_to_1_075_count": idx + 5,
+                "grid_map_voltage_bucket_gte_1_075_count": idx + 6,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 @unittest.skipIf(pd is None, f"plot/pandas unavailable: {_IMPORT_ERROR}")
 class DashboardPlottingTests(unittest.TestCase):
     def setUp(self):
@@ -92,6 +115,15 @@ class DashboardPlottingTests(unittest.TestCase):
             schedule_df,
             measurements_df,
             uirevision_key="test",
+            tz=self.tz,
+            plot_theme=self.plot_theme,
+            trace_colors=self.trace_colors,
+            **kwargs,
+        )
+
+    def _grid_map_fig(self, measurements_df, **kwargs):
+        return create_grid_map_history_figure(
+            measurements_df,
             tz=self.tz,
             plot_theme=self.plot_theme,
             trace_colors=self.trace_colors,
@@ -220,6 +252,22 @@ class DashboardPlottingTests(unittest.TestCase):
             self.assertEqual(shape["type"], "line")
             self.assertEqual(shape["x0"], shape["x1"])
             self.assertEqual(shape["line"]["dash"], "dash")
+
+    def test_create_grid_map_history_figure_renders_summary_and_bucket_traces(self):
+        base = datetime(2026, 2, 23, 0, 0, tzinfo=self.tz)
+        fig = self._grid_map_fig(_grid_map_measurements_df(base, base + timedelta(hours=1)))
+
+        trace_names = {str(trace.name) for trace in fig.data}
+        self.assertIn("Battery Voltage", trace_names)
+        self.assertIn("Highest Line Loading", trace_names)
+        self.assertIn("Overloaded Lines", trace_names)
+        self.assertIn("0.975-1.025", trace_names)
+
+    def test_create_grid_map_history_figure_adds_empty_annotation_without_data(self):
+        fig = self._grid_map_fig(pd.DataFrame())
+
+        annotations = list(fig.layout.annotations or [])
+        self.assertTrue(any("No Grid Map / Digital Twin measurements" in str(item.text) for item in annotations))
 
     def test_custom_voltage_padding_sets_row4_range(self):
         base = datetime(2026, 2, 23, 0, 0, tzinfo=self.tz)

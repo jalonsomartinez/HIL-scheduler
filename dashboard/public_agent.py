@@ -13,6 +13,7 @@ from dash.exceptions import PreventUpdate
 from dashboard.history import (
     build_slider_marks,
     clamp_epoch_range,
+    coalesce_digital_twin_measurements,
     load_cropped_measurements_for_range,
     scan_measurement_history_index,
 )
@@ -30,6 +31,7 @@ from dashboard.plotting import (
     DEFAULT_PLOT_THEME,
     DEFAULT_TRACE_COLORS,
     apply_figure_theme,
+    create_grid_map_history_figure,
     create_plant_figure,
 )
 from dashboard.ui_state import (
@@ -458,6 +460,13 @@ def _public_layout(*, plant_name_fn, brand_logo_src, measurement_period_s, grid_
                                         updatemode="mouseup",
                                         disabled=True,
                                     ),
+                                ],
+                            ),
+                            html.Div(
+                                className="card",
+                                children=[
+                                    html.H3("Grid Map / Digital Twin"),
+                                    dcc.Graph(id="public-plots-grid-map-history-graph", className="plot-graph"),
                                 ],
                             ),
                             html.Div(
@@ -1216,7 +1225,11 @@ def build_public_readonly_app(config, shared_data):
         )
 
     @app.callback(
-        [Output("public-plots-graph-lib", "figure"), Output("public-plots-graph-vrfb", "figure")],
+        [
+            Output("public-plots-grid-map-history-graph", "figure"),
+            Output("public-plots-graph-lib", "figure"),
+            Output("public-plots-graph-vrfb", "figure"),
+        ],
         [
             Input("public-url", "pathname"),
             Input("public-plots-range-slider", "value"),
@@ -1248,12 +1261,30 @@ def build_public_readonly_app(config, shared_data):
         vrfb_index = vrfb_slice.get("index_data", {}) or {}
         if not lib_index.get("has_data") and not vrfb_index.get("has_data"):
             return (
+                create_grid_map_history_figure(
+                    pd.DataFrame(),
+                    tz=tz,
+                    plot_theme=plot_theme,
+                    trace_colors=trace_colors,
+                    uirevision_key="public-plots:grid-map:empty",
+                ),
                 _empty_history_plant_figure("lib", "No historical LIB measurements found."),
                 _empty_history_plant_figure("vrfb", "No historical VRFB measurements found."),
             )
 
         lib_measurements = lib_slice.get("measurements_df", pd.DataFrame())
         vrfb_measurements = vrfb_slice.get("measurements_df", pd.DataFrame())
+        grid_map_fig = create_grid_map_history_figure(
+            coalesce_digital_twin_measurements([lib_measurements, vrfb_measurements], tz),
+            tz=tz,
+            plot_theme=plot_theme,
+            trace_colors=trace_colors,
+            uirevision_key=(
+                f"public-plots:grid-map:{selected_range[0]}:{selected_range[1]}"
+                if isinstance(selected_range, (list, tuple)) and len(selected_range) == 2
+                else "public-plots:grid-map"
+            ),
+        )
 
         if lib_measurements.empty:
             lib_fig = _empty_history_plant_figure("lib", f"No {plant_name('lib')} data in selected range.")
@@ -1287,7 +1318,7 @@ def build_public_readonly_app(config, shared_data):
                 voltage_autorange_padding_kv=_voltage_padding_kv_for_plant("vrfb"),
             )
 
-        return lib_fig, vrfb_fig
+        return grid_map_fig, lib_fig, vrfb_fig
 
     return app
 

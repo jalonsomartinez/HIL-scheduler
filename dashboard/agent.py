@@ -40,6 +40,7 @@ from dashboard.grid_map import (
 from dashboard.history import (
     build_slider_marks,
     clamp_epoch_range,
+    coalesce_digital_twin_measurements,
     load_cropped_measurements_for_range,
     scan_measurement_history_index,
     serialize_measurements_for_download,
@@ -51,6 +52,7 @@ from dashboard.plotting import (
     DEFAULT_PLOT_THEME,
     DEFAULT_TRACE_COLORS,
     apply_figure_theme,
+    create_grid_map_history_figure,
     create_plant_figure,
     create_manual_series_figure,
 )
@@ -523,6 +525,12 @@ def dashboard_agent(config, shared_data):
         except (TypeError, ValueError):
             return pd.DataFrame(columns=MEASUREMENT_COLUMNS)
         return load_cropped_measurements_for_range(file_meta_list, start_ms, end_ms, tz)
+
+    def _load_grid_map_history_df(index_data, selected_range):
+        frames = []
+        for plant_id in plant_ids:
+            frames.append(_load_history_df_for_plant(index_data, plant_id, selected_range))
+        return coalesce_digital_twin_measurements(frames, tz)
 
     def resolve_runtime_transition(plant_id, transition_state, enable_state):
         resolved = resolve_runtime_transition_state(transition_state, enable_state)
@@ -2742,7 +2750,11 @@ def dashboard_agent(config, shared_data):
         return range_label, timeline_fig, range_meta
 
     @app.callback(
-        [Output("plots-graph-lib", "figure"), Output("plots-graph-vrfb", "figure")],
+        [
+            Output("plots-grid-map-history-graph", "figure"),
+            Output("plots-graph-lib", "figure"),
+            Output("plots-graph-vrfb", "figure"),
+        ],
         [Input("dashboard-url", "pathname"), Input("plots-index-store", "data"), Input("plots-range-slider", "value")],
         prevent_initial_call=False,
     )
@@ -2752,6 +2764,13 @@ def dashboard_agent(config, shared_data):
 
         if not isinstance(index_data, dict) or not index_data.get("has_data"):
             return (
+                create_grid_map_history_figure(
+                    pd.DataFrame(),
+                    tz=tz,
+                    plot_theme=plot_theme,
+                    trace_colors=trace_colors,
+                    uirevision_key="plots:grid-map:empty",
+                ),
                 _empty_history_plant_figure("lib", "No historical LIB measurements found."),
                 _empty_history_plant_figure("vrfb", "No historical VRFB measurements found."),
             )
@@ -2761,6 +2780,13 @@ def dashboard_agent(config, shared_data):
         clamped_range = clamp_epoch_range(selected_range, domain_start, domain_end)
         if not clamped_range:
             return (
+                create_grid_map_history_figure(
+                    pd.DataFrame(),
+                    tz=tz,
+                    plot_theme=plot_theme,
+                    trace_colors=trace_colors,
+                    uirevision_key="plots:grid-map:empty",
+                ),
                 _empty_history_plant_figure("lib", "No historical LIB measurements found."),
                 _empty_history_plant_figure("vrfb", "No historical VRFB measurements found."),
             )
@@ -2781,7 +2807,15 @@ def dashboard_agent(config, shared_data):
                 voltage_autorange_padding_kv=_voltage_padding_kv_for_plant(plant_id),
             )
 
-        return build_plant_fig("lib"), build_plant_fig("vrfb")
+        grid_map_fig = create_grid_map_history_figure(
+            _load_grid_map_history_df(index_data, clamped_range),
+            tz=tz,
+            plot_theme=plot_theme,
+            trace_colors=trace_colors,
+            uirevision_key=f"plots:grid-map:{clamped_range[0]}:{clamped_range[1]}",
+        )
+
+        return grid_map_fig, build_plant_fig("lib"), build_plant_fig("vrfb")
 
     def _download_history_csv_payload(plant_id, index_data, selected_range, range_meta):
         domain_start = (index_data or {}).get("global_start_ms")

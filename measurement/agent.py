@@ -18,6 +18,7 @@ from measurement.sampling import (
     take_measurement as sampling_take_measurement,
 )
 from measurement.storage import (
+    DIGITAL_TWIN_SUMMARY_MEASUREMENT_COLUMNS,
     MEASUREMENT_COLUMNS,
     MEASUREMENT_VALUE_COLUMNS,
     append_rows_to_csv,
@@ -42,6 +43,33 @@ from runtime.shared_state import snapshot_locked
 import scheduling.manual_schedule_manager as msm
 from scheduling.runtime import resolve_dispatch_bundle_from_sources, resolve_schedule_setpoint
 from time_utils import get_config_tz, normalize_datetime_series, normalize_timestamp_value, now_tz, serialize_iso_with_tz
+
+
+DIGITAL_TWIN_SUMMARY_ROW_FIELDS = {
+    "grid_map_battery_voltage_pu": "battery_voltage_pu",
+    "grid_map_min_voltage_pu": "min_voltage_pu",
+    "grid_map_max_voltage_pu": "max_voltage_pu",
+    "grid_map_max_line_loading_pct": "max_line_loading_pct",
+    "grid_map_num_overloaded_lines": "num_overloaded_lines",
+    "grid_map_voltage_bucket_lt_0_925_count": "grid_map_voltage_bucket_lt_0_925_count",
+    "grid_map_voltage_bucket_0_925_to_0_95_count": "grid_map_voltage_bucket_0_925_to_0_95_count",
+    "grid_map_voltage_bucket_0_95_to_0_975_count": "grid_map_voltage_bucket_0_95_to_0_975_count",
+    "grid_map_voltage_bucket_0_975_to_1_025_count": "grid_map_voltage_bucket_0_975_to_1_025_count",
+    "grid_map_voltage_bucket_1_025_to_1_05_count": "grid_map_voltage_bucket_1_025_to_1_05_count",
+    "grid_map_voltage_bucket_1_05_to_1_075_count": "grid_map_voltage_bucket_1_05_to_1_075_count",
+    "grid_map_voltage_bucket_gte_1_075_count": "grid_map_voltage_bucket_gte_1_075_count",
+}
+
+
+def _apply_digital_twin_summary_measurements(row, grid_map_runtime):
+    summary = dict((grid_map_runtime or {}).get("summary", {}) or {})
+    for row_field in DIGITAL_TWIN_SUMMARY_MEASUREMENT_COLUMNS:
+        summary_key = DIGITAL_TWIN_SUMMARY_ROW_FIELDS[row_field]
+        value = summary.get(summary_key)
+        try:
+            row[row_field] = float(value)
+        except (TypeError, ValueError):
+            row[row_field] = math.nan
 
 
 def measurement_agent(config, shared_data):
@@ -812,6 +840,7 @@ def measurement_agent(config, shared_data):
                     digital_twin_voltage_enabled=voltage_control_mode_supported(endpoint),
                 )
                 row["v_setpoint_pu"] = float(dispatch_bundle.get("voltage_setpoint_pu", 1.0))
+                _apply_digital_twin_summary_measurements(row, grid_map_runtime)
 
                 state["latest_measurement"] = row.copy()
 

@@ -154,6 +154,7 @@ class PublicDashboardAgentTests(unittest.TestCase):
             "public-error-text",
             "public-plant-summary-table",
             "public-menu-link-grid-map",
+            "public-plots-grid-map-history-graph",
             "page-public-grid-map",
             "public-grid-map-status",
             "public-grid-map-summary",

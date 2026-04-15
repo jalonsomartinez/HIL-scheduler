@@ -6,7 +6,8 @@
 - Validate the new standalone grid-map `v_poi_write` Modbus endpoint on both local and newly configured remote transport.
 - Verify dashboard-selected `Q mode` / `V mode` behavior is usable and clearly communicates reactive-mode intent.
 - Validate the new digital-twin voltage-reference fallback and its clamp behavior on realistic network states.
-- Preserve telemetry/history compatibility while recording `v_setpoint_pu`.
+- Preserve telemetry/history compatibility while recording `v_setpoint_pu` plus the expanded digital-twin summary metrics.
+- Validate the new shared `Grid Map / Digital Twin` historical plots in both private and public dashboards against real recorded data.
 - Keep the current grid-map digital-twin audit trail intact during unrelated runtime work.
 
 ## Open Decisions and Risks
@@ -16,6 +17,8 @@
 - Trigger apply timing remains synchronous and may be too slow for some endpoints.
 - Per-phase-only endpoint configs are supported in scheduler/control dispatch, but local emulator write assumptions are still aggregate-oriented.
 - API password remains process-memory only.
+- Shared digital-twin history relies on duplicated system-level metrics being written consistently into both plant files; cross-plant divergence would surface as misleading historical coalescing.
+- Historical files from before the new schema will show nulls for digital-twin history columns until enough fresh measurements are recorded.
 - The April 2026 local pandapower edits for lines `841-848` remain investigative until technical-team review.
 
 ## Rolling Change Log (Compressed, 30-Day Window)
@@ -40,6 +43,12 @@
   - Added digital-twin voltage-reference fallback for plants with `q_control_mode`, using `battery_voltage_pu + 1.0 - (max_voltage_pu + min_voltage_pu) / 2`, with final clamp to `[0.9, 1.1]`.
   - Grid Map summary cards now show battery voltage from the digital twin summary.
   - Verified targeted regression suites in the repo `venv`, covering config validation, schedule runtime, scheduler dispatch, measurement recording, dashboard intent wiring, shared-state contract, and control paths.
+- 2026-04-15:
+  - Measurement rows/CSV/history now persist digital-twin summary metrics and detailed voltage-bucket node counts.
+  - Grid-map runtime summary now publishes the seven voltage-bucket node counts used by history.
+  - Private and public Plots pages now include a shared `Grid Map / Digital Twin` historical figure group above the per-plant charts.
+  - Historical digital-twin plotting now coalesces duplicated system-level metrics across LIB and VRFB files by timestamp.
+  - Verified targeted regression suites for grid-map runtime, measurement recording/compression, dashboard history/plotting, and private/public layout wiring.
 - 2026-04-13:
   - Added shared SoC fallback estimation and optional `soc` schema support.
   - Added schema-aware aggregate vs per-phase dispatch and trigger-aware setpoint apply flow.

@@ -622,6 +622,13 @@ class GridMapRuntimeTests(unittest.TestCase):
         self.assertAlmostEqual(float(summary["battery_voltage_pu"]), 1.02, places=6)
         self.assertEqual(summary["num_voltage_violations"], 1)
         self.assertEqual(summary["num_overloaded_lines"], 1)
+        self.assertEqual(summary["grid_map_voltage_bucket_lt_0_925_count"], 0)
+        self.assertEqual(summary["grid_map_voltage_bucket_0_925_to_0_95_count"], 0)
+        self.assertEqual(summary["grid_map_voltage_bucket_0_95_to_0_975_count"], 1)
+        self.assertEqual(summary["grid_map_voltage_bucket_0_975_to_1_025_count"], 1)
+        self.assertEqual(summary["grid_map_voltage_bucket_1_025_to_1_05_count"], 0)
+        self.assertEqual(summary["grid_map_voltage_bucket_1_05_to_1_075_count"], 1)
+        self.assertEqual(summary["grid_map_voltage_bucket_gte_1_075_count"], 0)
         self.assertEqual(dynamic["bus"]["3"]["status"], "violation")
         self.assertEqual(dynamic["line"]["12"]["status"], "overloaded")
         self.assertEqual(dynamic["trafo"]["21"]["status"], "ok")
@@ -636,6 +643,20 @@ class GridMapRuntimeTests(unittest.TestCase):
         summary = gmr.build_power_flow_summary(result)
 
         self.assertIsNone(summary["battery_voltage_pu"])
+        self.assertEqual(summary["grid_map_voltage_bucket_0_975_to_1_025_count"], 2)
+
+    def test_build_power_flow_summary_ignores_missing_bus_voltages_in_bucket_counts(self):
+        result = {
+            "results_tables": {
+                "res_bus": pd.DataFrame({"vm_pu": [0.92, None, 1.08]}, index=[1, 2, 3]),
+            },
+        }
+
+        summary = gmr.build_power_flow_summary(result)
+
+        self.assertEqual(summary["grid_map_voltage_bucket_lt_0_925_count"], 1)
+        self.assertEqual(summary["grid_map_voltage_bucket_gte_1_075_count"], 1)
+        self.assertEqual(summary["grid_map_voltage_bucket_0_975_to_1_025_count"], 0)
 
     def test_build_dynamic_payload_keeps_operational_voltage_violation_limits(self):
         topology_cache = {

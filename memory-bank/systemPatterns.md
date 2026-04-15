@@ -21,6 +21,10 @@
   - enabled flags live in `manual_schedule_merge_enabled_by_key`.
 - Dispatch write-status contract:
   - `dispatch_write_status_by_plant.<id>.last_scheduler_context` includes reactive mode, voltage-mode flag, write quantity mode (`pq` or `pv`), and resolved `v_setpoint_pu`.
+- Digital-twin measurement contract:
+  - each plant measurement row now stores shared Grid Map summary metrics plus seven voltage-bucket node counts,
+  - those system-level values are duplicated into per-plant CSVs for historical alignment with plant telemetry,
+  - shared historical plots coalesce duplicate timestamps across plant files by taking the first non-null metric value per timestamp.
 
 ## Authoritative Shared State
 Primary contract is initialized in `build_initial_shared_data(config)`.
@@ -46,7 +50,7 @@ Important maps:
   - writes plant `v_setpoint` directly when voltage mode is active.
 - `measurement_agent`:
   - samples telemetry,
-  - enriches rows with schedule-intent columns and `v_setpoint_pu`,
+  - enriches rows with schedule-intent columns, `v_setpoint_pu`, and the latest digital-twin summary metrics,
   - estimates SoC when real Modbus SoC is absent.
 - `control_engine_agent`:
   - uses the same dispatch-bundle logic as scheduler for start-time initial setpoints,
@@ -59,8 +63,15 @@ Important maps:
   1. select LIB battery `P/Q` from fresh observed state when available,
   2. otherwise fall back to latest LIB measurement cache row,
   3. run the digital twin with those LIB power inputs,
-  4. if `grid_map.voltage_write_modbus.<active transport>` is configured, write `v_poi_write` once through that endpoint,
-  5. rely on the shared Modbus client pool to reuse the underlying TCP transport automatically when `host + port` matches another runtime client.
+  4. compute summary metrics including battery voltage, min/max voltage, max line loading, overloaded-line count, and detailed voltage-bucket node counts,
+  5. if `grid_map.voltage_write_modbus.<active transport>` is configured, write `v_poi_write` once through that endpoint,
+  6. rely on the shared Modbus client pool to reuse the underlying TCP transport automatically when `host + port` matches another runtime client.
+- Historical plots pattern:
+  1. scan per-plant measurement files for the selected range,
+  2. load cropped LIB and VRFB measurement frames independently,
+  3. build per-plant figures directly from each plant frame,
+  4. build the shared digital-twin figure by coalescing duplicated system-level metrics across both frames by timestamp,
+  5. render an explicit empty-state figure when the selected range has no populated digital-twin columns.
 - Manual override pattern:
   1. API base setpoint is resolved first with staleness handling.
   2. Manual `P` and `Q` overrides replace only their signals when active and in-range.

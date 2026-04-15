@@ -13,8 +13,8 @@
 - `scheduling/runtime.py`: shared dispatch-bundle resolution, staleness handling, and effective-schedule helpers.
 - `scheduling/agent.py`: periodic dispatch loop and scheduler write-status publication.
 - `control/modbus_io.py` and `control/engine_agent.py`: control-path Modbus writes and start/stop flows.
-- `measurement/agent.py` and `measurement/storage.py`: telemetry sampling, schedule-intent enrichment, CSV/cache normalization.
-- `dashboard/`: manual schedule UI, grid-map summary cards, status summaries, plots, and read-only public views.
+- `measurement/agent.py` and `measurement/storage.py`: telemetry sampling, schedule-intent enrichment, digital-twin summary persistence, and CSV/cache normalization.
+- `dashboard/`: manual schedule UI, grid-map summary cards, status summaries, per-plant plots, shared digital-twin plots, and read-only public views.
 - `grid_map_runtime.py`: digital-twin execution, summary extraction, and shared grid-map runtime snapshot contract.
 - `modbus/setpoint_io.py`: aggregate/per-phase write planning, optional `q_control_mode`, optional plant `v_setpoint`, and trigger-aware apply.
 
@@ -61,6 +61,21 @@ Grid-map runtime snapshot now exposes a summary contract used outside the map pa
 - `num_voltage_violations`
 - `max_line_loading_pct`
 - `num_overloaded_lines`
+- `grid_map_voltage_bucket_lt_0_925_count`
+- `grid_map_voltage_bucket_0_925_to_0_95_count`
+- `grid_map_voltage_bucket_0_95_to_0_975_count`
+- `grid_map_voltage_bucket_0_975_to_1_025_count`
+- `grid_map_voltage_bucket_1_025_to_1_05_count`
+- `grid_map_voltage_bucket_1_05_to_1_075_count`
+- `grid_map_voltage_bucket_gte_1_075_count`
+
+Measurement/history schema now also includes flat digital-twin columns:
+- `grid_map_battery_voltage_pu`
+- `grid_map_min_voltage_pu`
+- `grid_map_max_voltage_pu`
+- `grid_map_max_line_loading_pct`
+- `grid_map_num_overloaded_lines`
+- the seven `grid_map_voltage_bucket_*` count columns
 
 ## Modbus and Unit Conventions
 - Holding registers only.
@@ -70,6 +85,10 @@ Grid-map runtime snapshot now exposes a summary contract used outside the map pa
   - reactive power: `kvar`
   - voltage measurement: `kV`
   - voltage reference: `pu`
+- Digital-twin persisted history uses:
+  - voltage summary metrics in `pu`,
+  - max line loading in `%`,
+  - overloaded-line and voltage-bucket metrics as counts.
 - Raw/control points use `unit: raw`, including `trigger` and `q_control_mode`.
 - Plant `v_setpoint` uses voltage units (`V`/`kV`) and runtime converts from `pu` using `poi_voltage_kv`.
 

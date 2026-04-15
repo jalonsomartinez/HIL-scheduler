@@ -244,6 +244,15 @@ class MeasurementAgentRecordingTests(unittest.TestCase):
                         "battery_voltage_pu": 0.05,
                         "min_voltage_pu": 0.97,
                         "max_voltage_pu": 1.01,
+                        "max_line_loading_pct": 88.0,
+                        "num_overloaded_lines": 2,
+                        "grid_map_voltage_bucket_lt_0_925_count": 1,
+                        "grid_map_voltage_bucket_0_925_to_0_95_count": 2,
+                        "grid_map_voltage_bucket_0_95_to_0_975_count": 3,
+                        "grid_map_voltage_bucket_0_975_to_1_025_count": 4,
+                        "grid_map_voltage_bucket_1_025_to_1_05_count": 5,
+                        "grid_map_voltage_bucket_1_05_to_1_075_count": 6,
+                        "grid_map_voltage_bucket_gte_1_075_count": 7,
                     },
                 }
 
@@ -278,10 +287,69 @@ class MeasurementAgentRecordingTests(unittest.TestCase):
                 self.assertAlmostEqual(float(lib_rows.iloc[-1]["p_setpoint_kw"]), 10.0, places=6)
                 self.assertAlmostEqual(float(lib_rows.iloc[-1]["q_setpoint_kvar"]), 1.0, places=6)
                 self.assertAlmostEqual(float(lib_rows.iloc[-1]["v_setpoint_pu"]), 0.9, places=6)
+                self.assertAlmostEqual(float(lib_rows.iloc[-1]["grid_map_battery_voltage_pu"]), 0.05, places=6)
+                self.assertAlmostEqual(float(lib_rows.iloc[-1]["grid_map_min_voltage_pu"]), 0.97, places=6)
+                self.assertAlmostEqual(float(lib_rows.iloc[-1]["grid_map_max_voltage_pu"]), 1.01, places=6)
+                self.assertAlmostEqual(float(lib_rows.iloc[-1]["grid_map_max_line_loading_pct"]), 88.0, places=6)
+                self.assertEqual(int(lib_rows.iloc[-1]["grid_map_num_overloaded_lines"]), 2)
+                self.assertEqual(int(lib_rows.iloc[-1]["grid_map_voltage_bucket_0_975_to_1_025_count"]), 4)
                 self.assertAlmostEqual(float(vrfb_rows.iloc[-1]["p_setpoint_kw"]), 16.0, places=6)
                 self.assertAlmostEqual(float(vrfb_rows.iloc[-1]["q_setpoint_kvar"]), 1.5, places=6)
                 self.assertAlmostEqual(float(vrfb_rows.iloc[-1]["v_setpoint_pu"]), 1.0, places=6)
                 self.assertAlmostEqual(float(vrfb_rows.iloc[-1]["soc_pu"]), 0.55, places=6)
+
+    def test_measurement_rows_leave_digital_twin_fields_empty_when_summary_missing(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with chdir(tmpdir):
+                os.makedirs("data", exist_ok=True)
+
+                shared_data = _build_shared_data(
+                    lib_file_path="data/requested_lib.csv",
+                    transport_mode="local",
+                )
+                config = _build_config()
+
+                lib_endpoint = _aggregate_endpoint("127.0.0.1", 15020)
+                lib_registers = {}
+                for point_name, value in (
+                    ("p_setpoint", 10.0),
+                    ("p_battery", 9.0),
+                    ("q_setpoint", 1.0),
+                    ("q_battery", 0.8),
+                    ("soc", 0.6),
+                    ("p_poi", 8.5),
+                    ("q_poi", 0.7),
+                    ("v_poi", 20.0),
+                ):
+                    _write_point_to_register_map(lib_registers, lib_endpoint, point_name, value)
+
+                _MappedSamplingModbusClient.register_map_by_endpoint = {
+                    (lib_endpoint["host"], lib_endpoint["port"]): lib_registers,
+                }
+
+                stop_timer = threading.Timer(1.1, shared_data["shutdown_event"].set)
+                stop_timer.start()
+                try:
+                    with patch(
+                        "measurement.agent.sampling_get_transport_endpoint",
+                        return_value=lib_endpoint,
+                    ), patch(
+                        "measurement.agent.resolve_startup_soc_seed",
+                        return_value={"soc_pu": 0.55, "source": "test_seed", "file_path": None, "timestamp": None},
+                    ), patch(
+                        "measurement.sampling.ModbusClient",
+                        _MappedSamplingModbusClient,
+                    ):
+                        measurement_agent(config, shared_data)
+                finally:
+                    stop_timer.cancel()
+
+                lib_output_path = sorted(path for path in os.listdir("data") if path.endswith("_lib.csv"))[-1]
+                lib_rows = pd.read_csv(os.path.join("data", lib_output_path)).dropna(subset=["battery_active_power_kw"]).reset_index(drop=True)
+
+                self.assertFalse(lib_rows.empty)
+                self.assertTrue(pd.isna(lib_rows.iloc[-1]["grid_map_battery_voltage_pu"]))
+                self.assertTrue(pd.isna(lib_rows.iloc[-1]["grid_map_voltage_bucket_0_975_to_1_025_count"]))
 
 
 if __name__ == "__main__":

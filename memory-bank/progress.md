@@ -5,6 +5,7 @@
 - Confirming `q_control_mode` + `v_setpoint` behavior on the currently configured LIB endpoint set.
 - Validating the standalone grid-map `v_poi_write` endpoint migration, including the newly configured remote transport target.
 - Verifying `v_setpoint_pu` continuity through measurement, cache, CSV, status summaries, and digital-twin fallback.
+- Validating the new digital-twin measurement columns and shared historical Grid Map plots against real recorded sessions.
 - Keeping trigger-aware apply and SoC fallback behavior stable after the dispatch expansion.
 
 ## In Progress
@@ -20,6 +21,8 @@
   - `v_setpoint_pu` in measurement rows and CSV
   - `V ref` in private/public status tables
   - digital-twin battery voltage in Grid Map summary
+  - digital-twin summary metrics and voltage-bucket node counts in measurement rows/history
+  - shared `Grid Map / Digital Twin` historical plots in private/public dashboards
   - richer dispatch-write context for voltage mode
 4. Voltage-reference source expansion
   - manual voltage override remains highest priority
@@ -38,8 +41,9 @@
 1. Field-test voltage mode on LIB local and remote endpoints that now expose `q_control_mode`.
 2. Confirm actual plant `v_setpoint` register addresses and field response under realistic voltage excursions with twin-derived `V ref`.
 3. Confirm the corrected twin formula and clamp produce acceptable field behavior before adding more voltage-reference sources.
-4. Continue remote Modbus reliability hardening and pooled-client smoke-test adaptation.
-5. Confirm with the technical team whether transformer-header lines `841-848` should keep the current investigative geometry-based values.
+4. Confirm that the shared digital-twin history plots stay coherent when only one plant file has fresh rows at a given timestamp.
+5. Continue remote Modbus reliability hardening and pooled-client smoke-test adaptation.
+6. Confirm with the technical team whether transformer-header lines `841-848` should keep the current investigative geometry-based values.
 
 ## Known Issues / Gaps
 1. No durable persistence for the measurement-post retry queue across process restarts.
@@ -52,6 +56,7 @@
 8. Trigger-latched setpoint apply still blocks for about two seconds per successful apply with default helper timing.
 9. The current grid-map pandapower pickle contains investigative edits for transformer-header lines `841-848` that are documented but not yet validated as final network parameters.
 10. The new remote standalone `grid_map.voltage_write_modbus` target is configured but still needs field validation.
+11. Historical digital-twin columns are null for older CSVs until new measurements are recorded under the expanded schema.
 
 ## Current Project Phase
 Heterogeneous Modbus dispatch hardening with voltage-regulation rollout, alongside SoC continuity support, schedule observability work, and grid-map digital-twin audit follow-up.
