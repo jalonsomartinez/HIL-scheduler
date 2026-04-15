@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 from dashboard.history import (
+    build_twin_measurement_difference_df,
     build_slider_marks,
     clamp_epoch_range,
     load_cropped_measurements_for_range,
@@ -66,13 +67,27 @@ class DashboardHistoryTests(unittest.TestCase):
                     ],
                     columns=TWIN_MEASUREMENT_COLUMNS,
                 ).to_csv("data/20260221_twin.csv", index=False)
+                pd.DataFrame(
+                    [
+                        {
+                            "timestamp": "2026-02-21T13:08:03+01:00",
+                            "grid_map_battery_voltage_pu": 0.99,
+                        }
+                    ],
+                    columns=TWIN_MEASUREMENT_COLUMNS,
+                ).to_csv("data/20260221_twin_nobat.csv", index=False)
 
-                index = scan_measurement_history_index("data", {"lib": "lib", "vrfb": "vrfb", "twin": "twin"}, tz)
+                index = scan_measurement_history_index(
+                    "data",
+                    {"lib": "lib", "vrfb": "vrfb", "twin": "twin", "twin_nobat": "twin_nobat"},
+                    tz,
+                )
 
                 self.assertTrue(index["has_data"])
                 self.assertEqual(len(index["files_by_plant"]["lib"]), 1)
                 self.assertEqual(len(index["files_by_plant"]["vrfb"]), 1)
                 self.assertEqual(len(index["files_by_plant"]["twin"]), 1)
+                self.assertEqual(len(index["files_by_plant"]["twin_nobat"]), 1)
                 self.assertEqual(index["files_by_plant"]["lib"][0]["rows"], 2)
                 self.assertLess(index["global_start_ms"], index["global_end_ms"])
 
@@ -101,7 +116,11 @@ class DashboardHistoryTests(unittest.TestCase):
                 file_path = "data/20260221_lib.csv"
                 df.to_csv(file_path, index=False)
 
-                full_index = scan_measurement_history_index("data", {"lib": "lib", "vrfb": "vrfb", "twin": "twin"}, tz)
+                full_index = scan_measurement_history_index(
+                    "data",
+                    {"lib": "lib", "vrfb": "vrfb", "twin": "twin", "twin_nobat": "twin_nobat"},
+                    tz,
+                )
                 file_meta = full_index["files_by_plant"]["lib"]
 
                 ts_start = int(pd.Timestamp("2026-02-21T13:11:00+01:00").value // 1_000_000)
@@ -151,7 +170,11 @@ class DashboardHistoryTests(unittest.TestCase):
                 file_path = "data/20260221_twin.csv"
                 df.to_csv(file_path, index=False)
 
-                full_index = scan_measurement_history_index("data", {"lib": "lib", "vrfb": "vrfb", "twin": "twin"}, tz)
+                full_index = scan_measurement_history_index(
+                    "data",
+                    {"lib": "lib", "vrfb": "vrfb", "twin": "twin", "twin_nobat": "twin_nobat"},
+                    tz,
+                )
                 file_meta = full_index["files_by_plant"]["twin"]
                 ts_start = int(pd.Timestamp("2026-02-21T13:11:00+01:00").value // 1_000_000)
                 ts_end = int(pd.Timestamp("2026-02-21T13:11:00+01:00").value // 1_000_000)
@@ -160,6 +183,29 @@ class DashboardHistoryTests(unittest.TestCase):
         self.assertEqual(list(cropped.columns), TWIN_MEASUREMENT_COLUMNS)
         self.assertEqual(len(cropped), 1)
         self.assertAlmostEqual(float(cropped.iloc[0]["grid_map_battery_voltage_pu"]), 1.02, places=6)
+
+    def test_build_twin_measurement_difference_df_keeps_only_comparable_points(self):
+        tz = ZoneInfo("Europe/Madrid")
+        with_battery = pd.DataFrame(
+            [
+                {"timestamp": "2026-02-21T13:10:00+01:00", "grid_map_battery_voltage_pu": 1.02, "grid_map_num_overloaded_lines": 2},
+                {"timestamp": "2026-02-21T13:11:00+01:00", "grid_map_battery_voltage_pu": 1.03, "grid_map_num_overloaded_lines": 3},
+            ],
+            columns=TWIN_MEASUREMENT_COLUMNS,
+        )
+        without_battery = pd.DataFrame(
+            [
+                {"timestamp": "2026-02-21T13:10:00+01:00", "grid_map_battery_voltage_pu": 1.00, "grid_map_num_overloaded_lines": 5},
+                {"timestamp": "2026-02-21T13:12:00+01:00", "grid_map_battery_voltage_pu": 0.99, "grid_map_num_overloaded_lines": 6},
+            ],
+            columns=TWIN_MEASUREMENT_COLUMNS,
+        )
+
+        diff_df = build_twin_measurement_difference_df(with_battery, without_battery, tz)
+
+        self.assertEqual(len(diff_df), 1)
+        self.assertAlmostEqual(float(diff_df.iloc[0]["grid_map_battery_voltage_pu"]), 0.02, places=6)
+        self.assertAlmostEqual(float(diff_df.iloc[0]["grid_map_num_overloaded_lines"]), -3.0, places=6)
 
 
 if __name__ == "__main__":

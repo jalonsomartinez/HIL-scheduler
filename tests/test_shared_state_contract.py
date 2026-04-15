@@ -36,6 +36,10 @@ class SharedStateContractTests(unittest.TestCase):
             "twin_current_file_path",
             "twin_current_file_df",
             "pending_twin_rows_by_file",
+            "twin_nobat_measurements_filename",
+            "twin_nobat_current_file_path",
+            "twin_nobat_current_file_df",
+            "pending_twin_nobat_rows_by_file",
             "measurements_df",
             "measurement_post_status",
             "local_emulator_soc_seed_request_by_plant",
@@ -131,6 +135,7 @@ class SharedStateContractTests(unittest.TestCase):
                 "map_background_enabled",
                 "map_background_reason",
                 "stale",
+                "scenario_results",
             }.issubset(grid_map_runtime.keys())
         )
         fetcher_status = dict(shared_data.get("data_fetcher_status", {}) or {})

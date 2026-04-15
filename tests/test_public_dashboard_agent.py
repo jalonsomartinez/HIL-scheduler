@@ -117,8 +117,34 @@ class PublicDashboardAgentTests(unittest.TestCase):
 
                 result = build_public_history_slice(
                     "data",
-                    {"lib": "lib", "vrfb": "vrfb", "twin": "twin"},
+                    {"lib": "lib", "vrfb": "vrfb", "twin": "twin", "twin_nobat": "twin_nobat"},
                     plant_id="twin",
+                    selected_range=[0, 1],
+                    tz=tz,
+                )
+
+                self.assertTrue(result["index_data"].get("has_data"))
+                self.assertEqual(list(result["measurements_df"].columns), TWIN_MEASUREMENT_COLUMNS)
+                self.assertFalse(result["measurements_df"].empty)
+
+    def test_build_public_history_slice_supports_twin_nobat_series(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with chdir(tmpdir):
+                os.makedirs("data", exist_ok=True)
+                pd.DataFrame(
+                    [
+                        {"timestamp": "2026-02-21T13:10:00+01:00", "grid_map_battery_voltage_pu": 0.99},
+                    ],
+                    columns=TWIN_MEASUREMENT_COLUMNS,
+                ).to_csv("data/20260221_twin_nobat.csv", index=False)
+
+                config = load_config(os.path.join(os.path.dirname(__file__), "..", "config.yaml"))
+                tz = config["SCHEDULE_START_TIME"].tzinfo
+
+                result = build_public_history_slice(
+                    "data",
+                    {"lib": "lib", "vrfb": "vrfb", "twin": "twin", "twin_nobat": "twin_nobat"},
+                    plant_id="twin_nobat",
                     selected_range=[0, 1],
                     tz=tz,
                 )
@@ -182,11 +208,14 @@ class PublicDashboardAgentTests(unittest.TestCase):
             "public-plant-summary-table",
             "public-menu-link-grid-map",
             "public-plots-grid-map-history-graph",
+            "public-plots-grid-map-nobat-history-graph",
+            "public-plots-grid-map-impact-history-graph",
             "page-public-grid-map",
             "public-grid-map-status",
             "public-grid-map-summary",
             "public-grid-map-meta",
             "public-grid-map-figure",
+            "public-grid-map-scenario-toggle",
             "public-grid-map-render-state",
             "public-grid-map-interaction-state",
             "public-grid-map-startup-fit-state",

@@ -658,6 +658,40 @@ class GridMapRuntimeTests(unittest.TestCase):
         self.assertEqual(summary["grid_map_voltage_bucket_gte_1_075_count"], 1)
         self.assertEqual(summary["grid_map_voltage_bucket_0_975_to_1_025_count"], 0)
 
+    def test_publish_grid_map_success_stores_scenario_specific_payloads(self):
+        shared_data = {"lock": threading.Lock(), gmr.GRID_MAP_STATUS_KEY: gmr.default_grid_map_runtime(5.0)}
+
+        gmr.publish_grid_map_success(
+            shared_data,
+            now_value=pd.Timestamp("2026-04-03T12:00:00+02:00"),
+            input_payload={"source": "observed_state", "timestamp": pd.Timestamp("2026-04-03T11:59:55+02:00")},
+            run_payload={
+                "requested_timestamp_local": "2026-04-03T12:00:00+02:00",
+                "power_flow_result": {
+                    "selected_timestamp_local": "2026-04-03T12:00:00+02:00",
+                    "selected_timestamp_utc": "2026-04-03T10:00:00+00:00",
+                    "used_previous_hour_fallback": False,
+                },
+                "battery_input_p_kw": 10.0,
+                "battery_input_q_kvar": 2.0,
+                "battery_input_p_mw": -0.01,
+                "battery_input_q_mvar": 0.002,
+            },
+            summary={"battery_voltage_pu": 1.01},
+            dynamic_payload={"kind": "with"},
+            scenario_results={
+                "with_battery": {"summary": {"battery_voltage_pu": 1.01}, "dynamic_payload": {"kind": "with"}},
+                "without_battery": {"summary": {"battery_voltage_pu": 0.99}, "dynamic_payload": {"kind": "without"}},
+            },
+        )
+
+        runtime_state = gmr.snapshot_grid_map_runtime(shared_data)
+
+        self.assertEqual(runtime_state["summary"], {"battery_voltage_pu": 1.01})
+        self.assertEqual(runtime_state["dynamic_payload"], {"kind": "with"})
+        self.assertEqual(runtime_state["scenario_results"]["with_battery"]["dynamic_payload"], {"kind": "with"})
+        self.assertEqual(runtime_state["scenario_results"]["without_battery"]["dynamic_payload"], {"kind": "without"})
+
     def test_build_dynamic_payload_keeps_operational_voltage_violation_limits(self):
         topology_cache = {
             "bus_order": [1, 2, 3, 4],

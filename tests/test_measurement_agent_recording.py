@@ -26,6 +26,10 @@ def _build_shared_data(lib_file_path, vrfb_file_path=None, *, transport_mode="lo
         "twin_current_file_path": None,
         "twin_current_file_df": pd.DataFrame(),
         "pending_twin_rows_by_file": {},
+        "twin_nobat_measurements_filename": None,
+        "twin_nobat_current_file_path": None,
+        "twin_nobat_current_file_df": pd.DataFrame(),
+        "pending_twin_nobat_rows_by_file": {},
         "measurements_df": pd.DataFrame(),
         "measurement_post_status": {},
     }
@@ -258,6 +262,40 @@ class MeasurementAgentRecordingTests(unittest.TestCase):
                         "grid_map_voltage_bucket_1_05_to_1_075_count": 6,
                         "grid_map_voltage_bucket_gte_1_075_count": 7,
                     },
+                    "scenario_results": {
+                        "with_battery": {
+                            "summary": {
+                                "battery_voltage_pu": 0.05,
+                                "min_voltage_pu": 0.97,
+                                "max_voltage_pu": 1.01,
+                                "max_line_loading_pct": 88.0,
+                                "num_overloaded_lines": 2,
+                                "grid_map_voltage_bucket_lt_0_925_count": 1,
+                                "grid_map_voltage_bucket_0_925_to_0_95_count": 2,
+                                "grid_map_voltage_bucket_0_95_to_0_975_count": 3,
+                                "grid_map_voltage_bucket_0_975_to_1_025_count": 4,
+                                "grid_map_voltage_bucket_1_025_to_1_05_count": 5,
+                                "grid_map_voltage_bucket_1_05_to_1_075_count": 6,
+                                "grid_map_voltage_bucket_gte_1_075_count": 7,
+                            }
+                        },
+                        "without_battery": {
+                            "summary": {
+                                "battery_voltage_pu": 0.08,
+                                "min_voltage_pu": 0.95,
+                                "max_voltage_pu": 1.02,
+                                "max_line_loading_pct": 91.0,
+                                "num_overloaded_lines": 3,
+                                "grid_map_voltage_bucket_lt_0_925_count": 0,
+                                "grid_map_voltage_bucket_0_925_to_0_95_count": 1,
+                                "grid_map_voltage_bucket_0_95_to_0_975_count": 1,
+                                "grid_map_voltage_bucket_0_975_to_1_025_count": 8,
+                                "grid_map_voltage_bucket_1_025_to_1_05_count": 2,
+                                "grid_map_voltage_bucket_1_05_to_1_075_count": 0,
+                                "grid_map_voltage_bucket_gte_1_075_count": 0,
+                            }
+                        },
+                    },
                 }
 
                 stop_timer = threading.Timer(1.4, shared_data["shutdown_event"].set)
@@ -283,14 +321,17 @@ class MeasurementAgentRecordingTests(unittest.TestCase):
                 lib_output_path = sorted(path for path in os.listdir("data") if path.endswith("_lib.csv"))[-1]
                 vrfb_output_path = sorted(path for path in os.listdir("data") if path.endswith("_vrfb.csv"))[-1]
                 twin_output_path = sorted(path for path in os.listdir("data") if path.endswith("_twin.csv"))[-1]
+                twin_nobat_output_path = sorted(path for path in os.listdir("data") if path.endswith("_twin_nobat.csv"))[-1]
 
                 lib_rows = pd.read_csv(os.path.join("data", lib_output_path)).dropna(subset=["battery_active_power_kw"]).reset_index(drop=True)
                 vrfb_rows = pd.read_csv(os.path.join("data", vrfb_output_path)).dropna(subset=["battery_active_power_kw"]).reset_index(drop=True)
                 twin_rows = pd.read_csv(os.path.join("data", twin_output_path)).dropna(subset=["grid_map_battery_voltage_pu"]).reset_index(drop=True)
+                twin_nobat_rows = pd.read_csv(os.path.join("data", twin_nobat_output_path)).dropna(subset=["grid_map_battery_voltage_pu"]).reset_index(drop=True)
 
                 self.assertFalse(lib_rows.empty)
                 self.assertFalse(vrfb_rows.empty)
                 self.assertFalse(twin_rows.empty)
+                self.assertFalse(twin_nobat_rows.empty)
                 self.assertNotIn("grid_map_battery_voltage_pu", lib_rows.columns)
                 self.assertNotIn("grid_map_battery_voltage_pu", vrfb_rows.columns)
                 self.assertAlmostEqual(float(lib_rows.iloc[-1]["p_setpoint_kw"]), 10.0, places=6)
@@ -302,6 +343,9 @@ class MeasurementAgentRecordingTests(unittest.TestCase):
                 self.assertAlmostEqual(float(twin_rows.iloc[-1]["grid_map_max_line_loading_pct"]), 88.0, places=6)
                 self.assertEqual(int(twin_rows.iloc[-1]["grid_map_num_overloaded_lines"]), 2)
                 self.assertEqual(int(twin_rows.iloc[-1]["grid_map_voltage_bucket_0_975_to_1_025_count"]), 4)
+                self.assertAlmostEqual(float(twin_nobat_rows.iloc[-1]["grid_map_battery_voltage_pu"]), 0.08, places=6)
+                self.assertEqual(int(twin_nobat_rows.iloc[-1]["grid_map_num_overloaded_lines"]), 3)
+                self.assertEqual(int(twin_nobat_rows.iloc[-1]["grid_map_voltage_bucket_0_975_to_1_025_count"]), 8)
                 self.assertAlmostEqual(float(vrfb_rows.iloc[-1]["p_setpoint_kw"]), 16.0, places=6)
                 self.assertAlmostEqual(float(vrfb_rows.iloc[-1]["q_setpoint_kvar"]), 1.5, places=6)
                 self.assertAlmostEqual(float(vrfb_rows.iloc[-1]["v_setpoint_pu"]), 1.0, places=6)
@@ -357,11 +401,15 @@ class MeasurementAgentRecordingTests(unittest.TestCase):
                 lib_rows = pd.read_csv(os.path.join("data", lib_output_path)).dropna(subset=["battery_active_power_kw"]).reset_index(drop=True)
                 twin_output_path = sorted(path for path in os.listdir("data") if path.endswith("_twin.csv"))[-1]
                 twin_rows = pd.read_csv(os.path.join("data", twin_output_path))
+                twin_nobat_output_path = sorted(path for path in os.listdir("data") if path.endswith("_twin_nobat.csv"))[-1]
+                twin_nobat_rows = pd.read_csv(os.path.join("data", twin_nobat_output_path))
 
                 self.assertFalse(lib_rows.empty)
                 self.assertNotIn("grid_map_battery_voltage_pu", lib_rows.columns)
                 self.assertEqual(list(twin_rows.columns), TWIN_MEASUREMENT_COLUMNS)
                 self.assertTrue(twin_rows.dropna(subset=["grid_map_battery_voltage_pu"]).empty)
+                self.assertEqual(list(twin_nobat_rows.columns), TWIN_MEASUREMENT_COLUMNS)
+                self.assertTrue(twin_nobat_rows.dropna(subset=["grid_map_battery_voltage_pu"]).empty)
 
 
 if __name__ == "__main__":

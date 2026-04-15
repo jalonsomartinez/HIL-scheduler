@@ -24,6 +24,9 @@ TWIN_MEASUREMENT_VALUE_COLUMNS = [
     "grid_map_voltage_bucket_1_05_to_1_075_count",
     "grid_map_voltage_bucket_gte_1_075_count",
 ]
+TWIN_MEASUREMENT_SUFFIX = "twin"
+TWIN_NOBAT_MEASUREMENT_SUFFIX = "twin_nobat"
+TWIN_MEASUREMENT_SUFFIXES = (TWIN_MEASUREMENT_SUFFIX, TWIN_NOBAT_MEASUREMENT_SUFFIX)
 
 PLANT_MEASUREMENT_VALUE_COLUMNS = [
     "p_setpoint_kw",
@@ -74,8 +77,16 @@ def build_daily_file_path(name, fallback, timestamp, tz, now_ts):
     return os.path.join("data", f"{ts.strftime('%Y%m%d')}_{safe_name}.csv")
 
 
+def build_named_twin_daily_file_path(suffix, timestamp, tz, now_ts):
+    return build_daily_file_path(str(suffix), str(suffix), timestamp, tz, now_ts)
+
+
 def build_twin_daily_file_path(timestamp, tz, now_ts):
-    return build_daily_file_path("twin", "twin", timestamp, tz, now_ts)
+    return build_named_twin_daily_file_path(TWIN_MEASUREMENT_SUFFIX, timestamp, tz, now_ts)
+
+
+def build_twin_nobat_daily_file_path(timestamp, tz, now_ts):
+    return build_named_twin_daily_file_path(TWIN_NOBAT_MEASUREMENT_SUFFIX, timestamp, tz, now_ts)
 
 
 def _append_rows_to_csv(file_path, rows, tz, *, normalize_fn):

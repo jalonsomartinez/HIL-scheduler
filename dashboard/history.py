@@ -9,6 +9,9 @@ import pandas as pd
 from measurement.storage import (
     MEASUREMENT_COLUMNS,
     TWIN_MEASUREMENT_COLUMNS,
+    TWIN_MEASUREMENT_SUFFIX,
+    TWIN_MEASUREMENT_VALUE_COLUMNS,
+    TWIN_NOBAT_MEASUREMENT_SUFFIX,
     load_file_for_cache,
     load_twin_file_for_cache,
 )
@@ -30,7 +33,7 @@ def _epoch_ms_to_ts(value: Any, tz) -> pd.Timestamp:
 
 
 def _load_history_file_for_series(file_path, series_id, tz):
-    if str(series_id) == "twin":
+    if str(series_id) in {TWIN_MEASUREMENT_SUFFIX, TWIN_NOBAT_MEASUREMENT_SUFFIX}:
         return load_twin_file_for_cache(file_path, tz)
     return load_file_for_cache(file_path, tz)
 
@@ -221,6 +224,39 @@ def load_cropped_twin_measurements_for_range(file_meta_list, start_ms, end_ms, t
         columns=TWIN_MEASUREMENT_COLUMNS,
         load_fn=load_twin_file_for_cache,
     )
+
+
+def build_twin_measurement_difference_df(with_battery_df, without_battery_df, tz):
+    metric_columns = list(TWIN_MEASUREMENT_VALUE_COLUMNS)
+
+    def _normalize(df):
+        if df is None or df.empty:
+            return pd.DataFrame(columns=["timestamp"] + metric_columns)
+        current = df.copy()
+        if "timestamp" not in current.columns:
+            return pd.DataFrame(columns=["timestamp"] + metric_columns)
+        current["timestamp"] = pd.to_datetime(current["timestamp"], utc=True, errors="coerce")
+        current["timestamp"] = current["timestamp"].apply(lambda value: normalize_timestamp_value(value, tz))
+        current = current.dropna(subset=["timestamp"])
+        for column in metric_columns:
+            if column not in current.columns:
+                current[column] = pd.NA
+        return current[["timestamp"] + metric_columns].sort_values("timestamp").reset_index(drop=True)
+
+    left = _normalize(with_battery_df).rename(columns={column: f"{column}_with" for column in metric_columns})
+    right = _normalize(without_battery_df).rename(columns={column: f"{column}_without" for column in metric_columns})
+    merged = left.merge(right, on="timestamp", how="outer").sort_values("timestamp").reset_index(drop=True)
+
+    result = pd.DataFrame({"timestamp": merged.get("timestamp", pd.Series(dtype="datetime64[ns, UTC]"))})
+    for column in metric_columns:
+        with_series = pd.to_numeric(merged.get(f"{column}_with"), errors="coerce")
+        without_series = pd.to_numeric(merged.get(f"{column}_without"), errors="coerce")
+        result[column] = with_series - without_series
+
+    non_empty_mask = result[metric_columns].notna().any(axis=1) if not result.empty else pd.Series(dtype=bool)
+    if not result.empty:
+        result = result.loc[non_empty_mask].reset_index(drop=True)
+    return result[["timestamp"] + metric_columns] if not result.empty else pd.DataFrame(columns=["timestamp"] + metric_columns)
 
 
 def serialize_measurements_for_download(df, tz):

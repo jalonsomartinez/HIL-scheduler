@@ -269,6 +269,12 @@ class DashboardPlottingTests(unittest.TestCase):
         annotations = list(fig.layout.annotations or [])
         self.assertTrue(any("No Grid Map / Digital Twin measurements" in str(item.text) for item in annotations))
 
+    def test_create_grid_map_history_figure_uses_custom_empty_text(self):
+        fig = self._grid_map_fig(pd.DataFrame(), empty_text="No impact data.")
+
+        annotations = list(fig.layout.annotations or [])
+        self.assertTrue(any("No impact data." in str(item.text) for item in annotations))
+
     def test_custom_voltage_padding_sets_row4_range(self):
         base = datetime(2026, 2, 23, 0, 0, tzinfo=self.tz)
         measurements_df = _measurements_df(base, base + timedelta(hours=1))

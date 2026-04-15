@@ -23,8 +23,9 @@
   - `dispatch_write_status_by_plant.<id>.last_scheduler_context` includes reactive mode, voltage-mode flag, write quantity mode (`pq` or `pv`), and resolved `v_setpoint_pu`.
 - Digital-twin history contract:
   - plant measurement rows stay plant-specific and do not persist shared `grid_map_*` summary metrics,
-  - shared Grid Map summary metrics plus seven voltage-bucket node counts are recorded into dedicated `data/YYYYMMDD_twin.csv` files,
-  - shared historical plots read only from twin files instead of coalescing duplicated plant data.
+  - shared Grid Map summary metrics plus seven voltage-bucket node counts are recorded into dedicated `data/YYYYMMDD_twin.csv` files for the with-battery scenario,
+  - the no-battery scenario is recorded into matching `data/YYYYMMDD_twin_nobat.csv` files,
+  - shared historical plots read only from those twin file families instead of coalescing duplicated plant data.
 
 ## Authoritative Shared State
 Primary contract is initialized in `build_initial_shared_data(config)`.
@@ -51,7 +52,7 @@ Important maps:
 - `measurement_agent`:
   - samples telemetry,
   - enriches plant rows with schedule-intent columns and `v_setpoint_pu`,
-  - records shared digital-twin summary rows into the singleton twin-history file whenever either plant recording session is active,
+  - records shared digital-twin summary rows into the singleton twin-history files (`twin`, `twin_nobat`) whenever either plant recording session is active,
   - estimates SoC when real Modbus SoC is absent.
 - `control_engine_agent`:
   - uses the same dispatch-bundle logic as scheduler for start-time initial setpoints,
@@ -63,18 +64,23 @@ Important maps:
 - Grid-map runtime pattern:
   1. select LIB battery `P/Q` from fresh observed state when available,
   2. otherwise fall back to latest LIB measurement cache row,
-  3. run the digital twin with those LIB power inputs,
-  4. compute summary metrics including battery voltage, min/max voltage, max line loading, overloaded-line count, and detailed voltage-bucket node counts,
-  5. if `grid_map.voltage_write_modbus.<active transport>` is configured, write `v_poi_write` once through that endpoint,
-  6. rely on the shared Modbus client pool to reuse the underlying TCP transport automatically when `host + port` matches another runtime client.
+  3. run the digital twin once with those LIB power inputs and once with battery `P=0`, `Q=0`,
+  4. publish both scenario payloads under `grid_map_runtime.scenario_results`,
+  5. keep top-level runtime summary/dynamic payload aligned to the with-battery scenario for backward compatibility,
+  6. compute summary metrics including battery voltage, min/max voltage, max line loading, overloaded-line count, and detailed voltage-bucket node counts for each scenario,
+  7. if `grid_map.voltage_write_modbus.<active transport>` is configured, write `v_poi_write` once through that endpoint using only the with-battery result,
+  8. rely on the shared Modbus client pool to reuse the underlying TCP transport automatically when `host + port` matches another runtime client.
 - Historical plots pattern:
   1. scan per-plant measurement files for the selected range,
-  2. scan the shared `twin` history file family alongside LIB and VRFB,
+  2. scan the shared `twin` and `twin_nobat` history file families alongside LIB and VRFB,
   3. load cropped LIB and VRFB measurement frames independently,
-  4. load cropped twin-history frames independently,
+  4. load cropped twin-history frames independently for both scenarios,
   5. build per-plant figures directly from each plant frame,
-  6. build the shared digital-twin figure from twin files only,
-  7. render an explicit empty-state figure when the selected range has no populated twin rows.
+  6. build three shared digital-twin figures from twin files only:
+    - with battery,
+    - no battery,
+    - signed impact (`with_battery - without_battery`),
+  7. render explicit empty-state figures when the selected range has no populated comparable twin rows.
 - Manual override pattern:
   1. API base setpoint is resolved first with staleness handling.
   2. Manual `P` and `Q` overrides replace only their signals when active and in-range.

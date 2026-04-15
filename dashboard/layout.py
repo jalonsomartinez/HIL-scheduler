@@ -319,6 +319,20 @@ def build_dashboard_layout(
                                 ],
                             ),
                             html.Div(
+                                className="card",
+                                children=[
+                                    html.H3("Grid Map / Digital Twin (No Battery)"),
+                                    dcc.Graph(id="plots-grid-map-nobat-history-graph", className="plot-graph"),
+                                ],
+                            ),
+                            html.Div(
+                                className="card",
+                                children=[
+                                    html.H3("Grid Map / Digital Twin Impact"),
+                                    dcc.Graph(id="plots-grid-map-impact-history-graph", className="plot-graph"),
+                                ],
+                            ),
+                            html.Div(
                                 className="plant-card",
                                 children=[
                                     html.Div(

@@ -32,6 +32,7 @@ DEFAULT_TRACE_COLORS = {
     "api_lib": "#00945a",
     "api_vrfb": "#3f65c8",
     "history_twin": "#7b59b5",
+    "history_twin_nobat": "#c66a00",
     "grid_map_battery_voltage": "#2f6db4",
     "grid_map_min_voltage": "#c66a00",
     "grid_map_max_voltage": "#7b59b5",
@@ -500,6 +501,7 @@ def create_grid_map_history_figure(
     trace_colors,
     uirevision_key="grid-map-history",
     title="Grid Map / Digital Twin",
+    empty_text="No Grid Map / Digital Twin measurements found in the selected range.",
 ):
     fig = make_subplots(
         rows=3,
@@ -596,7 +598,7 @@ def create_grid_map_history_figure(
 
     if not traces_added:
         fig.add_annotation(
-            text="No Grid Map / Digital Twin measurements found in the selected range.",
+            text=str(empty_text),
             xref="paper",
             yref="paper",
             x=0.5,

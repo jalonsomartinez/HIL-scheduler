@@ -13,9 +13,9 @@
 - `scheduling/runtime.py`: shared dispatch-bundle resolution, staleness handling, and effective-schedule helpers.
 - `scheduling/agent.py`: periodic dispatch loop and scheduler write-status publication.
 - `control/modbus_io.py` and `control/engine_agent.py`: control-path Modbus writes and start/stop flows.
-- `measurement/agent.py` and `measurement/storage.py`: telemetry sampling, plant/twin history persistence, schedule-intent enrichment, and CSV/cache normalization.
-- `dashboard/`: manual schedule UI, grid-map summary cards, status summaries, per-plant plots, shared twin-history plots, and read-only public views.
-- `grid_map_runtime.py`: digital-twin execution, summary extraction, and shared grid-map runtime snapshot contract.
+- `measurement/agent.py` and `measurement/storage.py`: telemetry sampling, plant/twin/twin_nobat history persistence, schedule-intent enrichment, and CSV/cache normalization.
+- `dashboard/`: manual schedule UI, grid-map summary cards, scenario toggle, per-plant plots, shared twin-history plots, impact plots, and read-only public views.
+- `grid_map_runtime.py`: dual-scenario digital-twin execution, summary extraction, and shared grid-map runtime snapshot contract.
 - `modbus/setpoint_io.py`: aggregate/per-phase write planning, optional `q_control_mode`, optional plant `v_setpoint`, and trigger-aware apply.
 
 ## Configuration Schema
@@ -69,7 +69,21 @@ Grid-map runtime snapshot now exposes a summary contract used outside the map pa
 - `grid_map_voltage_bucket_1_05_to_1_075_count`
 - `grid_map_voltage_bucket_gte_1_075_count`
 
-Twin-history schema now includes flat digital-twin columns in `data/YYYYMMDD_twin.csv`:
+Grid-map runtime snapshot now also exposes scenario-specific live payloads:
+- `scenario_results.with_battery`
+- `scenario_results.without_battery`
+
+Each scenario entry carries:
+- requested/selected timestamps,
+- battery input `P/Q`,
+- summary,
+- dynamic payload.
+
+Twin-history schema now includes flat digital-twin columns in:
+- `data/YYYYMMDD_twin.csv`
+- `data/YYYYMMDD_twin_nobat.csv`
+
+Shared schema columns are:
 - `grid_map_battery_voltage_pu`
 - `grid_map_min_voltage_pu`
 - `grid_map_max_voltage_pu`
@@ -102,6 +116,7 @@ Plant measurement/history schema excludes those `grid_map_*` columns going forwa
   - voltage-mode flag,
   - resolved `v_setpoint_pu`.
 - Twin-derived voltage references do not add a separate logging stream; they are visible through the resolved `v_setpoint_pu` carried in dispatch status, measurements, and dashboards.
+- No-battery digital-twin runs are observational only; they affect maps/history/plots but not control writes.
 - Grid-map voltage-write logging now references the standalone endpoint selected by active transport instead of plant IDs.
 - Control-path failures for voltage dispatch are surfaced explicitly instead of silently degrading to classic `Q` control.
 

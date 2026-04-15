@@ -29,6 +29,10 @@ def _build_shared_data(recording_path):
         "twin_current_file_path": None,
         "twin_current_file_df": pd.DataFrame(),
         "pending_twin_rows_by_file": {},
+        "twin_nobat_measurements_filename": None,
+        "twin_nobat_current_file_path": None,
+        "twin_nobat_current_file_df": pd.DataFrame(),
+        "pending_twin_nobat_rows_by_file": {},
         "measurements_df": pd.DataFrame(),
         "measurement_post_status": {},
     }
@@ -322,18 +326,58 @@ class MeasurementCompressionTests(unittest.TestCase):
                         "grid_map_voltage_bucket_1_025_to_1_05_count": 4,
                         "grid_map_voltage_bucket_1_05_to_1_075_count": 5,
                         "grid_map_voltage_bucket_gte_1_075_count": 6,
-                    }
+                    },
+                    "scenario_results": {
+                        "with_battery": {
+                            "summary": {
+                                "battery_voltage_pu": 1.01,
+                                "min_voltage_pu": 0.97,
+                                "max_voltage_pu": 1.03,
+                                "max_line_loading_pct": 72.0,
+                                "num_overloaded_lines": 1,
+                                "grid_map_voltage_bucket_lt_0_925_count": 0,
+                                "grid_map_voltage_bucket_0_925_to_0_95_count": 1,
+                                "grid_map_voltage_bucket_0_95_to_0_975_count": 2,
+                                "grid_map_voltage_bucket_0_975_to_1_025_count": 3,
+                                "grid_map_voltage_bucket_1_025_to_1_05_count": 4,
+                                "grid_map_voltage_bucket_1_05_to_1_075_count": 5,
+                                "grid_map_voltage_bucket_gte_1_075_count": 6,
+                            }
+                        },
+                        "without_battery": {
+                            "summary": {
+                                "battery_voltage_pu": 0.99,
+                                "min_voltage_pu": 0.96,
+                                "max_voltage_pu": 1.02,
+                                "max_line_loading_pct": 70.0,
+                                "num_overloaded_lines": 0,
+                                "grid_map_voltage_bucket_lt_0_925_count": 0,
+                                "grid_map_voltage_bucket_0_925_to_0_95_count": 0,
+                                "grid_map_voltage_bucket_0_95_to_0_975_count": 1,
+                                "grid_map_voltage_bucket_0_975_to_1_025_count": 5,
+                                "grid_map_voltage_bucket_1_025_to_1_05_count": 1,
+                                "grid_map_voltage_bucket_1_05_to_1_075_count": 0,
+                                "grid_map_voltage_bucket_gte_1_075_count": 0,
+                            }
+                        },
+                    },
                 }
                 config = _build_config(compression_enabled=True, measurement_period_s=0.1, write_period_s=0.15)
                 _run_agent_and_load_output(config, shared_data, samples)
 
                 twin_paths = sorted(glob.glob("data/*_twin.csv"))
+                twin_nobat_paths = sorted(glob.glob("data/*_twin_nobat.csv"))
                 self.assertTrue(twin_paths)
+                self.assertTrue(twin_nobat_paths)
                 twin_df = pd.read_csv(twin_paths[-1])
+                twin_nobat_df = pd.read_csv(twin_nobat_paths[-1])
 
         real_twin_rows = twin_df.dropna(subset=["grid_map_battery_voltage_pu"])
+        real_twin_nobat_rows = twin_nobat_df.dropna(subset=["grid_map_battery_voltage_pu"])
         self.assertEqual(len(real_twin_rows), 2)
+        self.assertEqual(len(real_twin_nobat_rows), 2)
         self.assertAlmostEqual(float(real_twin_rows.iloc[-1]["grid_map_battery_voltage_pu"]), 1.01, places=6)
+        self.assertAlmostEqual(float(real_twin_nobat_rows.iloc[-1]["grid_map_battery_voltage_pu"]), 0.99, places=6)
 
     def test_compression_tolerance_uses_last_kept_row_to_prevent_drift(self):
         samples = []

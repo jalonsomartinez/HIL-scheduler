@@ -101,8 +101,12 @@ def perform_transport_switch(shared_data, plant_ids, requested_mode, safe_stop_a
             shared_data["twin_measurements_filename"] = None
             shared_data["twin_current_file_path"] = None
             shared_data["twin_current_file_df"] = pd.DataFrame()
+            shared_data["twin_nobat_measurements_filename"] = None
+            shared_data["twin_nobat_current_file_path"] = None
+            shared_data["twin_nobat_current_file_df"] = pd.DataFrame()
             shared_data["pending_rows_by_file"] = {}
             shared_data["pending_twin_rows_by_file"] = {}
+            shared_data["pending_twin_nobat_rows_by_file"] = {}
             for plant_id in plant_ids:
                 prev_observed = dict(observed_state_map.get(plant_id, {}) or {})
                 prev_observed.update(

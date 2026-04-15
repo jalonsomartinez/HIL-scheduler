@@ -11,6 +11,7 @@ from dash import Dash, Input, Output, State, callback_context, dcc, html, no_upd
 from dash.exceptions import PreventUpdate
 
 from dashboard.history import (
+    build_twin_measurement_difference_df,
     build_slider_marks,
     clamp_epoch_range,
     load_cropped_measurements_for_range,
@@ -18,6 +19,7 @@ from dashboard.history import (
     scan_measurement_history_index,
 )
 from dashboard.grid_map import (
+    build_grid_map_display_runtime,
     build_grid_map_meta_children,
     build_grid_map_page,
     build_grid_map_status_text,
@@ -25,6 +27,7 @@ from dashboard.grid_map import (
     grid_map_startup_fit_clientside_js,
     is_grid_map_refresh_paused,
     register_grid_map_interaction,
+    resolve_grid_map_scenario_key,
 )
 from dashboard.navigation import normalize_public_route, page_section_class, resolve_menu_open_state
 from dashboard.plotting import (
@@ -41,7 +44,12 @@ from dashboard.ui_state import (
     resolve_runtime_transition_state,
 )
 import scheduling.manual_schedule_manager as msm
-from measurement.storage import MEASUREMENT_COLUMNS, TWIN_MEASUREMENT_COLUMNS
+from measurement.storage import (
+    MEASUREMENT_COLUMNS,
+    TWIN_MEASUREMENT_COLUMNS,
+    TWIN_MEASUREMENT_SUFFIX,
+    TWIN_NOBAT_MEASUREMENT_SUFFIX,
+)
 from modbus.setpoint_io import voltage_control_mode_supported
 from grid_map_runtime import build_grid_map_figure_update, build_grid_map_meta_lines, snapshot_grid_map_runtime
 from runtime.contracts import resolve_modbus_endpoint, sanitize_plant_name
@@ -101,7 +109,11 @@ def build_public_history_slice(
         return {
             "index_data": index_data,
             "selected_range": list(DEFAULT_PUBLIC_HISTORY_EMPTY_RANGE),
-            "measurements_df": pd.DataFrame(columns=TWIN_MEASUREMENT_COLUMNS if plant_id == "twin" else MEASUREMENT_COLUMNS),
+            "measurements_df": pd.DataFrame(
+                columns=TWIN_MEASUREMENT_COLUMNS
+                if plant_id in {TWIN_MEASUREMENT_SUFFIX, TWIN_NOBAT_MEASUREMENT_SUFFIX}
+                else MEASUREMENT_COLUMNS
+            ),
         }
 
     domain_start = int(index_data["global_start_ms"])
@@ -111,7 +123,11 @@ def build_public_history_slice(
         clamped_range = [domain_start, domain_end]
 
     file_meta_list = (index_data.get("files_by_plant", {}) or {}).get(plant_id, [])
-    loader = load_cropped_twin_measurements_for_range if plant_id == "twin" else load_cropped_measurements_for_range
+    loader = (
+        load_cropped_twin_measurements_for_range
+        if plant_id in {TWIN_MEASUREMENT_SUFFIX, TWIN_NOBAT_MEASUREMENT_SUFFIX}
+        else load_cropped_measurements_for_range
+    )
     measurements_df = loader(file_meta_list, int(clamped_range[0]), int(clamped_range[1]), tz)
     return {
         "index_data": index_data,
@@ -466,6 +482,20 @@ def _public_layout(*, plant_name_fn, brand_logo_src, measurement_period_s, grid_
                                 ],
                             ),
                             html.Div(
+                                className="card",
+                                children=[
+                                    html.H3("Grid Map / Digital Twin (No Battery)"),
+                                    dcc.Graph(id="public-plots-grid-map-nobat-history-graph", className="plot-graph"),
+                                ],
+                            ),
+                            html.Div(
+                                className="card",
+                                children=[
+                                    html.H3("Grid Map / Digital Twin Impact"),
+                                    dcc.Graph(id="public-plots-grid-map-impact-history-graph", className="plot-graph"),
+                                ],
+                            ),
+                            html.Div(
                                 className="plant-card",
                                 children=[
                                     html.H3(f"{plant_name_fn('lib')}"),
@@ -525,7 +555,8 @@ def build_public_readonly_app(config, shared_data):
 
     def _plant_suffix_by_id():
         suffixes = {plant_id: sanitize_plant_name(plant_name(plant_id), plant_id) for plant_id in plant_ids}
-        suffixes["twin"] = "twin"
+        suffixes[TWIN_MEASUREMENT_SUFFIX] = TWIN_MEASUREMENT_SUFFIX
+        suffixes[TWIN_NOBAT_MEASUREMENT_SUFFIX] = TWIN_NOBAT_MEASUREMENT_SUFFIX
         return suffixes
 
     def _manual_status_window_bounds(now_value=None):
@@ -574,10 +605,20 @@ def build_public_readonly_app(config, shared_data):
             return _empty_history_timeline_figure("No historical measurements found.")
 
         fig = go.Figure()
-        color_by_plant = {"lib": trace_colors["api_lib"], "vrfb": trace_colors["api_vrfb"], "twin": trace_colors["history_twin"]}
-        label_by_plant = {"lib": plant_name("lib"), "vrfb": plant_name("vrfb"), "twin": "DT"}
+        color_by_plant = {
+            "lib": trace_colors["api_lib"],
+            "vrfb": trace_colors["api_vrfb"],
+            TWIN_MEASUREMENT_SUFFIX: trace_colors["history_twin"],
+            TWIN_NOBAT_MEASUREMENT_SUFFIX: trace_colors["history_twin_nobat"],
+        }
+        label_by_plant = {
+            "lib": plant_name("lib"),
+            "vrfb": plant_name("vrfb"),
+            TWIN_MEASUREMENT_SUFFIX: "DT",
+            TWIN_NOBAT_MEASUREMENT_SUFFIX: "DT NoBat",
+        }
 
-        for plant_id in list(plant_ids) + ["twin"]:
+        for plant_id in list(plant_ids) + [TWIN_MEASUREMENT_SUFFIX, TWIN_NOBAT_MEASUREMENT_SUFFIX]:
             for item in (index_data.get("files_by_plant", {}) or {}).get(plant_id, []):
                 start_ts = _epoch_ms_to_ts(item.get("start_ms"))
                 end_ts = _epoch_ms_to_ts(item.get("end_ms"))
@@ -1118,27 +1159,49 @@ def build_public_readonly_app(config, shared_data):
             Output("public-grid-map-figure", "figure"),
             Output("public-grid-map-render-state", "data"),
         ],
-        [Input("public-url", "pathname"), Input("public-grid-map-refresh-interval", "n_intervals")],
+        [
+            Input("public-url", "pathname"),
+            Input("public-grid-map-refresh-interval", "n_intervals"),
+            Input("public-grid-map-scenario-toggle", "value"),
+        ],
         [State("public-grid-map-render-state", "data"), State("public-grid-map-interaction-state", "data")],
         prevent_initial_call=False,
     )
-    def update_public_grid_map_page(active_pathname, _grid_map_refresh_n, current_render_state, interaction_state):
+    def update_public_grid_map_page(
+        active_pathname,
+        _grid_map_refresh_n,
+        scenario_toggle_values,
+        current_render_state,
+        interaction_state,
+    ):
         if normalize_public_route(active_pathname) != "/grid-map":
             raise PreventUpdate
 
-        runtime_state = snapshot_grid_map_runtime(shared_data)
+        selected_scenario_key = resolve_grid_map_scenario_key(scenario_toggle_values)
+        runtime_state = build_grid_map_display_runtime(snapshot_grid_map_runtime(shared_data), selected_scenario_key)
         refresh_paused = bool(current_render_state) and is_grid_map_refresh_paused(interaction_state)
         runtime_state = dict(runtime_state or {})
         runtime_state["refresh_paused"] = refresh_paused
         status_text = build_grid_map_status_text(runtime_state)
         summary_children = build_grid_map_summary_cards(runtime_state.get("summary"))
         meta_children = build_grid_map_meta_children(build_grid_map_meta_lines(runtime_state, config))
-        current_figure = {"layout": {"meta": current_render_state}} if isinstance(current_render_state, dict) else None
+        current_scenario_key = (
+            str((current_render_state or {}).get("grid_map_scenario_key") or "")
+            if isinstance(current_render_state, dict)
+            else ""
+        )
+        scenario_changed = current_scenario_key != selected_scenario_key
+        current_figure = (
+            {"layout": {"meta": current_render_state}}
+            if isinstance(current_render_state, dict) and not scenario_changed
+            else None
+        )
         next_render_state = {
             "grid_map_topology_revision": runtime_state.get("topology_revision"),
             "grid_map_dynamic_revision": int(runtime_state.get("dynamic_revision", 0) or 0),
+            "grid_map_scenario_key": selected_scenario_key,
         }
-        if refresh_paused:
+        if refresh_paused and not scenario_changed:
             figure = no_update
             next_render_state = no_update
             return status_text, summary_children, meta_children, figure, next_render_state
@@ -1206,7 +1269,8 @@ def build_public_readonly_app(config, shared_data):
         status_text = (
             f"Historical files loaded: {plant_name('lib')}={len(files_by_plant.get('lib', []))} "
             f"{plant_name('vrfb')}={len(files_by_plant.get('vrfb', []))} "
-            f"Twin={len(files_by_plant.get('twin', []))} | "
+            f"DT={len(files_by_plant.get(TWIN_MEASUREMENT_SUFFIX, []))} "
+            f"DT NoBat={len(files_by_plant.get(TWIN_NOBAT_MEASUREMENT_SUFFIX, []))} | "
             f"Detected range: {_format_epoch_label(global_start_ms)} -> {_format_epoch_label(global_end_ms)}"
         )
         range_label = f"Range: {_format_epoch_label(selected_range[0])} -> {_format_epoch_label(selected_range[1])}"
@@ -1226,6 +1290,8 @@ def build_public_readonly_app(config, shared_data):
     @app.callback(
         [
             Output("public-plots-grid-map-history-graph", "figure"),
+            Output("public-plots-grid-map-nobat-history-graph", "figure"),
+            Output("public-plots-grid-map-impact-history-graph", "figure"),
             Output("public-plots-graph-lib", "figure"),
             Output("public-plots-graph-vrfb", "figure"),
         ],
@@ -1258,7 +1324,14 @@ def build_public_readonly_app(config, shared_data):
         twin_slice = build_public_history_slice(
             data_dir,
             suffix_map,
-            plant_id="twin",
+            plant_id=TWIN_MEASUREMENT_SUFFIX,
+            selected_range=selected_range,
+            tz=tz,
+        )
+        twin_nobat_slice = build_public_history_slice(
+            data_dir,
+            suffix_map,
+            plant_id=TWIN_NOBAT_MEASUREMENT_SUFFIX,
             selected_range=selected_range,
             tz=tz,
         )
@@ -1266,7 +1339,13 @@ def build_public_readonly_app(config, shared_data):
         lib_index = lib_slice.get("index_data", {}) or {}
         vrfb_index = vrfb_slice.get("index_data", {}) or {}
         twin_index = twin_slice.get("index_data", {}) or {}
-        if not lib_index.get("has_data") and not vrfb_index.get("has_data") and not twin_index.get("has_data"):
+        twin_nobat_index = twin_nobat_slice.get("index_data", {}) or {}
+        if (
+            not lib_index.get("has_data")
+            and not vrfb_index.get("has_data")
+            and not twin_index.get("has_data")
+            and not twin_nobat_index.get("has_data")
+        ):
             return (
                 create_grid_map_history_figure(
                     pd.DataFrame(),
@@ -1275,6 +1354,24 @@ def build_public_readonly_app(config, shared_data):
                     trace_colors=trace_colors,
                     uirevision_key="public-plots:grid-map:empty",
                 ),
+                create_grid_map_history_figure(
+                    pd.DataFrame(),
+                    tz=tz,
+                    plot_theme=plot_theme,
+                    trace_colors=trace_colors,
+                    title="Grid Map / Digital Twin (No Battery)",
+                    empty_text="No no-battery Grid Map / Digital Twin measurements found in the selected range.",
+                    uirevision_key="public-plots:grid-map-nobat:empty",
+                ),
+                create_grid_map_history_figure(
+                    pd.DataFrame(),
+                    tz=tz,
+                    plot_theme=plot_theme,
+                    trace_colors=trace_colors,
+                    title="Grid Map / Digital Twin Impact",
+                    empty_text="No comparable Grid Map / Digital Twin measurements found in the selected range.",
+                    uirevision_key="public-plots:grid-map-impact:empty",
+                ),
                 _empty_history_plant_figure("lib", "No historical LIB measurements found."),
                 _empty_history_plant_figure("vrfb", "No historical VRFB measurements found."),
             )
@@ -1282,6 +1379,8 @@ def build_public_readonly_app(config, shared_data):
         lib_measurements = lib_slice.get("measurements_df", pd.DataFrame())
         vrfb_measurements = vrfb_slice.get("measurements_df", pd.DataFrame())
         twin_measurements = twin_slice.get("measurements_df", pd.DataFrame(columns=TWIN_MEASUREMENT_COLUMNS))
+        twin_nobat_measurements = twin_nobat_slice.get("measurements_df", pd.DataFrame(columns=TWIN_MEASUREMENT_COLUMNS))
+        twin_impact_measurements = build_twin_measurement_difference_df(twin_measurements, twin_nobat_measurements, tz)
         grid_map_fig = create_grid_map_history_figure(
             twin_measurements,
             tz=tz,
@@ -1291,6 +1390,32 @@ def build_public_readonly_app(config, shared_data):
                 f"public-plots:grid-map:{selected_range[0]}:{selected_range[1]}"
                 if isinstance(selected_range, (list, tuple)) and len(selected_range) == 2
                 else "public-plots:grid-map"
+            ),
+        )
+        grid_map_nobat_fig = create_grid_map_history_figure(
+            twin_nobat_measurements,
+            tz=tz,
+            plot_theme=plot_theme,
+            trace_colors=trace_colors,
+            title="Grid Map / Digital Twin (No Battery)",
+            empty_text="No no-battery Grid Map / Digital Twin measurements found in the selected range.",
+            uirevision_key=(
+                f"public-plots:grid-map-nobat:{selected_range[0]}:{selected_range[1]}"
+                if isinstance(selected_range, (list, tuple)) and len(selected_range) == 2
+                else "public-plots:grid-map-nobat"
+            ),
+        )
+        grid_map_impact_fig = create_grid_map_history_figure(
+            twin_impact_measurements,
+            tz=tz,
+            plot_theme=plot_theme,
+            trace_colors=trace_colors,
+            title="Grid Map / Digital Twin Impact",
+            empty_text="No comparable Grid Map / Digital Twin measurements found in the selected range.",
+            uirevision_key=(
+                f"public-plots:grid-map-impact:{selected_range[0]}:{selected_range[1]}"
+                if isinstance(selected_range, (list, tuple)) and len(selected_range) == 2
+                else "public-plots:grid-map-impact"
             ),
         )
 
@@ -1326,7 +1451,7 @@ def build_public_readonly_app(config, shared_data):
                 voltage_autorange_padding_kv=_voltage_padding_kv_for_plant("vrfb"),
             )
 
-        return grid_map_fig, lib_fig, vrfb_fig
+        return grid_map_fig, grid_map_nobat_fig, grid_map_impact_fig, lib_fig, vrfb_fig
 
     return app
 

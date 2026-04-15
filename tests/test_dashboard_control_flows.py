@@ -20,8 +20,12 @@ def _shared_data():
         "twin_measurements_filename": "data/twin.csv",
         "twin_current_file_path": "data/twin.csv",
         "twin_current_file_df": pd.DataFrame([{"a": 3}]),
+        "twin_nobat_measurements_filename": "data/twin_nobat.csv",
+        "twin_nobat_current_file_path": "data/twin_nobat.csv",
+        "twin_nobat_current_file_df": pd.DataFrame([{"a": 4}]),
         "pending_rows_by_file": {"data/file.csv": [{"timestamp": "2026-02-26T10:00:00+00:00"}]},
         "pending_twin_rows_by_file": {"data/twin.csv": [{"timestamp": "2026-02-26T10:00:00+00:00"}]},
+        "pending_twin_nobat_rows_by_file": {"data/twin_nobat.csv": [{"timestamp": "2026-02-26T10:00:00+00:00"}]},
         "plant_observed_state_by_plant": {
             "lib": {
                 "enable_state": 1,
@@ -113,8 +117,12 @@ class DashboardControlFlowTests(unittest.TestCase):
         self.assertIsNone(shared_data["twin_measurements_filename"])
         self.assertIsNone(shared_data["twin_current_file_path"])
         self.assertTrue(shared_data["twin_current_file_df"].empty)
+        self.assertIsNone(shared_data["twin_nobat_measurements_filename"])
+        self.assertIsNone(shared_data["twin_nobat_current_file_path"])
+        self.assertTrue(shared_data["twin_nobat_current_file_df"].empty)
         self.assertEqual(shared_data["pending_rows_by_file"], {})
         self.assertEqual(shared_data["pending_twin_rows_by_file"], {})
+        self.assertEqual(shared_data["pending_twin_nobat_rows_by_file"], {})
         for plant_id in plant_ids:
             self.assertFalse(shared_data["scheduler_running_by_plant"][plant_id])
             self.assertEqual(shared_data["plant_transition_by_plant"][plant_id], "stopped")

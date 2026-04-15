@@ -8,6 +8,12 @@ import time
 from dash import dcc, html
 
 GRID_MAP_INTERACTION_PAUSE_WINDOW_S = 5.0
+GRID_MAP_SCENARIO_WITH_BATTERY = "with_battery"
+GRID_MAP_SCENARIO_WITHOUT_BATTERY = "without_battery"
+GRID_MAP_SCENARIO_LABELS = {
+    GRID_MAP_SCENARIO_WITH_BATTERY: "With Battery",
+    GRID_MAP_SCENARIO_WITHOUT_BATTERY: "Without Battery",
+}
 
 
 def build_grid_map_page(*, prefix: str, title: str = "Grid Map"):
@@ -15,6 +21,7 @@ def build_grid_map_page(*, prefix: str, title: str = "Grid Map"):
     render_state_id = f"{prefix}-grid-map-render-state" if prefix else "grid-map-render-state"
     interaction_state_id = f"{prefix}-grid-map-interaction-state" if prefix else "grid-map-interaction-state"
     startup_fit_state_id = f"{prefix}-grid-map-startup-fit-state" if prefix else "grid-map-startup-fit-state"
+    scenario_toggle_id = f"{prefix}-grid-map-scenario-toggle" if prefix else "grid-map-scenario-toggle"
     summary_id = f"{prefix}-grid-map-summary" if prefix else "grid-map-summary"
     meta_id = f"{prefix}-grid-map-meta" if prefix else "grid-map-meta"
     status_id = f"{prefix}-grid-map-status" if prefix else "grid-map-status"
@@ -24,6 +31,18 @@ def build_grid_map_page(*, prefix: str, title: str = "Grid Map"):
             dcc.Store(id=render_state_id, data=None),
             dcc.Store(id=interaction_state_id, data=None),
             dcc.Store(id=startup_fit_state_id, data=None),
+            html.Div(
+                className="form-row",
+                children=[
+                    html.H3(title),
+                    dcc.Checklist(
+                        id=scenario_toggle_id,
+                        options=[{"label": "Show No Battery", "value": GRID_MAP_SCENARIO_WITHOUT_BATTERY}],
+                        value=[],
+                        inline=True,
+                    ),
+                ],
+            ),
             html.Div(id=summary_id, className="grid-map-summary-grid"),
             dcc.Graph(id=graph_id, className="plot-graph grid-map-graph"),
             html.Div(
@@ -79,6 +98,52 @@ def build_grid_map_summary_cards(summary):
     ]
 
 
+def resolve_grid_map_scenario_key(toggle_values):
+    selected_values = set(str(value) for value in list(toggle_values or []))
+    if GRID_MAP_SCENARIO_WITHOUT_BATTERY in selected_values:
+        return GRID_MAP_SCENARIO_WITHOUT_BATTERY
+    return GRID_MAP_SCENARIO_WITH_BATTERY
+
+
+def build_grid_map_display_runtime(runtime_state, scenario_key):
+    runtime = dict(runtime_state or {})
+    scenario_key = str(scenario_key or GRID_MAP_SCENARIO_WITH_BATTERY)
+    scenario_results = dict(runtime.get("scenario_results", {}) or {})
+    scenario_entry = dict(scenario_results.get(scenario_key, {}) or {})
+    if scenario_key == GRID_MAP_SCENARIO_WITH_BATTERY and not scenario_entry:
+        scenario_entry = {
+            "requested_timestamp_local": runtime.get("requested_timestamp_local"),
+            "selected_timestamp_local": runtime.get("selected_timestamp_local"),
+            "selected_timestamp_utc": runtime.get("selected_timestamp_utc"),
+            "used_previous_hour_fallback": runtime.get("used_previous_hour_fallback"),
+            "battery_input_p_kw": runtime.get("battery_input_p_kw"),
+            "battery_input_q_kvar": runtime.get("battery_input_q_kvar"),
+            "battery_input_p_mw": runtime.get("battery_input_p_mw"),
+            "battery_input_q_mvar": runtime.get("battery_input_q_mvar"),
+            "summary": runtime.get("summary"),
+            "dynamic_payload": runtime.get("dynamic_payload"),
+        }
+
+    for key in (
+        "requested_timestamp_local",
+        "selected_timestamp_local",
+        "selected_timestamp_utc",
+        "used_previous_hour_fallback",
+        "battery_input_p_kw",
+        "battery_input_q_kvar",
+        "battery_input_p_mw",
+        "battery_input_q_mvar",
+        "summary",
+        "dynamic_payload",
+    ):
+        if key in scenario_entry:
+            runtime[key] = scenario_entry.get(key)
+
+    runtime["display_scenario_key"] = scenario_key
+    runtime["display_scenario_label"] = GRID_MAP_SCENARIO_LABELS.get(scenario_key, scenario_key)
+    return runtime
+
+
 def build_grid_map_meta_children(lines):
     return [html.Div(str(line), className="status-text") for line in list(lines or [])]
 
@@ -118,12 +183,15 @@ def build_grid_map_status_text(runtime_state):
     coordinate_mode = str(runtime_state.get("coordinate_mode") or "schematic")
     map_background_mode = str(runtime_state.get("map_background_mode") or "none")
     refresh_paused = bool(runtime_state.get("refresh_paused", False))
+    display_scenario_label = str(runtime_state.get("display_scenario_label") or "").strip()
     error_text = str(runtime_state.get("last_error") or runtime_state.get("topology_error") or "").strip()
     status_text = (
         f"Grid Map Runtime: state={state} | topology_ready={topology_ready} | "
         f"stale={stale} | mode={coordinate_mode} | background={map_background_mode} | "
         f"map_refresh={'paused' if refresh_paused else 'live'}"
     )
+    if display_scenario_label:
+        status_text += f" | scenario={display_scenario_label}"
     if error_text:
         status_text += f" | error={error_text}"
     return status_text

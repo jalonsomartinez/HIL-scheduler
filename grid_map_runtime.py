@@ -139,6 +139,8 @@ GRID_MAP_TRACE_ROLE_LINE_OVERLOADED = "line_overloaded"
 GRID_MAP_TRACE_ROLE_TRAFO = "trafo"
 GRID_MAP_TRACE_ROLE_LINE_HOVER = "line_hover"
 GRID_MAP_TRACE_ROLE_BUS = "bus"
+GRID_MAP_SCENARIO_WITH_BATTERY = "with_battery"
+GRID_MAP_SCENARIO_WITHOUT_BATTERY = "without_battery"
 
 GRID_MAP_LINE_BUCKETS = ("normal", "warning", "overloaded")
 GRID_MAP_VOLTAGE_BUCKET_SPECS = (
@@ -152,6 +154,32 @@ GRID_MAP_VOLTAGE_BUCKET_SPECS = (
 )
 
 _SIMULATOR_MODULE = None
+
+
+def default_grid_map_scenario_result() -> dict[str, Any]:
+    return {
+        "requested_timestamp_local": None,
+        "selected_timestamp_local": None,
+        "selected_timestamp_utc": None,
+        "used_previous_hour_fallback": False,
+        "battery_input_p_kw": None,
+        "battery_input_q_kvar": None,
+        "battery_input_p_mw": None,
+        "battery_input_q_mvar": None,
+        "summary": None,
+        "dynamic_payload": None,
+    }
+
+
+def _normalize_grid_map_scenario_results(value: Any) -> dict[str, dict[str, Any]]:
+    provided = dict(value or {}) if isinstance(value, dict) else {}
+    normalized = {}
+    for scenario_key in (GRID_MAP_SCENARIO_WITH_BATTERY, GRID_MAP_SCENARIO_WITHOUT_BATTERY):
+        merged = default_grid_map_scenario_result()
+        current = dict(provided.get(scenario_key) or {}) if isinstance(provided.get(scenario_key), dict) else {}
+        merged.update(current)
+        normalized[scenario_key] = merged
+    return normalized
 
 
 def _normalize_background_mode(value: Any) -> str:
@@ -246,6 +274,7 @@ def default_grid_map_runtime(period_s: float) -> dict[str, Any]:
         "battery_input_q_mvar": None,
         "summary": None,
         "dynamic_payload": None,
+        "scenario_results": _normalize_grid_map_scenario_results(None),
         "initial_figure": None,
         "trace_index_meta": None,
         "topology_revision": None,
@@ -267,6 +296,7 @@ def ensure_grid_map_runtime(shared_data: dict[str, Any], period_s: float) -> Non
             merged = default_grid_map_runtime(period_s)
             merged.update(existing)
             merged["poll_period_s"] = float(merged.get("poll_period_s", period_s) or period_s)
+            merged["scenario_results"] = _normalize_grid_map_scenario_results(merged.get("scenario_results"))
             shared_data[GRID_MAP_STATUS_KEY] = merged
             return
         shared_data[GRID_MAP_STATUS_KEY] = default_grid_map_runtime(period_s)
@@ -2172,6 +2202,7 @@ def publish_grid_map_success(
     run_payload: dict[str, Any],
     summary: dict[str, Any],
     dynamic_payload: dict[str, Any],
+    scenario_results: dict[str, Any] | None = None,
 ) -> None:
     pf_result = dict(run_payload.get("power_flow_result", {}) or {})
     selected_local = pf_result.get("selected_timestamp_local")
@@ -2179,6 +2210,10 @@ def publish_grid_map_success(
     requested_local = run_payload.get("requested_timestamp_local")
     with shared_data["lock"]:
         runtime_state = shared_data.setdefault(GRID_MAP_STATUS_KEY, default_grid_map_runtime(5.0))
+        normalized_scenarios = _normalize_grid_map_scenario_results(runtime_state.get("scenario_results"))
+        provided_scenarios = _normalize_grid_map_scenario_results(scenario_results)
+        for scenario_key in normalized_scenarios:
+            normalized_scenarios[scenario_key].update(provided_scenarios.get(scenario_key, {}))
         runtime_state["state"] = "ok"
         runtime_state["last_run_at"] = now_value
         runtime_state["last_success_at"] = now_value
@@ -2195,6 +2230,7 @@ def publish_grid_map_success(
         runtime_state["battery_input_q_mvar"] = run_payload.get("battery_input_q_mvar")
         runtime_state["summary"] = dict(summary or {})
         runtime_state["dynamic_payload"] = dict(dynamic_payload or {})
+        runtime_state["scenario_results"] = normalized_scenarios
         runtime_state["dynamic_revision"] = int(runtime_state.get("dynamic_revision", 0) or 0) + 1
         runtime_state["stale"] = False
 
@@ -2239,6 +2275,8 @@ def snapshot_grid_map_runtime(shared_data: dict[str, Any]) -> dict[str, Any]:
         current["dynamic_payload"] = copy.deepcopy(dynamic_payload) if isinstance(dynamic_payload, dict) else dynamic_payload
         summary = current.get("summary")
         current["summary"] = dict(summary or {}) if isinstance(summary, dict) else summary
+        scenario_results = current.get("scenario_results")
+        current["scenario_results"] = _normalize_grid_map_scenario_results(copy.deepcopy(scenario_results))
         meta = current.get("topology_cache_meta")
         current["topology_cache_meta"] = dict(meta or {}) if isinstance(meta, dict) else meta
         trace_meta = current.get("trace_index_meta")
@@ -2773,6 +2811,7 @@ def build_grid_map_meta_lines(runtime_state: dict[str, Any], config: dict[str, A
     map_background_mode = str(runtime_state.get("map_background_mode") or GRID_MAP_BACKGROUND_MODE_NONE)
     map_background_enabled = bool(runtime_state.get("map_background_enabled", False))
     map_background_reason = str(runtime_state.get("map_background_reason") or "").strip()
+    scenario_label = str(runtime_state.get("display_scenario_label") or "").strip()
     input_p = _coerce_float(runtime_state.get("battery_input_p_kw"))
     input_q = _coerce_float(runtime_state.get("battery_input_q_kvar"))
     error_text = str(runtime_state.get("last_error") or "").strip()
@@ -2793,6 +2832,8 @@ def build_grid_map_meta_lines(runtime_state: dict[str, Any], config: dict[str, A
             f"Q={_format_metric(input_q, decimals=1, unit='kvar')}"
         ),
     ]
+    if scenario_label:
+        lines.insert(1, f"Displayed Scenario: {scenario_label}")
     if map_background_reason:
         lines.append(f"Map Background Reason: {map_background_reason}")
     if error_text:
