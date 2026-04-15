@@ -2,6 +2,7 @@ import sys
 import threading
 import types
 import unittest
+import warnings
 from unittest.mock import patch
 
 import pandas as pd
@@ -657,6 +658,29 @@ class GridMapRuntimeTests(unittest.TestCase):
         self.assertEqual(summary["grid_map_voltage_bucket_lt_0_925_count"], 1)
         self.assertEqual(summary["grid_map_voltage_bucket_gte_1_075_count"], 1)
         self.assertEqual(summary["grid_map_voltage_bucket_0_975_to_1_025_count"], 0)
+
+    def test_build_power_flow_summary_preserves_object_timestamp_index_without_warning(self):
+        timestamp_index = pd.Index(
+            [
+                pd.Timestamp("2026-04-03T10:00:00+00:00"),
+                pd.Timestamp("2026-04-03T11:00:00+00:00"),
+            ],
+            dtype=object,
+        )
+        result = {
+            "results_tables": {
+                "res_bus": pd.DataFrame({"vm_pu": [0.96, 1.04]}, index=timestamp_index),
+            },
+        }
+
+        with warnings.catch_warnings(record=True) as captured:
+            warnings.simplefilter("always")
+            summary = gmr.build_power_flow_summary(result)
+
+        future_warnings = [item for item in captured if issubclass(item.category, FutureWarning)]
+        self.assertEqual(future_warnings, [])
+        self.assertEqual(summary["grid_map_voltage_bucket_0_95_to_0_975_count"], 1)
+        self.assertEqual(summary["grid_map_voltage_bucket_1_025_to_1_05_count"], 1)
 
     def test_publish_grid_map_success_stores_scenario_specific_payloads(self):
         shared_data = {"lock": threading.Lock(), gmr.GRID_MAP_STATUS_KEY: gmr.default_grid_map_runtime(5.0)}

@@ -335,9 +335,10 @@ def _series_from_results(results_tables: dict[str, Any], table_name: str, column
     table = (results_tables or {}).get(table_name)
     if not isinstance(table, pd.DataFrame) or table.empty or column_name not in table.columns:
         return pd.Series(dtype=float)
-    series = pd.to_numeric(table[column_name], errors="coerce")
-    series.index = pd.Index(table.index)
-    return series
+    # Preserve the existing pandas index instead of rebuilding it through
+    # pd.Index(...), which triggers a pandas FutureWarning for object-dtype
+    # timestamp indexes and is unnecessary here.
+    return pd.to_numeric(table[column_name], errors="coerce").copy()
 
 
 def _derive_battery_bus_voltage_kv(
