@@ -475,6 +475,20 @@ def _public_layout(*, plant_name_fn, brand_logo_src, measurement_period_s, grid_
                                 ],
                             ),
                             html.Div(
+                                className="plant-card",
+                                children=[
+                                    html.H3(f"{plant_name_fn('lib')}"),
+                                    dcc.Graph(id="public-plots-graph-lib", className="plot-graph"),
+                                ],
+                            ),
+                            html.Div(
+                                className="plant-card",
+                                children=[
+                                    html.H3(f"{plant_name_fn('vrfb')}"),
+                                    dcc.Graph(id="public-plots-graph-vrfb", className="plot-graph"),
+                                ],
+                            ),
+                            html.Div(
                                 className="card",
                                 children=[
                                     html.H3("Grid Map / Digital Twin"),
@@ -493,20 +507,6 @@ def _public_layout(*, plant_name_fn, brand_logo_src, measurement_period_s, grid_
                                 children=[
                                     html.H3("Grid Map / Digital Twin Impact"),
                                     dcc.Graph(id="public-plots-grid-map-impact-history-graph", className="plot-graph"),
-                                ],
-                            ),
-                            html.Div(
-                                className="plant-card",
-                                children=[
-                                    html.H3(f"{plant_name_fn('lib')}"),
-                                    dcc.Graph(id="public-plots-graph-lib", className="plot-graph"),
-                                ],
-                            ),
-                            html.Div(
-                                className="plant-card",
-                                children=[
-                                    html.H3(f"{plant_name_fn('vrfb')}"),
-                                    dcc.Graph(id="public-plots-graph-vrfb", className="plot-graph"),
                                 ],
                             ),
                                 ],

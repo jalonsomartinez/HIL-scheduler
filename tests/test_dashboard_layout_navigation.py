@@ -30,6 +30,32 @@ def _index_components_by_id(component, output):
     _index_components_by_id(children, output)
 
 
+def _find_component_by_id(component, target_id):
+    if component is None:
+        return None
+    if getattr(component, "id", None) == target_id:
+        return component
+    children = getattr(component, "children", None)
+    if isinstance(children, (list, tuple)):
+        for child in children:
+            match = _find_component_by_id(child, target_id)
+            if match is not None:
+                return match
+        return None
+    return _find_component_by_id(children, target_id)
+
+
+def _component_contains_id(component, target_id):
+    if component is None:
+        return False
+    if getattr(component, "id", None) == target_id:
+        return True
+    children = getattr(component, "children", None)
+    if isinstance(children, (list, tuple)):
+        return any(_component_contains_id(child, target_id) for child in children)
+    return _component_contains_id(children, target_id)
+
+
 def _minimal_shared_data():
     return {
         "lock": threading.Lock(),
@@ -90,6 +116,15 @@ class DashboardLayoutNavigationTests(unittest.TestCase):
             self.assertIn(component_id, by_id)
         self.assertNotIn("main-tabs", by_id)
 
+        plots_page = _find_component_by_id(layout, "page-private-plots")
+        plot_children = list(getattr(plots_page, "children", []) or [])
+
+        def _child_index(target_id):
+            return next(index for index, child in enumerate(plot_children) if _component_contains_id(child, target_id))
+
+        self.assertLess(_child_index("plots-graph-lib"), _child_index("plots-grid-map-history-graph"))
+        self.assertLess(_child_index("plots-graph-vrfb"), _child_index("plots-grid-map-history-graph"))
+
     def test_public_layout_renders_sidebar_navigation_shell(self):
         config = load_config("config.yaml")
         config["DASHBOARD_PUBLIC_READONLY_AUTH_MODE"] = "none"
@@ -126,6 +161,15 @@ class DashboardLayoutNavigationTests(unittest.TestCase):
         for component_id in expected_ids:
             self.assertIn(component_id, by_id)
         self.assertNotIn("public-main-tabs", by_id)
+
+        plots_page = _find_component_by_id(app.layout, "page-public-plots")
+        plot_children = list(getattr(plots_page, "children", []) or [])
+
+        def _child_index(target_id):
+            return next(index for index, child in enumerate(plot_children) if _component_contains_id(child, target_id))
+
+        self.assertLess(_child_index("public-plots-graph-lib"), _child_index("public-plots-grid-map-history-graph"))
+        self.assertLess(_child_index("public-plots-graph-vrfb"), _child_index("public-plots-grid-map-history-graph"))
 
 
 if __name__ == "__main__":

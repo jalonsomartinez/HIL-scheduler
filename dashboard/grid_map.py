@@ -31,19 +31,20 @@ def build_grid_map_page(*, prefix: str, title: str = "Grid Map"):
             dcc.Store(id=render_state_id, data=None),
             dcc.Store(id=interaction_state_id, data=None),
             dcc.Store(id=startup_fit_state_id, data=None),
+            html.H3(title),
+            html.Div(id=summary_id, className="grid-map-summary-grid"),
             html.Div(
-                className="form-row",
+                className="grid-map-toggle-row",
                 children=[
-                    html.H3(title),
                     dcc.Checklist(
                         id=scenario_toggle_id,
-                        options=[{"label": "Show No Battery", "value": GRID_MAP_SCENARIO_WITHOUT_BATTERY}],
+                        className="grid-map-scenario-toggle",
+                        options=[{"label": "No Battery", "value": GRID_MAP_SCENARIO_WITHOUT_BATTERY}],
                         value=[],
                         inline=True,
                     ),
                 ],
             ),
-            html.Div(id=summary_id, className="grid-map-summary-grid"),
             dcc.Graph(id=graph_id, className="plot-graph grid-map-graph"),
             html.Div(
                 className="grid-map-meta-block",

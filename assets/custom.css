@@ -396,6 +396,25 @@ a {
     margin-top: 12px;
 }
 
+.grid-map-toggle-row {
+    display: flex;
+    justify-content: flex-start;
+    margin-top: 10px;
+}
+
+.grid-map-scenario-toggle {
+    font-size: 0.82rem;
+    color: var(--text-soft);
+}
+
+.grid-map-scenario-toggle label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+
 .grid-map-summary-card {
     border: 1px solid var(--border);
     border-radius: var(--public-top-radius);

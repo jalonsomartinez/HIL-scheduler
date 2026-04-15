@@ -312,27 +312,6 @@ def build_dashboard_layout(
                                 ],
                             ),
                             html.Div(
-                                className="card",
-                                children=[
-                                    html.H3("Grid Map / Digital Twin"),
-                                    dcc.Graph(id="plots-grid-map-history-graph", className="plot-graph"),
-                                ],
-                            ),
-                            html.Div(
-                                className="card",
-                                children=[
-                                    html.H3("Grid Map / Digital Twin (No Battery)"),
-                                    dcc.Graph(id="plots-grid-map-nobat-history-graph", className="plot-graph"),
-                                ],
-                            ),
-                            html.Div(
-                                className="card",
-                                children=[
-                                    html.H3("Grid Map / Digital Twin Impact"),
-                                    dcc.Graph(id="plots-grid-map-impact-history-graph", className="plot-graph"),
-                                ],
-                            ),
-                            html.Div(
                                 className="plant-card",
                                 children=[
                                     html.Div(
@@ -392,6 +371,27 @@ def build_dashboard_layout(
                                     dcc.Graph(id="plots-graph-vrfb", className="plot-graph"),
                                     dcc.Download(id="plots-download-csv-vrfb"),
                                     html.Div(id="plots-vrfb-png-noop", style={"display": "none"}),
+                                ],
+                            ),
+                            html.Div(
+                                className="card",
+                                children=[
+                                    html.H3("Grid Map / Digital Twin"),
+                                    dcc.Graph(id="plots-grid-map-history-graph", className="plot-graph"),
+                                ],
+                            ),
+                            html.Div(
+                                className="card",
+                                children=[
+                                    html.H3("Grid Map / Digital Twin (No Battery)"),
+                                    dcc.Graph(id="plots-grid-map-nobat-history-graph", className="plot-graph"),
+                                ],
+                            ),
+                            html.Div(
+                                className="card",
+                                children=[
+                                    html.H3("Grid Map / Digital Twin Impact"),
+                                    dcc.Graph(id="plots-grid-map-impact-history-graph", className="plot-graph"),
                                 ],
                             ),
                                 ],
