@@ -1,0 +1,194 @@
+# HIL Scheduler Configuration
+
+general:
+  log_level: INFO
+
+time:
+  timezone: "Europe/Madrid"
+
+schedule:
+  source_csv: "schedule_source.csv"
+  duration_h: 0.5
+  default_resolution_min: 5
+
+startup:
+  schedule_source: "manual"    # manual | api
+  transport_mode: "local"      # local | remote
+  initial_soc_pu: 0.5          # shared local-emulation startup SoC for all plants
+
+istentore_api:
+  base_url: "https://3mku48kfxf.execute-api.eu-south-2.amazonaws.com/default"
+  email: "i-STENTORE"
+  tomorrow_poll_start_time: "15:00"  # gates polling for next-day schedule only (today is fetched whenever missing)
+  schedule_period_minutes: 15
+  mfrr_poll_period_s: 60
+  post_measurements_in_api_mode: true
+  measurement_post_period_s: 60
+  measurement_post_queue_maxlen: 2000
+  measurement_post_retry_initial_s: 2
+  measurement_post_retry_max_s: 60
+
+timing:
+  data_fetcher_period_s: 120
+  scheduler_period_s: 2
+  plant_period_s: 2
+  measurement_period_s: 10
+  measurements_write_period_s: 60
+  grid_map_period_s: 10
+
+dashboard:
+  grid_map:
+    background_mode: "satellite"  # none | street | satellite
+  private:
+    host: "127.0.0.1"
+    port: 8050
+  public_readonly:
+    enabled: true
+    host: "127.0.0.1"
+    port: 8060
+    auth:
+      mode: "basic"  # basic | none
+
+grid_map:
+  voltage_write_modbus:
+    local:
+      host: "localhost"
+      port: 5021
+      byte_order: big
+      word_order: msw_first
+      points:
+        v_poi_write: {address: 297, format: uint16, access: rw, unit: V, eng_per_count: 1.0}
+    remote:
+      host: "10.117.133.27"
+      port: 502
+      byte_order: big
+      word_order: msw_first
+      points:
+        v_poi_write: {address: 4, format: uint16, access: rw, unit: V, eng_per_count: 1.0}        
+
+recording:
+  compression:
+    enabled: true
+    max_kept_gap_s: 360  # compression keep-gap threshold (not the sampling period)
+    tolerances:
+      p_setpoint_kw: 0.0
+      battery_active_power_kw: 0.1
+      q_setpoint_kvar: 0.0
+      battery_reactive_power_kvar: 0.1
+      soc_pu: 0.001
+      p_poi_kw: 0.1
+      q_poi_kvar: 0.1
+      v_poi_kV: 0.001
+
+plants:
+  lib:
+    name: "LIB"
+    model:
+      capacity_kwh: 500.0
+      power_limits:
+        p_max_kw: 1000.0
+        p_min_kw: -1000.0
+        q_max_kvar: 600.0
+        q_min_kvar: -600.0
+      poi_voltage_kv: 20.0
+    modbus:
+      local:
+        host: "10.117.133.21"
+        port: 502
+        byte_order: big
+        word_order: lsw_first
+        points:
+          p_setpoint: {address: 86, format: int32, access: rw, unit: kW, eng_per_count: 0.1}
+          p_poi: {address: 290, format: int32, access: r, unit: kW, eng_per_count: 0.1}
+          p_battery: {address: 270, format: int32, access: r, unit: kW, eng_per_count: 0.1}
+          q_setpoint: {address: 88, format: int32, access: rw, unit: kvar, eng_per_count: 0.1}
+          q_poi: {address: 292, format: int32, access: r, unit: kvar, eng_per_count: 0.1}
+          q_battery: {address: 272, format: int32, access: r, unit: kvar, eng_per_count: 0.1}
+          v_poi: {address: 296, format: uint32, access: r, unit: V, eng_per_count: 1.0}
+          v_setpoint: {address: 90, format: uint32, access: rw, unit: V, eng_per_count: 1.0} # Assumed plant voltage-setpoint register for direct voltage mode
+          enable: {address: 1, format: uint16, access: rw, unit: raw, eng_per_count: 1.0} # El enable permite la escritura en la batería. Debe estar a 1 para permitir escritura
+          soc: {address: 281, format: uint16, access: r, unit: pu, eng_per_count: 0.0001} # pc is percentage
+          stop_command: {address: 85, format: uint16, access: w, unit: raw, eng_per_count: 1.0} # 1: stop, 0: start. Este registro debe estar a 0 para permitir la operación normal de la batería. Si se pone a 1, la batería se detiene y no responde a comandos de potencia.
+          q_control_mode: {address: 82, format: uint16, access: rw, unit: raw, eng_per_count: 1.0} # 1: reactive power control, 3: voltage control
+      remote:
+        host: "10.117.133.21"
+        port: 502
+        byte_order: big
+        word_order: lsw_first
+        points:
+          p_setpoint: {address: 86, format: int32, access: rw, unit: kW, eng_per_count: 0.1}
+          p_poi: {address: 290, format: int32, access: r, unit: kW, eng_per_count: 0.1}
+          p_battery: {address: 270, format: int32, access: r, unit: kW, eng_per_count: 0.1}
+          q_setpoint: {address: 88, format: int32, access: rw, unit: kvar, eng_per_count: 0.1}
+          q_poi: {address: 292, format: int32, access: r, unit: kvar, eng_per_count: 0.1}
+          q_battery: {address: 272, format: int32, access: r, unit: kvar, eng_per_count: 0.1}
+          v_poi: {address: 296, format: uint32, access: r, unit: V, eng_per_count: 1.0}
+          v_setpoint: {address: 90, format: uint32, access: rw, unit: V, eng_per_count: 1.0} # Assumed plant voltage-setpoint register for direct voltage mode
+          enable: {address: 1, format: uint16, access: rw, unit: raw, eng_per_count: 1.0} # El enable permite la escritura en la batería. Debe estar a 1 para permitir escritura
+          soc: {address: 281, format: uint16, access: r, unit: pu, eng_per_count: 0.0001} # pc is percentage
+          stop_command: {address: 85, format: uint16, access: w, unit: raw, eng_per_count: 1.0} # 1: stop, 0: start. Este registro debe estar a 0 para permitir la operación normal de la batería. Si se pone a 1, la batería se detiene y no responde a comandos de potencia.
+          q_control_mode: {address: 82, format: uint16, access: rw, unit: raw, eng_per_count: 1.0} # 1: reactive power control, 3: voltage control
+    measurement_series:
+      soc: 4
+      p: 6
+      q: 7
+      v: 8
+
+  vrfb:
+    name: "VRFB"
+    model:
+      capacity_kwh: 400
+      power_limits:
+        p_max_kw: 50
+        p_min_kw: -50
+        q_max_kvar: 5
+        q_min_kvar: -5
+      poi_voltage_kv: 0.40
+    modbus:
+      local:
+        host: "10.117.133.12"
+        port: 502
+        byte_order: big
+        word_order: msw_first
+        points:
+          p_u_setpoint: {address: 27764, format: float32, access: rw, unit: W, eng_per_count: 1.0}
+          p_v_setpoint: {address: 27766, format: float32, access: rw, unit: W, eng_per_count: 1.0}
+          p_w_setpoint: {address: 27768, format: float32, access: rw, unit: W, eng_per_count: 1.0}
+          p_poi: {address: 26128, format: float32, access: r, unit: W, eng_per_count: 1.0}
+          p_battery: {address: 26128, format: float32, access: r, unit: W, eng_per_count: 1.0}
+          q_u_setpoint: {address: 27758, format: float32, access: rw, unit: var, eng_per_count: 1.0}
+          q_v_setpoint: {address: 27760, format: float32, access: rw, unit: var, eng_per_count: 1.0}
+          q_w_setpoint: {address: 27762, format: float32, access: rw, unit: var, eng_per_count: 1.0}
+          q_poi: {address: 26136, format: float32, access: r, unit: var, eng_per_count: 1.0} 
+          q_battery: {address: 26136, format: float32, access: r, unit: var, eng_per_count: 1.0}
+          v_poi: {address: 26102, format: float32, access: r, unit: V, eng_per_count: 1.732}
+          enable: {address: 17002, format: uint32, access: rw, unit: raw, eng_per_count: 1.0}
+          #soc: {address: 22, format: uint16, access: r, unit: pu, eng_per_count: 0.0001} 
+          start_command: {address: 17000, format: uint32, access: rw, unit: raw, eng_per_count: 1.0}
+          trigger: {address: 17020, format: uint32, access: rw, unit: raw, eng_per_count: 1.0}
+      remote:
+        host: "7c30070c1f50.sn.mynetname.net"
+        port: 502
+        byte_order: big
+        word_order: msw_first
+        points:
+          p_u_setpoint: {address: 27764, format: float32, access: rw, unit: W, eng_per_count: 1.0}
+          p_v_setpoint: {address: 27766, format: float32, access: rw, unit: W, eng_per_count: 1.0}
+          p_w_setpoint: {address: 27768, format: float32, access: rw, unit: W, eng_per_count: 1.0}
+          p_poi: {address: 26128, format: float32, access: r, unit: W, eng_per_count: 1.0}
+          p_battery: {address: 26128, format: float32, access: r, unit: W, eng_per_count: 1.0}
+          q_u_setpoint: {address: 27758, format: float32, access: rw, unit: var, eng_per_count: 1.0}
+          q_v_setpoint: {address: 27760, format: float32, access: rw, unit: var, eng_per_count: 1.0}
+          q_w_setpoint: {address: 27762, format: float32, access: rw, unit: var, eng_per_count: 1.0}
+          q_poi: {address: 26136, format: float32, access: r, unit: var, eng_per_count: 1.0} 
+          q_battery: {address: 26136, format: float32, access: r, unit: var, eng_per_count: 1.0}
+          v_poi: {address: 26102, format: float32, access: r, unit: V, eng_per_count: 1.732}
+          enable: {address: 17002, format: uint32, access: rw, unit: raw, eng_per_count: 1.0}
+          #soc: {address: 22, format: uint16, access: r, unit: pu, eng_per_count: 0.0001} 
+          start_command: {address: 17000, format: uint32, access: rw, unit: raw, eng_per_count: 1.0}
+          trigger: {address: 17020, format: uint32, access: rw, unit: raw, eng_per_count: 1.0}
+    measurement_series:
+      soc: 5
+      p: 11
+      q: 10
+      v: 9
