@@ -52,8 +52,8 @@ dashboard:
 grid_map:
   voltage_write_modbus:
     local:
-      host: "localhost"
-      port: 5021
+      host: "10.117.133.27"
+      port: 502
       byte_order: big
       word_order: msw_first
       points:
