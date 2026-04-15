@@ -93,8 +93,8 @@ plants:
       poi_voltage_kv: 20.0
     modbus:
       local:
-        host: "127.0.0.1"
-        port: 5020
+        host: "10.117.133.21"
+        port: 502
         byte_order: big
         word_order: lsw_first
         points:
@@ -146,8 +146,8 @@ plants:
       poi_voltage_kv: 0.40
     modbus:
       local:
-        host: "127.0.0.1"
-        port: 5021
+        host: "10.117.133.12"
+        port: 502
         byte_order: big
         word_order: msw_first
         points:
