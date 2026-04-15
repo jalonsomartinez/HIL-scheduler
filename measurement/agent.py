@@ -18,17 +18,26 @@ from measurement.sampling import (
     take_measurement as sampling_take_measurement,
 )
 from measurement.storage import (
-    DIGITAL_TWIN_SUMMARY_MEASUREMENT_COLUMNS,
     MEASUREMENT_COLUMNS,
     MEASUREMENT_VALUE_COLUMNS,
+    TWIN_MEASUREMENT_COLUMNS,
+    TWIN_MEASUREMENT_VALUE_COLUMNS,
     append_rows_to_csv,
+    append_twin_rows_to_csv,
     build_daily_file_path as storage_build_daily_file_path,
+    build_twin_daily_file_path,
     build_null_row,
+    build_twin_null_row,
     is_real_row,
     is_null_row,
+    is_twin_real_row,
+    is_twin_null_row,
     load_file_for_cache,
+    load_twin_file_for_cache,
     normalize_measurements_df,
+    normalize_twin_measurements_df,
     rows_are_similar,
+    twin_rows_are_similar,
 )
 from modbus.setpoint_io import voltage_control_mode_supported
 from runtime.soc_estimation import SocEstimator, resolve_startup_soc_seed
@@ -45,7 +54,7 @@ from scheduling.runtime import resolve_dispatch_bundle_from_sources, resolve_sch
 from time_utils import get_config_tz, normalize_datetime_series, normalize_timestamp_value, now_tz, serialize_iso_with_tz
 
 
-DIGITAL_TWIN_SUMMARY_ROW_FIELDS = {
+TWIN_SUMMARY_ROW_FIELDS = {
     "grid_map_battery_voltage_pu": "battery_voltage_pu",
     "grid_map_min_voltage_pu": "min_voltage_pu",
     "grid_map_max_voltage_pu": "max_voltage_pu",
@@ -61,15 +70,17 @@ DIGITAL_TWIN_SUMMARY_ROW_FIELDS = {
 }
 
 
-def _apply_digital_twin_summary_measurements(row, grid_map_runtime):
+def _build_twin_summary_row(timestamp, grid_map_runtime, tz):
+    row = {"timestamp": normalize_timestamp_value(timestamp, tz)}
     summary = dict((grid_map_runtime or {}).get("summary", {}) or {})
-    for row_field in DIGITAL_TWIN_SUMMARY_MEASUREMENT_COLUMNS:
-        summary_key = DIGITAL_TWIN_SUMMARY_ROW_FIELDS[row_field]
+    for row_field in TWIN_MEASUREMENT_VALUE_COLUMNS:
+        summary_key = TWIN_SUMMARY_ROW_FIELDS[row_field]
         value = summary.get(summary_key)
         try:
             row[row_field] = float(value)
         except (TypeError, ValueError):
             row[row_field] = math.nan
+    return row
 
 
 def measurement_agent(config, shared_data):
@@ -80,6 +91,17 @@ def measurement_agent(config, shared_data):
     plant_ids = tuple(config.get("PLANT_IDS", ("lib", "vrfb")))
     plants_cfg = config.get("PLANTS", {})
     tz = get_config_tz(config)
+
+    with shared_data["lock"]:
+        shared_data.setdefault("measurements_filename_by_plant", {plant_id: None for plant_id in plant_ids})
+        shared_data.setdefault("current_file_path_by_plant", {plant_id: None for plant_id in plant_ids})
+        shared_data.setdefault("current_file_df_by_plant", {plant_id: pd.DataFrame() for plant_id in plant_ids})
+        shared_data.setdefault("pending_rows_by_file", {})
+        shared_data.setdefault("twin_measurements_filename", None)
+        shared_data.setdefault("twin_current_file_path", None)
+        shared_data.setdefault("twin_current_file_df", pd.DataFrame())
+        shared_data.setdefault("pending_twin_rows_by_file", {})
+        shared_data.setdefault("measurements_df", pd.DataFrame())
 
     measurement_period_s = float(config.get("MEASUREMENT_PERIOD_S", 1))
     write_period_s = float(config.get("MEASUREMENTS_WRITE_PERIOD_S", 60))
@@ -104,6 +126,15 @@ def measurement_agent(config, shared_data):
             compression_tolerances[column] = parsed if parsed >= 0.0 else default_value
         except (TypeError, ValueError):
             compression_tolerances[column] = default_value
+    twin_compression_tolerances = {}
+    for column in TWIN_MEASUREMENT_VALUE_COLUMNS:
+        default_value = DEFAULT_COMPRESSION_TOLERANCES.get(column, 0.0)
+        raw_value = configured_tolerances.get(column, default_value)
+        try:
+            parsed = float(raw_value)
+            twin_compression_tolerances[column] = parsed if parsed >= 0.0 else default_value
+        except (TypeError, ValueError):
+            twin_compression_tolerances[column] = default_value
     try:
         compression_max_kept_gap_s = float(compression_max_kept_gap_s_raw)
         if compression_max_kept_gap_s < 0.0:
@@ -140,6 +171,10 @@ def measurement_agent(config, shared_data):
     last_real_row_by_file = {}
     last_appended_real_row_by_file = {}
     run_active_by_file = {}
+    twin_last_write_time = time.time()
+    twin_last_real_row_by_file = {}
+    twin_last_appended_real_row_by_file = {}
+    twin_run_active_by_file = {}
 
     plant_states = {}
     for plant_id in plant_ids:
@@ -161,6 +196,15 @@ def measurement_agent(config, shared_data):
                 startup_soc_seed.get("soc_pu"),
             ),
         }
+    twin_state = {
+        "recording_active": False,
+        "recording_file_path": None,
+        "awaiting_first_real_sample": False,
+        "last_real_timestamp": None,
+        "session_tail_ts": None,
+        "session_tail_is_null": False,
+        "cache_context": None,
+    }
 
     def empty_post_status():
         return default_measurement_post_status()
@@ -244,6 +288,9 @@ def measurement_agent(config, shared_data):
         plant_name, fallback = get_plant_name(plant_id)
         return storage_build_daily_file_path(plant_name, fallback, timestamp, tz, now_tz(config))
 
+    def twin_daily_file_path(timestamp):
+        return build_twin_daily_file_path(timestamp, tz, now_tz(config))
+
     def refresh_aggregate_measurements_df():
         # Snapshot under lock, build aggregate outside lock, then write back.
         with shared_data["lock"]:
@@ -282,6 +329,23 @@ def measurement_agent(config, shared_data):
         refresh_aggregate_measurements_df()
         return file_path
 
+    def refresh_twin_current_file_cache(now_ts):
+        file_path = twin_daily_file_path(now_ts)
+        file_df = load_twin_file_for_cache(file_path, tz)
+
+        with shared_data["lock"]:
+            pending_rows = shared_data.get("pending_twin_rows_by_file", {}).get(file_path, [])[:]
+
+        if pending_rows:
+            pending_df = normalize_twin_measurements_df(pd.DataFrame(pending_rows), tz)
+            file_df = normalize_twin_measurements_df(pd.concat([file_df, pending_df], ignore_index=True), tz)
+
+        with shared_data["lock"]:
+            shared_data["twin_current_file_path"] = file_path
+            shared_data["twin_current_file_df"] = file_df
+
+        return file_path
+
     def upsert_row_to_current_cache(plant_id, file_path, row, replace_last=False):
         row_df = pd.DataFrame([row], columns=MEASUREMENT_COLUMNS)
         row_df["timestamp"] = normalize_datetime_series(row_df["timestamp"], tz)
@@ -309,18 +373,53 @@ def measurement_agent(config, shared_data):
 
         refresh_aggregate_measurements_df()
 
-    def enqueue_row_for_file(row, plant_id):
-        file_path = build_daily_file_path(plant_id, row["timestamp"])
+    def upsert_row_to_twin_current_cache(file_path, row, replace_last=False):
+        row_df = pd.DataFrame([row], columns=TWIN_MEASUREMENT_COLUMNS)
+        row_df["timestamp"] = normalize_datetime_series(row_df["timestamp"], tz)
+
+        with shared_data["lock"]:
+            current_path = shared_data.get("twin_current_file_path")
+            if current_path != file_path:
+                return
+            current_df = shared_data.get("twin_current_file_df", pd.DataFrame())
+
+        if current_df is None or current_df.empty:
+            updated = row_df
+        elif replace_last:
+            updated = current_df.copy()
+            updated.iloc[-1] = row_df.iloc[0]
+        else:
+            updated = pd.concat([current_df, row_df], ignore_index=True)
+
+        with shared_data["lock"]:
+            current_path = shared_data.get("twin_current_file_path")
+            if current_path != file_path:
+                return
+            shared_data["twin_current_file_df"] = updated
+
+    def enqueue_history_row_for_file(
+        row,
+        file_path,
+        *,
+        pending_key,
+        is_real_fn,
+        rows_are_similar_fn,
+        upsert_current_cache_fn,
+        tolerances,
+        last_real_rows,
+        last_appended_real_rows,
+        run_active_flags,
+    ):
         append_new = False
         replace_previous = False
 
-        row_is_real = is_real_row(row)
-        last_appended_real_row = last_appended_real_row_by_file.get(file_path)
-        run_active = bool(run_active_by_file.get(file_path, False))
+        row_is_real = is_real_fn(row)
+        last_appended_real_row = last_appended_real_rows.get(file_path)
+        run_active = bool(run_active_flags.get(file_path, False))
         rows_similar_to_prev = (
             row_is_real
             and last_appended_real_row is not None
-            and rows_are_similar(last_appended_real_row, row, compression_tolerances)
+            and rows_are_similar_fn(last_appended_real_row, row, tolerances)
         )
         force_keep_due_to_gap = False
         if rows_similar_to_prev and last_appended_real_row is not None:
@@ -331,7 +430,7 @@ def measurement_agent(config, shared_data):
                 force_keep_due_to_gap = gap_s > compression_max_kept_gap_s
 
         with shared_data["lock"]:
-            pending = shared_data.setdefault("pending_rows_by_file", {})
+            pending = shared_data.setdefault(pending_key, {})
             rows = pending.setdefault(file_path, [])
 
             if not compression_enabled:
@@ -340,21 +439,21 @@ def measurement_agent(config, shared_data):
             elif not row_is_real:
                 rows.append(row)
                 append_new = True
-                last_real_row_by_file[file_path] = None
-                last_appended_real_row_by_file[file_path] = None
-                run_active_by_file[file_path] = False
+                last_real_rows[file_path] = None
+                last_appended_real_rows[file_path] = None
+                run_active_flags[file_path] = False
             elif last_appended_real_row is None or (not rows_similar_to_prev) or force_keep_due_to_gap:
                 rows.append(row)
                 append_new = True
-                last_real_row_by_file[file_path] = row
-                last_appended_real_row_by_file[file_path] = row
-                run_active_by_file[file_path] = False
+                last_real_rows[file_path] = row
+                last_appended_real_rows[file_path] = row
+                run_active_flags[file_path] = False
             elif not run_active:
                 rows.append(row)
                 append_new = True
-                last_real_row_by_file[file_path] = row
-                last_appended_real_row_by_file[file_path] = row
-                run_active_by_file[file_path] = True
+                last_real_rows[file_path] = row
+                last_appended_real_rows[file_path] = row
+                run_active_flags[file_path] = True
             else:
                 if rows:
                     rows[-1] = row
@@ -362,13 +461,52 @@ def measurement_agent(config, shared_data):
                 else:
                     rows.append(row)
                     append_new = True
-                    last_appended_real_row_by_file[file_path] = row
-                last_real_row_by_file[file_path] = row
-                run_active_by_file[file_path] = True
+                    last_appended_real_rows[file_path] = row
+                last_real_rows[file_path] = row
+                run_active_flags[file_path] = True
 
         if append_new or replace_previous:
-            upsert_row_to_current_cache(plant_id, file_path, row, replace_last=replace_previous)
+            upsert_current_cache_fn(file_path, row, replace_previous)
         return file_path
+
+    def enqueue_row_for_file(row, plant_id):
+        file_path = build_daily_file_path(plant_id, row["timestamp"])
+        return enqueue_history_row_for_file(
+            row,
+            file_path,
+            pending_key="pending_rows_by_file",
+            is_real_fn=is_real_row,
+            rows_are_similar_fn=rows_are_similar,
+            upsert_current_cache_fn=lambda current_path, current_row, replace_last: upsert_row_to_current_cache(
+                plant_id,
+                current_path,
+                current_row,
+                replace_last=replace_last,
+            ),
+            tolerances=compression_tolerances,
+            last_real_rows=last_real_row_by_file,
+            last_appended_real_rows=last_appended_real_row_by_file,
+            run_active_flags=run_active_by_file,
+        )
+
+    def enqueue_twin_row_for_file(row):
+        file_path = twin_daily_file_path(row["timestamp"])
+        return enqueue_history_row_for_file(
+            row,
+            file_path,
+            pending_key="pending_twin_rows_by_file",
+            is_real_fn=is_twin_real_row,
+            rows_are_similar_fn=twin_rows_are_similar,
+            upsert_current_cache_fn=lambda current_path, current_row, replace_last: upsert_row_to_twin_current_cache(
+                current_path,
+                current_row,
+                replace_last=replace_last,
+            ),
+            tolerances=twin_compression_tolerances,
+            last_real_rows=twin_last_real_row_by_file,
+            last_appended_real_rows=twin_last_appended_real_row_by_file,
+            run_active_flags=twin_run_active_by_file,
+        )
 
     def flush_pending_rows(force=False):
         nonlocal last_write_time
@@ -434,6 +572,67 @@ def measurement_agent(config, shared_data):
 
         last_write_time = time.time()
 
+    def flush_pending_twin_rows(force=False):
+        nonlocal twin_last_write_time
+
+        active_recording_paths = set()
+        if compression_enabled and not force:
+            path = twin_state.get("recording_file_path")
+            if twin_state.get("recording_active") and path:
+                active_recording_paths.add(path)
+
+        with shared_data["lock"]:
+            pending = shared_data.get("pending_twin_rows_by_file", {})
+            if not pending:
+                return
+            pending_swapped = pending
+            shared_data["pending_twin_rows_by_file"] = {}
+
+        pending_snapshot = {}
+        retained_rows = {}
+        for path, rows in pending_swapped.items():
+            if not rows:
+                continue
+            keep_tail = compression_enabled and (not force) and path in active_recording_paths
+            if keep_tail:
+                retained_rows[path] = [rows[-1]]
+                if len(rows) > 1:
+                    pending_snapshot[path] = rows[:-1]
+            else:
+                pending_snapshot[path] = rows[:]
+
+        if retained_rows:
+            with shared_data["lock"]:
+                live_pending = shared_data.setdefault("pending_twin_rows_by_file", {})
+                for path, rows in retained_rows.items():
+                    if not rows:
+                        continue
+                    existing = live_pending.get(path)
+                    if existing:
+                        live_pending[path] = rows + existing
+                    else:
+                        live_pending[path] = rows
+
+        if not pending_snapshot:
+            twin_last_write_time = time.time()
+            return
+
+        failed = {}
+        for path, rows in pending_snapshot.items():
+            try:
+                append_twin_rows_to_csv(path, rows, tz)
+            except Exception as exc:
+                logging.error("Measurement: failed writing twin history %s: %s", path, exc)
+                failed[path] = rows
+
+        if failed:
+            with shared_data["lock"]:
+                pending = shared_data.setdefault("pending_twin_rows_by_file", {})
+                for path, rows in failed.items():
+                    pending[path] = rows + pending.get(path, [])
+
+        twin_last_write_time = time.time()
+
     def find_latest_row_for_plant(plant_id):
         plant_name, fallback = get_plant_name(plant_id)
         safe_name = sanitize_plant_name(plant_name, fallback)
@@ -476,6 +675,46 @@ def measurement_agent(config, shared_data):
 
         return latest_path, latest_row
 
+    def find_latest_twin_row():
+        pattern = os.path.join("data", "*_twin.csv")
+        paths = sorted(glob.glob(pattern))
+
+        latest_ts = None
+        latest_path = None
+        latest_row = None
+
+        for path in paths:
+            df = load_twin_file_for_cache(path, tz)
+            if df.empty:
+                continue
+            row = df.iloc[-1].to_dict()
+            ts = normalize_timestamp_value(row.get("timestamp"), tz)
+            if pd.isna(ts):
+                continue
+            if latest_ts is None or ts > latest_ts:
+                latest_ts = ts
+                latest_path = path
+                latest_row = row
+
+        with shared_data["lock"]:
+            pending_snapshot = {
+                path: rows[:]
+                for path, rows in shared_data.get("pending_twin_rows_by_file", {}).items()
+                if os.path.basename(path).endswith("_twin.csv")
+            }
+
+        for path, rows in pending_snapshot.items():
+            for row in rows:
+                ts = normalize_timestamp_value(row.get("timestamp"), tz)
+                if pd.isna(ts):
+                    continue
+                if latest_ts is None or ts > latest_ts:
+                    latest_ts = ts
+                    latest_path = path
+                    latest_row = row
+
+        return latest_path, latest_row
+
     def sanitize_historical_tail(plant_id):
         latest_path, latest_row = find_latest_row_for_plant(plant_id)
         if latest_path is None or latest_row is None:
@@ -494,6 +733,24 @@ def measurement_agent(config, shared_data):
         upsert_row_to_current_cache(plant_id, latest_path, null_row)
         return null_ts, True
 
+    def sanitize_twin_historical_tail():
+        latest_path, latest_row = find_latest_twin_row()
+        if latest_path is None or latest_row is None:
+            return None, False
+
+        latest_ts = normalize_timestamp_value(latest_row.get("timestamp"), tz)
+        if pd.isna(latest_ts):
+            return None, False
+
+        if is_twin_null_row(latest_row):
+            return latest_ts, True
+
+        null_ts = latest_ts + measurement_period_delta
+        null_row = build_twin_null_row(null_ts, tz)
+        append_twin_rows_to_csv(latest_path, [null_row], tz)
+        upsert_row_to_twin_current_cache(latest_path, null_row)
+        return null_ts, True
+
     def start_recording_session(plant_id, requested_path):
         state = plant_states[plant_id]
         state["recording_active"] = True
@@ -506,6 +763,18 @@ def measurement_agent(config, shared_data):
             shared_data["measurements_filename_by_plant"][plant_id] = state["recording_file_path"]
 
         logging.info("Measurement: recording started for %s -> %s", plant_id.upper(), state["recording_file_path"])
+
+    def start_twin_recording_session():
+        twin_state["recording_active"] = True
+        twin_state["recording_file_path"] = twin_daily_file_path(now_tz(config))
+        twin_state["awaiting_first_real_sample"] = True
+        twin_state["last_real_timestamp"] = None
+        twin_state["session_tail_ts"], twin_state["session_tail_is_null"] = sanitize_twin_historical_tail()
+
+        with shared_data["lock"]:
+            shared_data["twin_measurements_filename"] = twin_state["recording_file_path"]
+
+        logging.info("Measurement: twin recording started -> %s", twin_state["recording_file_path"])
 
     def stop_recording_session(plant_id, clear_shared_flag=True):
         state = plant_states[plant_id]
@@ -541,6 +810,40 @@ def measurement_agent(config, shared_data):
             run_active_by_file[stopped_file_path] = False
 
         logging.info("Measurement: recording stopped for %s", plant_id.upper())
+
+    def stop_twin_recording_session(clear_shared_flag=True):
+        if not twin_state["recording_active"]:
+            if clear_shared_flag:
+                with shared_data["lock"]:
+                    shared_data["twin_measurements_filename"] = None
+            return
+
+        if twin_state["last_real_timestamp"] is not None:
+            null_ts = normalize_timestamp_value(twin_state["last_real_timestamp"], tz) + measurement_period_delta
+        else:
+            null_ts = pd.Timestamp(now_tz(config))
+
+        enqueue_twin_row_for_file(build_twin_null_row(null_ts, tz))
+        flush_pending_twin_rows(force=True)
+
+        if clear_shared_flag:
+            with shared_data["lock"]:
+                shared_data["twin_measurements_filename"] = None
+
+        stopped_file_path = twin_state["recording_file_path"]
+
+        twin_state["recording_active"] = False
+        twin_state["recording_file_path"] = None
+        twin_state["awaiting_first_real_sample"] = False
+        twin_state["last_real_timestamp"] = None
+        twin_state["session_tail_ts"] = None
+        twin_state["session_tail_is_null"] = False
+        if stopped_file_path is not None:
+            twin_last_real_row_by_file[stopped_file_path] = None
+            twin_last_appended_real_row_by_file[stopped_file_path] = None
+            twin_run_active_by_file[stopped_file_path] = False
+
+        logging.info("Measurement: twin recording stopped")
 
     def ensure_client(plant_id, transport_mode):
         state = plant_states[plant_id]
@@ -735,6 +1038,7 @@ def measurement_agent(config, shared_data):
                 "posting_runtime": dict(data.get("posting_runtime", {}) or {}),
                 "api_connection_runtime": dict(data.get("api_connection_runtime", {}) or {}),
                 "current_paths": dict(data.get("current_file_path_by_plant", {})),
+                "twin_current_path": data.get("twin_current_file_path"),
                 "total_schedule_map": {
                     plant_id: data.get("api_schedule_df_by_plant", {}).get(plant_id, pd.DataFrame()).copy()
                     for plant_id in plant_ids
@@ -760,6 +1064,7 @@ def measurement_agent(config, shared_data):
         posting_toggle_enabled = bool(posting_runtime.get("policy_enabled", config_post_measurements_enabled))
         api_connection_state = str(api_connection_runtime.get("state") or ("connected" if api_password else "disconnected"))
         current_paths = snapshot["current_paths"]
+        twin_current_path = snapshot.get("twin_current_path")
         total_schedule_map = snapshot.get("total_schedule_map", {})
         day_ahead_schedule_map = snapshot.get("day_ahead_schedule_map", {})
         mfrr_schedule_map = snapshot.get("mfrr_schedule_map", {})
@@ -792,6 +1097,26 @@ def measurement_agent(config, shared_data):
                     with shared_data["lock"]:
                         shared_data["measurements_filename_by_plant"][plant_id] = expected_recording_file
                     logging.info("Measurement: midnight rollover for %s -> %s", plant_id.upper(), expected_recording_file)
+
+        expected_twin_cache_path = twin_daily_file_path(now_dt)
+        twin_cache_context = ("twin", now_dt.strftime("%Y%m%d"))
+        if twin_state["cache_context"] != twin_cache_context or twin_current_path != expected_twin_cache_path:
+            refresh_twin_current_file_cache(now_dt)
+            twin_state["cache_context"] = twin_cache_context
+
+        any_plant_recording = any(state.get("recording_active") for state in plant_states.values())
+        if any_plant_recording and not twin_state["recording_active"]:
+            start_twin_recording_session()
+        elif twin_state["recording_active"] and not any_plant_recording:
+            stop_twin_recording_session(clear_shared_flag=False)
+
+        if twin_state["recording_active"]:
+            expected_recording_file = twin_daily_file_path(now_dt)
+            if expected_recording_file != twin_state["recording_file_path"]:
+                twin_state["recording_file_path"] = expected_recording_file
+                with shared_data["lock"]:
+                    shared_data["twin_measurements_filename"] = expected_recording_file
+                logging.info("Measurement: midnight rollover for twin history -> %s", expected_recording_file)
 
         current_step = math.floor((time.monotonic() - measurement_anchor_mono) / measurement_period_s)
         if current_step >= 0 and current_step > last_executed_trigger_step:
@@ -840,7 +1165,6 @@ def measurement_agent(config, shared_data):
                     digital_twin_voltage_enabled=voltage_control_mode_supported(endpoint),
                 )
                 row["v_setpoint_pu"] = float(dispatch_bundle.get("voltage_setpoint_pu", 1.0))
-                _apply_digital_twin_summary_measurements(row, grid_map_runtime)
 
                 state["latest_measurement"] = row.copy()
 
@@ -864,6 +1188,27 @@ def measurement_agent(config, shared_data):
                 state["last_real_timestamp"] = measurement_ts
                 state["session_tail_ts"] = measurement_ts
                 state["session_tail_is_null"] = False
+
+            if twin_state["recording_active"]:
+                twin_row = _build_twin_summary_row(scheduled_step_ts, grid_map_runtime, tz)
+                if is_twin_real_row(twin_row):
+                    twin_measurement_ts = normalize_timestamp_value(twin_row["timestamp"], tz)
+                    if twin_state["awaiting_first_real_sample"]:
+                        leading_null_ts = twin_measurement_ts - measurement_period_delta
+                        already_has_boundary = (
+                            twin_state["session_tail_is_null"]
+                            and twin_state["session_tail_ts"] is not None
+                            and normalize_timestamp_value(twin_state["session_tail_ts"], tz)
+                            == normalize_timestamp_value(leading_null_ts, tz)
+                        )
+                        if not already_has_boundary:
+                            enqueue_twin_row_for_file(build_twin_null_row(leading_null_ts, tz))
+                        twin_state["awaiting_first_real_sample"] = False
+
+                    enqueue_twin_row_for_file(twin_row)
+                    twin_state["last_real_timestamp"] = twin_measurement_ts
+                    twin_state["session_tail_ts"] = twin_measurement_ts
+                    twin_state["session_tail_is_null"] = False
 
         api_connection_allows_posting = api_connection_state in {"connected", "error"} or ("state" not in api_connection_runtime)
         posting_mode_now = posting_toggle_enabled and api_connection_allows_posting and bool(api_password)
@@ -892,14 +1237,18 @@ def measurement_agent(config, shared_data):
 
         if current_time - last_write_time >= write_period_s:
             flush_pending_rows(force=False)
+        if current_time - twin_last_write_time >= write_period_s:
+            flush_pending_twin_rows(force=False)
 
         time.sleep(0.1)
 
     logging.info("Measurement agent stopping.")
     for plant_id in plant_ids:
         stop_recording_session(plant_id, clear_shared_flag=False)
+    stop_twin_recording_session(clear_shared_flag=False)
 
     flush_pending_rows(force=True)
+    flush_pending_twin_rows(force=True)
 
     for plant_id in plant_ids:
         client = plant_states[plant_id]["client"]

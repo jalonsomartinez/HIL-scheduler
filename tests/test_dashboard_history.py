@@ -9,12 +9,12 @@ import pandas as pd
 from dashboard.history import (
     build_slider_marks,
     clamp_epoch_range,
-    coalesce_digital_twin_measurements,
     load_cropped_measurements_for_range,
+    load_cropped_twin_measurements_for_range,
     scan_measurement_history_index,
     serialize_measurements_for_download,
 )
-from measurement.storage import MEASUREMENT_COLUMNS
+from measurement.storage import MEASUREMENT_COLUMNS, TWIN_MEASUREMENT_COLUMNS
 
 
 def _row(ts, p_kw):
@@ -57,11 +57,22 @@ class DashboardHistoryTests(unittest.TestCase):
                 with open("data/not_a_measurement.txt", "w", encoding="utf-8") as handle:
                     handle.write("x")
 
-                index = scan_measurement_history_index("data", {"lib": "lib", "vrfb": "vrfb"}, tz)
+                pd.DataFrame(
+                    [
+                        {
+                            "timestamp": "2026-02-21T13:09:03+01:00",
+                            "grid_map_battery_voltage_pu": 1.01,
+                        }
+                    ],
+                    columns=TWIN_MEASUREMENT_COLUMNS,
+                ).to_csv("data/20260221_twin.csv", index=False)
+
+                index = scan_measurement_history_index("data", {"lib": "lib", "vrfb": "vrfb", "twin": "twin"}, tz)
 
                 self.assertTrue(index["has_data"])
                 self.assertEqual(len(index["files_by_plant"]["lib"]), 1)
                 self.assertEqual(len(index["files_by_plant"]["vrfb"]), 1)
+                self.assertEqual(len(index["files_by_plant"]["twin"]), 1)
                 self.assertEqual(index["files_by_plant"]["lib"][0]["rows"], 2)
                 self.assertLess(index["global_start_ms"], index["global_end_ms"])
 
@@ -90,7 +101,7 @@ class DashboardHistoryTests(unittest.TestCase):
                 file_path = "data/20260221_lib.csv"
                 df.to_csv(file_path, index=False)
 
-                full_index = scan_measurement_history_index("data", {"lib": "lib", "vrfb": "vrfb"}, tz)
+                full_index = scan_measurement_history_index("data", {"lib": "lib", "vrfb": "vrfb", "twin": "twin"}, tz)
                 file_meta = full_index["files_by_plant"]["lib"]
 
                 ts_start = int(pd.Timestamp("2026-02-21T13:11:00+01:00").value // 1_000_000)
@@ -117,32 +128,38 @@ class DashboardHistoryTests(unittest.TestCase):
         self.assertGreaterEqual(len(marks), 2)
         self.assertLessEqual(len(marks), 5)
 
-    def test_coalesce_digital_twin_measurements_prefers_first_non_null_per_timestamp(self):
+    def test_load_cropped_twin_measurements_uses_twin_schema(self):
         tz = ZoneInfo("Europe/Madrid")
-        lib_df = pd.DataFrame(
-            [
-                {
-                    "timestamp": "2026-02-21T13:10:03+01:00",
-                    "grid_map_battery_voltage_pu": 1.01,
-                    "grid_map_max_line_loading_pct": pd.NA,
-                }
-            ]
-        )
-        vrfb_df = pd.DataFrame(
-            [
-                {
-                    "timestamp": "2026-02-21T13:10:03+01:00",
-                    "grid_map_battery_voltage_pu": pd.NA,
-                    "grid_map_max_line_loading_pct": 77.0,
-                }
-            ]
-        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with chdir(tmpdir):
+                os.makedirs("data", exist_ok=True)
+                df = pd.DataFrame(
+                    [
+                        {
+                            "timestamp": "2026-02-21T13:10:00+01:00",
+                            "grid_map_battery_voltage_pu": 1.01,
+                            "grid_map_num_overloaded_lines": 1,
+                        },
+                        {
+                            "timestamp": "2026-02-21T13:11:00+01:00",
+                            "grid_map_battery_voltage_pu": 1.02,
+                            "grid_map_num_overloaded_lines": 2,
+                        },
+                    ],
+                    columns=TWIN_MEASUREMENT_COLUMNS,
+                )
+                file_path = "data/20260221_twin.csv"
+                df.to_csv(file_path, index=False)
 
-        merged = coalesce_digital_twin_measurements([lib_df, vrfb_df], tz)
+                full_index = scan_measurement_history_index("data", {"lib": "lib", "vrfb": "vrfb", "twin": "twin"}, tz)
+                file_meta = full_index["files_by_plant"]["twin"]
+                ts_start = int(pd.Timestamp("2026-02-21T13:11:00+01:00").value // 1_000_000)
+                ts_end = int(pd.Timestamp("2026-02-21T13:11:00+01:00").value // 1_000_000)
+                cropped = load_cropped_twin_measurements_for_range(file_meta, ts_start, ts_end, tz)
 
-        self.assertEqual(len(merged), 1)
-        self.assertAlmostEqual(float(merged.iloc[0]["grid_map_battery_voltage_pu"]), 1.01, places=6)
-        self.assertAlmostEqual(float(merged.iloc[0]["grid_map_max_line_loading_pct"]), 77.0, places=6)
+        self.assertEqual(list(cropped.columns), TWIN_MEASUREMENT_COLUMNS)
+        self.assertEqual(len(cropped), 1)
+        self.assertAlmostEqual(float(cropped.iloc[0]["grid_map_battery_voltage_pu"]), 1.02, places=6)
 
 
 if __name__ == "__main__":

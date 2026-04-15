@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pandas as pd
 
 from measurement.agent import measurement_agent
-from measurement.storage import MEASUREMENT_COLUMNS
+from measurement.storage import MEASUREMENT_COLUMNS, TWIN_MEASUREMENT_COLUMNS
 from modbus.codec import encode_point_internal_words
 
 
@@ -22,6 +22,10 @@ def _build_shared_data(lib_file_path, vrfb_file_path=None, *, transport_mode="lo
         "current_file_path_by_plant": {"lib": None, "vrfb": None},
         "current_file_df_by_plant": {"lib": pd.DataFrame(), "vrfb": pd.DataFrame()},
         "pending_rows_by_file": {},
+        "twin_measurements_filename": None,
+        "twin_current_file_path": None,
+        "twin_current_file_df": pd.DataFrame(),
+        "pending_twin_rows_by_file": {},
         "measurements_df": pd.DataFrame(),
         "measurement_post_status": {},
     }
@@ -278,27 +282,32 @@ class MeasurementAgentRecordingTests(unittest.TestCase):
 
                 lib_output_path = sorted(path for path in os.listdir("data") if path.endswith("_lib.csv"))[-1]
                 vrfb_output_path = sorted(path for path in os.listdir("data") if path.endswith("_vrfb.csv"))[-1]
+                twin_output_path = sorted(path for path in os.listdir("data") if path.endswith("_twin.csv"))[-1]
 
                 lib_rows = pd.read_csv(os.path.join("data", lib_output_path)).dropna(subset=["battery_active_power_kw"]).reset_index(drop=True)
                 vrfb_rows = pd.read_csv(os.path.join("data", vrfb_output_path)).dropna(subset=["battery_active_power_kw"]).reset_index(drop=True)
+                twin_rows = pd.read_csv(os.path.join("data", twin_output_path)).dropna(subset=["grid_map_battery_voltage_pu"]).reset_index(drop=True)
 
                 self.assertFalse(lib_rows.empty)
                 self.assertFalse(vrfb_rows.empty)
+                self.assertFalse(twin_rows.empty)
+                self.assertNotIn("grid_map_battery_voltage_pu", lib_rows.columns)
+                self.assertNotIn("grid_map_battery_voltage_pu", vrfb_rows.columns)
                 self.assertAlmostEqual(float(lib_rows.iloc[-1]["p_setpoint_kw"]), 10.0, places=6)
                 self.assertAlmostEqual(float(lib_rows.iloc[-1]["q_setpoint_kvar"]), 1.0, places=6)
                 self.assertAlmostEqual(float(lib_rows.iloc[-1]["v_setpoint_pu"]), 0.9, places=6)
-                self.assertAlmostEqual(float(lib_rows.iloc[-1]["grid_map_battery_voltage_pu"]), 0.05, places=6)
-                self.assertAlmostEqual(float(lib_rows.iloc[-1]["grid_map_min_voltage_pu"]), 0.97, places=6)
-                self.assertAlmostEqual(float(lib_rows.iloc[-1]["grid_map_max_voltage_pu"]), 1.01, places=6)
-                self.assertAlmostEqual(float(lib_rows.iloc[-1]["grid_map_max_line_loading_pct"]), 88.0, places=6)
-                self.assertEqual(int(lib_rows.iloc[-1]["grid_map_num_overloaded_lines"]), 2)
-                self.assertEqual(int(lib_rows.iloc[-1]["grid_map_voltage_bucket_0_975_to_1_025_count"]), 4)
+                self.assertAlmostEqual(float(twin_rows.iloc[-1]["grid_map_battery_voltage_pu"]), 0.05, places=6)
+                self.assertAlmostEqual(float(twin_rows.iloc[-1]["grid_map_min_voltage_pu"]), 0.97, places=6)
+                self.assertAlmostEqual(float(twin_rows.iloc[-1]["grid_map_max_voltage_pu"]), 1.01, places=6)
+                self.assertAlmostEqual(float(twin_rows.iloc[-1]["grid_map_max_line_loading_pct"]), 88.0, places=6)
+                self.assertEqual(int(twin_rows.iloc[-1]["grid_map_num_overloaded_lines"]), 2)
+                self.assertEqual(int(twin_rows.iloc[-1]["grid_map_voltage_bucket_0_975_to_1_025_count"]), 4)
                 self.assertAlmostEqual(float(vrfb_rows.iloc[-1]["p_setpoint_kw"]), 16.0, places=6)
                 self.assertAlmostEqual(float(vrfb_rows.iloc[-1]["q_setpoint_kvar"]), 1.5, places=6)
                 self.assertAlmostEqual(float(vrfb_rows.iloc[-1]["v_setpoint_pu"]), 1.0, places=6)
                 self.assertAlmostEqual(float(vrfb_rows.iloc[-1]["soc_pu"]), 0.55, places=6)
 
-    def test_measurement_rows_leave_digital_twin_fields_empty_when_summary_missing(self):
+    def test_twin_history_stays_empty_when_summary_missing(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             with chdir(tmpdir):
                 os.makedirs("data", exist_ok=True)
@@ -346,10 +355,13 @@ class MeasurementAgentRecordingTests(unittest.TestCase):
 
                 lib_output_path = sorted(path for path in os.listdir("data") if path.endswith("_lib.csv"))[-1]
                 lib_rows = pd.read_csv(os.path.join("data", lib_output_path)).dropna(subset=["battery_active_power_kw"]).reset_index(drop=True)
+                twin_output_path = sorted(path for path in os.listdir("data") if path.endswith("_twin.csv"))[-1]
+                twin_rows = pd.read_csv(os.path.join("data", twin_output_path))
 
                 self.assertFalse(lib_rows.empty)
-                self.assertTrue(pd.isna(lib_rows.iloc[-1]["grid_map_battery_voltage_pu"]))
-                self.assertTrue(pd.isna(lib_rows.iloc[-1]["grid_map_voltage_bucket_0_975_to_1_025_count"]))
+                self.assertNotIn("grid_map_battery_voltage_pu", lib_rows.columns)
+                self.assertEqual(list(twin_rows.columns), TWIN_MEASUREMENT_COLUMNS)
+                self.assertTrue(twin_rows.dropna(subset=["grid_map_battery_voltage_pu"]).empty)
 
 
 if __name__ == "__main__":

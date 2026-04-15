@@ -4,7 +4,7 @@ import plotly.graph_objects as go
 import pandas as pd
 from plotly.subplots import make_subplots
 
-from measurement.storage import DIGITAL_TWIN_SUMMARY_MEASUREMENT_COLUMNS
+from measurement.storage import TWIN_MEASUREMENT_VALUE_COLUMNS
 from time_utils import normalize_datetime_series, normalize_schedule_index
 
 
@@ -31,6 +31,7 @@ DEFAULT_TRACE_COLORS = {
     "v_poi": "#c66a00",
     "api_lib": "#00945a",
     "api_vrfb": "#3f65c8",
+    "history_twin": "#7b59b5",
     "grid_map_battery_voltage": "#2f6db4",
     "grid_map_min_voltage": "#c66a00",
     "grid_map_max_voltage": "#7b59b5",
@@ -513,7 +514,7 @@ def create_grid_map_history_figure(
         ),
     )
 
-    metric_columns = list(DIGITAL_TWIN_SUMMARY_MEASUREMENT_COLUMNS)
+    metric_columns = list(TWIN_MEASUREMENT_VALUE_COLUMNS)
     if measurements_df is None or measurements_df.empty:
         df = pd.DataFrame(columns=["timestamp"] + metric_columns)
     else:

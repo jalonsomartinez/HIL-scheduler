@@ -29,10 +29,10 @@ HIL Scheduler is a dual-plant control runtime for LIB and VRFB batteries. It com
 ## In Scope
 - Multi-thread agents: fetcher, scheduler, plant emulator, measurement, control engine, settings engine, private/public dashboards.
 - API schedule fetch/post flows, posting retry queue, and runtime connection health.
-- Per-plant recording to `data/YYYYMMDD_<plant>.csv` plus history loading/export.
+- Per-plant recording to `data/YYYYMMDD_<plant>.csv`, shared digital-twin recording to `data/YYYYMMDD_twin.csv`, plus history loading/export.
 - Manual schedule editing for active power, reactive power, and voltage setpoint.
 - Local-start SoC seeding, estimated SoC fallback, and dispatch write status publication.
-- Digital-twin summary persistence in measurements, including voltage-bucket node counts and shared historical plots.
+- Digital-twin summary persistence in dedicated twin-history files, including voltage-bucket node counts and shared historical plots.
 
 ## Hard Constraints
 - Holding-register Modbus only.
@@ -50,6 +50,6 @@ HIL Scheduler is a dual-plant control runtime for LIB and VRFB batteries. It com
   - `V` mode writes plant `v_setpoint` directly instead of synthesizing `Q`,
   - manual voltage overrides twin-derived voltage reference when present,
   - fallback remains bounded and safe.
-3. Measurement/history remain backward-compatible while preserving schedule-intent columns and `v_setpoint_pu`.
-4. Operator/public dashboards preserve existing controls while exposing `V ref` clearly, the Grid Map summary surfaces battery voltage from the digital twin, and the Plots page shows shared digital-twin history.
+3. Measurement/history remain backward-compatible while preserving plant schedule-intent columns, `v_setpoint_pu`, and dedicated twin-history files.
+4. Operator/public dashboards preserve existing controls while exposing `V ref` clearly, the Grid Map summary surfaces battery voltage from the digital twin, and the Plots page shows shared digital-twin history from the dedicated twin files.
 5. Core control, safe-stop, and transport behavior remain stable in local and remote operation.

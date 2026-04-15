@@ -17,6 +17,11 @@ def _shared_data():
         "measurements_filename_by_plant": {"lib": "data/file.csv", "vrfb": "data/file2.csv"},
         "current_file_path_by_plant": {"lib": "data/file.csv", "vrfb": "data/file2.csv"},
         "current_file_df_by_plant": {"lib": pd.DataFrame([{"a": 1}]), "vrfb": pd.DataFrame([{"a": 2}])},
+        "twin_measurements_filename": "data/twin.csv",
+        "twin_current_file_path": "data/twin.csv",
+        "twin_current_file_df": pd.DataFrame([{"a": 3}]),
+        "pending_rows_by_file": {"data/file.csv": [{"timestamp": "2026-02-26T10:00:00+00:00"}]},
+        "pending_twin_rows_by_file": {"data/twin.csv": [{"timestamp": "2026-02-26T10:00:00+00:00"}]},
         "plant_observed_state_by_plant": {
             "lib": {
                 "enable_state": 1,
@@ -105,6 +110,11 @@ class DashboardControlFlowTests(unittest.TestCase):
         self.assertEqual(shared_data["transport_mode"], "remote")
         self.assertFalse(shared_data["transport_switching"])
         self.assertEqual(len(safe_stop_calls), 1)
+        self.assertIsNone(shared_data["twin_measurements_filename"])
+        self.assertIsNone(shared_data["twin_current_file_path"])
+        self.assertTrue(shared_data["twin_current_file_df"].empty)
+        self.assertEqual(shared_data["pending_rows_by_file"], {})
+        self.assertEqual(shared_data["pending_twin_rows_by_file"], {})
         for plant_id in plant_ids:
             self.assertFalse(shared_data["scheduler_running_by_plant"][plant_id])
             self.assertEqual(shared_data["plant_transition_by_plant"][plant_id], "stopped")

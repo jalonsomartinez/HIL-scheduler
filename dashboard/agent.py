@@ -40,8 +40,8 @@ from dashboard.grid_map import (
 from dashboard.history import (
     build_slider_marks,
     clamp_epoch_range,
-    coalesce_digital_twin_measurements,
     load_cropped_measurements_for_range,
+    load_cropped_twin_measurements_for_range,
     scan_measurement_history_index,
     serialize_measurements_for_download,
 )
@@ -75,7 +75,7 @@ from dashboard.settings_ui_state import (
 )
 from grid_map_runtime import build_grid_map_figure_update, build_grid_map_meta_lines, snapshot_grid_map_runtime
 import scheduling.manual_schedule_manager as msm
-from measurement.storage import MEASUREMENT_COLUMNS
+from measurement.storage import MEASUREMENT_COLUMNS, TWIN_MEASUREMENT_COLUMNS
 from modbus.setpoint_io import voltage_control_mode_supported
 from runtime.contracts import resolve_modbus_endpoint, sanitize_plant_name
 from runtime.paths import get_assets_dir, get_data_dir, get_project_root
@@ -438,10 +438,10 @@ def dashboard_agent(config, shared_data):
             return _empty_history_timeline_figure("No historical measurements found.")
 
         fig = go.Figure()
-        color_by_plant = {"lib": trace_colors["api_lib"], "vrfb": trace_colors["api_vrfb"]}
-        label_by_plant = {"lib": plant_name("lib"), "vrfb": plant_name("vrfb")}
+        color_by_plant = {"lib": trace_colors["api_lib"], "vrfb": trace_colors["api_vrfb"], "twin": trace_colors["history_twin"]}
+        label_by_plant = {"lib": plant_name("lib"), "vrfb": plant_name("vrfb"), "twin": "Grid Map / Digital Twin"}
 
-        for plant_id in plant_ids:
+        for plant_id in list(plant_ids) + ["twin"]:
             for item in (index_data.get("files_by_plant", {}) or {}).get(plant_id, []):
                 start_ts = _epoch_ms_to_ts(item.get("start_ms"))
                 end_ts = _epoch_ms_to_ts(item.get("end_ms"))
@@ -527,10 +527,19 @@ def dashboard_agent(config, shared_data):
         return load_cropped_measurements_for_range(file_meta_list, start_ms, end_ms, tz)
 
     def _load_grid_map_history_df(index_data, selected_range):
-        frames = []
-        for plant_id in plant_ids:
-            frames.append(_load_history_df_for_plant(index_data, plant_id, selected_range))
-        return coalesce_digital_twin_measurements(frames, tz)
+        if not isinstance(index_data, dict) or not index_data.get("has_data"):
+            return pd.DataFrame(columns=TWIN_MEASUREMENT_COLUMNS)
+        if not selected_range or len(selected_range) != 2:
+            return pd.DataFrame(columns=TWIN_MEASUREMENT_COLUMNS)
+        file_meta_list = (index_data.get("files_by_plant", {}) or {}).get("twin", [])
+        if not file_meta_list:
+            return pd.DataFrame(columns=TWIN_MEASUREMENT_COLUMNS)
+        try:
+            start_ms = int(selected_range[0])
+            end_ms = int(selected_range[1])
+        except (TypeError, ValueError):
+            return pd.DataFrame(columns=TWIN_MEASUREMENT_COLUMNS)
+        return load_cropped_twin_measurements_for_range(file_meta_list, start_ms, end_ms, tz)
 
     def resolve_runtime_transition(plant_id, transition_state, enable_state):
         resolved = resolve_runtime_transition_state(transition_state, enable_state)
@@ -2682,6 +2691,7 @@ def dashboard_agent(config, shared_data):
             raise PreventUpdate
 
         plant_suffix_by_id = {plant_id: sanitize_plant_name(plant_name(plant_id), plant_id) for plant_id in plant_ids}
+        plant_suffix_by_id["twin"] = "twin"
         index_data = scan_measurement_history_index(data_dir, plant_suffix_by_id, tz)
 
         if not index_data.get("has_data"):
@@ -2706,7 +2716,8 @@ def dashboard_agent(config, shared_data):
         files_by_plant = index_data.get("files_by_plant", {}) or {}
         status_text = (
             f"Historical files loaded: {plant_name('lib')}={len(files_by_plant.get('lib', []))} "
-            f"{plant_name('vrfb')}={len(files_by_plant.get('vrfb', []))} | "
+            f"{plant_name('vrfb')}={len(files_by_plant.get('vrfb', []))} "
+            f"Twin={len(files_by_plant.get('twin', []))} | "
             f"Detected range: {_format_epoch_label(global_start_ms)} -> {_format_epoch_label(global_end_ms)}"
         )
 

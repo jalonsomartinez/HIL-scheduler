@@ -13,8 +13,8 @@
 - `scheduling/runtime.py`: shared dispatch-bundle resolution, staleness handling, and effective-schedule helpers.
 - `scheduling/agent.py`: periodic dispatch loop and scheduler write-status publication.
 - `control/modbus_io.py` and `control/engine_agent.py`: control-path Modbus writes and start/stop flows.
-- `measurement/agent.py` and `measurement/storage.py`: telemetry sampling, schedule-intent enrichment, digital-twin summary persistence, and CSV/cache normalization.
-- `dashboard/`: manual schedule UI, grid-map summary cards, status summaries, per-plant plots, shared digital-twin plots, and read-only public views.
+- `measurement/agent.py` and `measurement/storage.py`: telemetry sampling, plant/twin history persistence, schedule-intent enrichment, and CSV/cache normalization.
+- `dashboard/`: manual schedule UI, grid-map summary cards, status summaries, per-plant plots, shared twin-history plots, and read-only public views.
 - `grid_map_runtime.py`: digital-twin execution, summary extraction, and shared grid-map runtime snapshot contract.
 - `modbus/setpoint_io.py`: aggregate/per-phase write planning, optional `q_control_mode`, optional plant `v_setpoint`, and trigger-aware apply.
 
@@ -69,13 +69,15 @@ Grid-map runtime snapshot now exposes a summary contract used outside the map pa
 - `grid_map_voltage_bucket_1_05_to_1_075_count`
 - `grid_map_voltage_bucket_gte_1_075_count`
 
-Measurement/history schema now also includes flat digital-twin columns:
+Twin-history schema now includes flat digital-twin columns in `data/YYYYMMDD_twin.csv`:
 - `grid_map_battery_voltage_pu`
 - `grid_map_min_voltage_pu`
 - `grid_map_max_voltage_pu`
 - `grid_map_max_line_loading_pct`
 - `grid_map_num_overloaded_lines`
 - the seven `grid_map_voltage_bucket_*` count columns
+
+Plant measurement/history schema excludes those `grid_map_*` columns going forward and remains focused on plant telemetry plus schedule intent.
 
 ## Modbus and Unit Conventions
 - Holding registers only.

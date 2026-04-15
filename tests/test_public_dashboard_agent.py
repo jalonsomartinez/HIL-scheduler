@@ -12,7 +12,7 @@ import pandas as pd
 
 from config_loader import load_config
 from dashboard.public_agent import build_public_history_slice, build_public_readonly_app
-from measurement.storage import MEASUREMENT_COLUMNS
+from measurement.storage import MEASUREMENT_COLUMNS, TWIN_MEASUREMENT_COLUMNS
 
 
 def _row(ts, p_kw):
@@ -99,6 +99,33 @@ class PublicDashboardAgentTests(unittest.TestCase):
                 self.assertTrue(
                     all(item.get("path", "").startswith("data/") for item in result["index_data"]["files_by_plant"]["lib"])
                 )
+
+    def test_build_public_history_slice_supports_twin_series(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with chdir(tmpdir):
+                os.makedirs("data", exist_ok=True)
+                pd.DataFrame(
+                    [
+                        {"timestamp": "2026-02-21T13:10:00+01:00", "grid_map_battery_voltage_pu": 1.01},
+                        {"timestamp": "2026-02-21T13:11:00+01:00", "grid_map_battery_voltage_pu": 1.02},
+                    ],
+                    columns=TWIN_MEASUREMENT_COLUMNS,
+                ).to_csv("data/20260221_twin.csv", index=False)
+
+                config = load_config(os.path.join(os.path.dirname(__file__), "..", "config.yaml"))
+                tz = config["SCHEDULE_START_TIME"].tzinfo
+
+                result = build_public_history_slice(
+                    "data",
+                    {"lib": "lib", "vrfb": "vrfb", "twin": "twin"},
+                    plant_id="twin",
+                    selected_range=[0, 1],
+                    tz=tz,
+                )
+
+                self.assertTrue(result["index_data"].get("has_data"))
+                self.assertEqual(list(result["measurements_df"].columns), TWIN_MEASUREMENT_COLUMNS)
+                self.assertFalse(result["measurements_df"].empty)
 
     def test_public_app_http_reads_do_not_mutate_command_queues(self):
         config = load_config("config.yaml")

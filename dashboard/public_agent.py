@@ -13,8 +13,8 @@ from dash.exceptions import PreventUpdate
 from dashboard.history import (
     build_slider_marks,
     clamp_epoch_range,
-    coalesce_digital_twin_measurements,
     load_cropped_measurements_for_range,
+    load_cropped_twin_measurements_for_range,
     scan_measurement_history_index,
 )
 from dashboard.grid_map import (
@@ -41,7 +41,7 @@ from dashboard.ui_state import (
     resolve_runtime_transition_state,
 )
 import scheduling.manual_schedule_manager as msm
-from measurement.storage import MEASUREMENT_COLUMNS
+from measurement.storage import MEASUREMENT_COLUMNS, TWIN_MEASUREMENT_COLUMNS
 from modbus.setpoint_io import voltage_control_mode_supported
 from grid_map_runtime import build_grid_map_figure_update, build_grid_map_meta_lines, snapshot_grid_map_runtime
 from runtime.contracts import resolve_modbus_endpoint, sanitize_plant_name
@@ -101,7 +101,7 @@ def build_public_history_slice(
         return {
             "index_data": index_data,
             "selected_range": list(DEFAULT_PUBLIC_HISTORY_EMPTY_RANGE),
-            "measurements_df": pd.DataFrame(columns=MEASUREMENT_COLUMNS),
+            "measurements_df": pd.DataFrame(columns=TWIN_MEASUREMENT_COLUMNS if plant_id == "twin" else MEASUREMENT_COLUMNS),
         }
 
     domain_start = int(index_data["global_start_ms"])
@@ -111,12 +111,8 @@ def build_public_history_slice(
         clamped_range = [domain_start, domain_end]
 
     file_meta_list = (index_data.get("files_by_plant", {}) or {}).get(plant_id, [])
-    measurements_df = load_cropped_measurements_for_range(
-        file_meta_list,
-        int(clamped_range[0]),
-        int(clamped_range[1]),
-        tz,
-    )
+    loader = load_cropped_twin_measurements_for_range if plant_id == "twin" else load_cropped_measurements_for_range
+    measurements_df = loader(file_meta_list, int(clamped_range[0]), int(clamped_range[1]), tz)
     return {
         "index_data": index_data,
         "selected_range": clamped_range,
@@ -528,7 +524,9 @@ def build_public_readonly_app(config, shared_data):
         return str((plants_cfg.get(plant_id, {}) or {}).get("name", plant_id.upper()))
 
     def _plant_suffix_by_id():
-        return {plant_id: sanitize_plant_name(plant_name(plant_id), plant_id) for plant_id in plant_ids}
+        suffixes = {plant_id: sanitize_plant_name(plant_name(plant_id), plant_id) for plant_id in plant_ids}
+        suffixes["twin"] = "twin"
+        return suffixes
 
     def _manual_status_window_bounds(now_value=None):
         now_value = normalize_timestamp_value(now_value or now_tz(config), tz)
@@ -576,10 +574,10 @@ def build_public_readonly_app(config, shared_data):
             return _empty_history_timeline_figure("No historical measurements found.")
 
         fig = go.Figure()
-        color_by_plant = {"lib": trace_colors["api_lib"], "vrfb": trace_colors["api_vrfb"]}
-        label_by_plant = {"lib": plant_name("lib"), "vrfb": plant_name("vrfb")}
+        color_by_plant = {"lib": trace_colors["api_lib"], "vrfb": trace_colors["api_vrfb"], "twin": trace_colors["history_twin"]}
+        label_by_plant = {"lib": plant_name("lib"), "vrfb": plant_name("vrfb"), "twin": "Grid Map / Digital Twin"}
 
-        for plant_id in plant_ids:
+        for plant_id in list(plant_ids) + ["twin"]:
             for item in (index_data.get("files_by_plant", {}) or {}).get(plant_id, []):
                 start_ts = _epoch_ms_to_ts(item.get("start_ms"))
                 end_ts = _epoch_ms_to_ts(item.get("end_ms"))
@@ -1207,7 +1205,8 @@ def build_public_readonly_app(config, shared_data):
         files_by_plant = index_data.get("files_by_plant", {}) or {}
         status_text = (
             f"Historical files loaded: {plant_name('lib')}={len(files_by_plant.get('lib', []))} "
-            f"{plant_name('vrfb')}={len(files_by_plant.get('vrfb', []))} | "
+            f"{plant_name('vrfb')}={len(files_by_plant.get('vrfb', []))} "
+            f"Twin={len(files_by_plant.get('twin', []))} | "
             f"Detected range: {_format_epoch_label(global_start_ms)} -> {_format_epoch_label(global_end_ms)}"
         )
         range_label = f"Range: {_format_epoch_label(selected_range[0])} -> {_format_epoch_label(selected_range[1])}"
@@ -1256,10 +1255,18 @@ def build_public_readonly_app(config, shared_data):
             selected_range=selected_range,
             tz=tz,
         )
+        twin_slice = build_public_history_slice(
+            data_dir,
+            suffix_map,
+            plant_id="twin",
+            selected_range=selected_range,
+            tz=tz,
+        )
 
         lib_index = lib_slice.get("index_data", {}) or {}
         vrfb_index = vrfb_slice.get("index_data", {}) or {}
-        if not lib_index.get("has_data") and not vrfb_index.get("has_data"):
+        twin_index = twin_slice.get("index_data", {}) or {}
+        if not lib_index.get("has_data") and not vrfb_index.get("has_data") and not twin_index.get("has_data"):
             return (
                 create_grid_map_history_figure(
                     pd.DataFrame(),
@@ -1274,8 +1281,9 @@ def build_public_readonly_app(config, shared_data):
 
         lib_measurements = lib_slice.get("measurements_df", pd.DataFrame())
         vrfb_measurements = vrfb_slice.get("measurements_df", pd.DataFrame())
+        twin_measurements = twin_slice.get("measurements_df", pd.DataFrame(columns=TWIN_MEASUREMENT_COLUMNS))
         grid_map_fig = create_grid_map_history_figure(
-            coalesce_digital_twin_measurements([lib_measurements, vrfb_measurements], tz),
+            twin_measurements,
             tz=tz,
             plot_theme=plot_theme,
             trace_colors=trace_colors,

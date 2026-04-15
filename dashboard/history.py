@@ -6,8 +6,13 @@ from typing import Any
 
 import pandas as pd
 
-from measurement.storage import DIGITAL_TWIN_SUMMARY_MEASUREMENT_COLUMNS, MEASUREMENT_COLUMNS, load_file_for_cache
-from time_utils import normalize_datetime_series, normalize_timestamp_value, serialize_iso_with_tz
+from measurement.storage import (
+    MEASUREMENT_COLUMNS,
+    TWIN_MEASUREMENT_COLUMNS,
+    load_file_for_cache,
+    load_twin_file_for_cache,
+)
+from time_utils import normalize_timestamp_value, serialize_iso_with_tz
 
 
 _HISTORY_FILE_RE = re.compile(r"^\d{8}_(?P<suffix>[a-z0-9_-]+)\.csv$", re.IGNORECASE)
@@ -22,6 +27,12 @@ def _ts_to_epoch_ms(value: Any, tz) -> int | None:
 
 def _epoch_ms_to_ts(value: Any, tz) -> pd.Timestamp:
     return normalize_timestamp_value(pd.to_datetime(int(value), unit="ms", utc=True), tz)
+
+
+def _load_history_file_for_series(file_path, series_id, tz):
+    if str(series_id) == "twin":
+        return load_twin_file_for_cache(file_path, tz)
+    return load_file_for_cache(file_path, tz)
 
 
 def scan_measurement_history_index(data_dir, plant_suffix_by_id, tz):
@@ -52,7 +63,7 @@ def scan_measurement_history_index(data_dir, plant_suffix_by_id, tz):
         if not os.path.isfile(file_path):
             continue
 
-        df = load_file_for_cache(file_path, tz)
+        df = _load_history_file_for_series(file_path, plant_id, tz)
         if df.empty or "timestamp" not in df.columns:
             continue
 
@@ -148,10 +159,10 @@ def build_slider_marks(start_ms, end_ms, tz, max_marks=8):
     return marks
 
 
-def load_cropped_measurements_for_range(file_meta_list, start_ms, end_ms, tz):
+def _load_cropped_history_for_range(file_meta_list, start_ms, end_ms, tz, *, columns, load_fn):
     """Load overlapping files and crop to the inclusive selected range."""
     if not file_meta_list:
-        return pd.DataFrame(columns=MEASUREMENT_COLUMNS)
+        return pd.DataFrame(columns=columns)
 
     orig_start_ms = int(start_ms)
     orig_end_ms = int(end_ms)
@@ -169,25 +180,47 @@ def load_cropped_measurements_for_range(file_meta_list, start_ms, end_ms, tz):
         path = item.get("path")
         if not path:
             continue
-        df = load_file_for_cache(path, tz)
+        df = load_fn(path, tz)
         if df.empty:
             continue
         if "timestamp" not in df.columns:
             continue
         mask = (df["timestamp"] >= start_ts) & (df["timestamp"] <= end_ts)
-        cropped = df.loc[mask, [c for c in MEASUREMENT_COLUMNS if c in df.columns]].copy()
+        cropped = df.loc[mask, [c for c in columns if c in df.columns]].copy()
         if not cropped.empty:
-            for col in MEASUREMENT_COLUMNS:
+            for col in columns:
                 if col not in cropped.columns:
                     cropped[col] = pd.NA
-            frames.append(cropped[MEASUREMENT_COLUMNS])
+            frames.append(cropped[columns])
 
     if not frames:
-        return pd.DataFrame(columns=MEASUREMENT_COLUMNS)
+        return pd.DataFrame(columns=columns)
 
     result = pd.concat(frames, ignore_index=True)
     result = result.sort_values("timestamp").reset_index(drop=True)
-    return result[MEASUREMENT_COLUMNS]
+    return result[columns]
+
+
+def load_cropped_measurements_for_range(file_meta_list, start_ms, end_ms, tz):
+    return _load_cropped_history_for_range(
+        file_meta_list,
+        start_ms,
+        end_ms,
+        tz,
+        columns=MEASUREMENT_COLUMNS,
+        load_fn=load_file_for_cache,
+    )
+
+
+def load_cropped_twin_measurements_for_range(file_meta_list, start_ms, end_ms, tz):
+    return _load_cropped_history_for_range(
+        file_meta_list,
+        start_ms,
+        end_ms,
+        tz,
+        columns=TWIN_MEASUREMENT_COLUMNS,
+        load_fn=load_twin_file_for_cache,
+    )
 
 
 def serialize_measurements_for_download(df, tz):
@@ -202,49 +235,3 @@ def serialize_measurements_for_download(df, tz):
     result = result[MEASUREMENT_COLUMNS].copy()
     result["timestamp"] = result["timestamp"].apply(lambda value: serialize_iso_with_tz(value, tz=tz))
     return result
-
-
-def coalesce_digital_twin_measurements(frames, tz):
-    """Merge duplicated system-level digital-twin metrics across plant measurement frames."""
-    metric_columns = list(DIGITAL_TWIN_SUMMARY_MEASUREMENT_COLUMNS)
-    normalized_frames = []
-    for frame in list(frames or []):
-        if frame is None or frame.empty:
-            continue
-        current = frame.copy()
-        if "timestamp" not in current.columns:
-            continue
-        current["timestamp"] = normalize_datetime_series(current["timestamp"], tz)
-        current = current.dropna(subset=["timestamp"])
-        keep_columns = ["timestamp"] + [column for column in metric_columns if column in current.columns]
-        current = current[keep_columns].copy()
-        for column in metric_columns:
-            if column not in current.columns:
-                current[column] = pd.NA
-        current = current[["timestamp"] + metric_columns]
-        if current[metric_columns].dropna(how="all").empty:
-            continue
-        populated_columns = ["timestamp"] + [column for column in metric_columns if not current[column].dropna().empty]
-        normalized_frames.append(current[populated_columns].copy())
-
-    if not normalized_frames:
-        return pd.DataFrame(columns=["timestamp"] + metric_columns)
-
-    combined = pd.concat(normalized_frames, ignore_index=True)
-    for column in metric_columns:
-        if column not in combined.columns:
-            combined[column] = pd.NA
-    combined = combined[["timestamp"] + metric_columns]
-    combined = combined.sort_values("timestamp").reset_index(drop=True)
-
-    def _first_non_null(series):
-        non_null = series.dropna()
-        return non_null.iloc[0] if not non_null.empty else pd.NA
-
-    coalesced = (
-        combined.groupby("timestamp", sort=True, as_index=False)[metric_columns]
-        .agg(_first_non_null)
-        .sort_values("timestamp")
-        .reset_index(drop=True)
-    )
-    return coalesced[["timestamp"] + metric_columns]

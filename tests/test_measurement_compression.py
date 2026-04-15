@@ -9,7 +9,10 @@ from unittest.mock import patch
 import pandas as pd
 
 from measurement.agent import measurement_agent
-from measurement.storage import MEASUREMENT_VALUE_COLUMNS, append_rows_to_csv as storage_append_rows_to_csv
+from measurement.storage import (
+    MEASUREMENT_VALUE_COLUMNS,
+    append_rows_to_csv as storage_append_rows_to_csv,
+)
 
 
 def _build_shared_data(recording_path):
@@ -22,6 +25,10 @@ def _build_shared_data(recording_path):
         "current_file_path_by_plant": {"lib": None},
         "current_file_df_by_plant": {"lib": pd.DataFrame()},
         "pending_rows_by_file": {},
+        "twin_measurements_filename": None,
+        "twin_current_file_path": None,
+        "twin_current_file_df": pd.DataFrame(),
+        "pending_twin_rows_by_file": {},
         "measurements_df": pd.DataFrame(),
         "measurement_post_status": {},
     }
@@ -280,6 +287,53 @@ class MeasurementCompressionTests(unittest.TestCase):
         real_rows = output_df.dropna(subset=["battery_active_power_kw"])
         self.assertEqual(len(real_rows), 4)
         self.assertAlmostEqual(float(real_rows.iloc[-1]["soc_pu"]), samples[-1]["soc_pu"], places=6)
+
+    def test_twin_history_compression_runs_independently_of_plant_files(self):
+        samples = []
+        for idx in range(4):
+            samples.append(
+                {
+                    "p_setpoint_kw": 50.0,
+                    "battery_active_power_kw": 50.0,
+                    "q_setpoint_kvar": 0.0,
+                    "battery_reactive_power_kvar": 0.0,
+                    "soc_pu": 0.45 + (idx * 0.00005),
+                    "p_poi_kw": 50.0,
+                    "q_poi_kvar": 0.0,
+                    "v_poi_kV": 1.0,
+                }
+            )
+
+        with TemporaryDirectory() as tmpdir:
+            with chdir(tmpdir):
+                os.makedirs("data", exist_ok=True)
+                shared_data = _build_shared_data("data/20990101_lib.csv")
+                shared_data["grid_map_runtime"] = {
+                    "summary": {
+                        "battery_voltage_pu": 1.01,
+                        "min_voltage_pu": 0.97,
+                        "max_voltage_pu": 1.03,
+                        "max_line_loading_pct": 72.0,
+                        "num_overloaded_lines": 1,
+                        "grid_map_voltage_bucket_lt_0_925_count": 0,
+                        "grid_map_voltage_bucket_0_925_to_0_95_count": 1,
+                        "grid_map_voltage_bucket_0_95_to_0_975_count": 2,
+                        "grid_map_voltage_bucket_0_975_to_1_025_count": 3,
+                        "grid_map_voltage_bucket_1_025_to_1_05_count": 4,
+                        "grid_map_voltage_bucket_1_05_to_1_075_count": 5,
+                        "grid_map_voltage_bucket_gte_1_075_count": 6,
+                    }
+                }
+                config = _build_config(compression_enabled=True, measurement_period_s=0.1, write_period_s=0.15)
+                _run_agent_and_load_output(config, shared_data, samples)
+
+                twin_paths = sorted(glob.glob("data/*_twin.csv"))
+                self.assertTrue(twin_paths)
+                twin_df = pd.read_csv(twin_paths[-1])
+
+        real_twin_rows = twin_df.dropna(subset=["grid_map_battery_voltage_pu"])
+        self.assertEqual(len(real_twin_rows), 2)
+        self.assertAlmostEqual(float(real_twin_rows.iloc[-1]["grid_map_battery_voltage_pu"]), 1.01, places=6)
 
     def test_compression_tolerance_uses_last_kept_row_to_prevent_drift(self):
         samples = []
