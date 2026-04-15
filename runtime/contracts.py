@@ -1,6 +1,7 @@
 """Shared runtime contracts for plant endpoint resolution, naming, and limits."""
 
 import copy
+import ipaddress
 import re
 
 
@@ -31,6 +32,25 @@ def resolve_modbus_endpoint(config, plant_id, transport_mode):
         "poi_voltage_kv": float((plant_cfg.get("model", {}) or {}).get("poi_voltage_kv", 20.0)),
         "points": copy.deepcopy(points),
     }
+
+
+def is_loopback_host(host):
+    """Return True when a host string targets a local loopback interface."""
+    text = str(host or "").strip()
+    if not text:
+        return False
+    if text.lower() == "localhost":
+        return True
+    try:
+        return bool(ipaddress.ip_address(text).is_loopback)
+    except ValueError:
+        return False
+
+
+def local_endpoint_uses_emulator(config, plant_id):
+    """Return True when a plant local endpoint should be backed by the local emulator."""
+    endpoint = resolve_modbus_endpoint(config, plant_id, "local")
+    return is_loopback_host(endpoint.get("host"))
 
 
 def resolve_grid_map_voltage_write_endpoint(config, transport_mode):

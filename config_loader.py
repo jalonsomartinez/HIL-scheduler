@@ -1,6 +1,5 @@
 """Configuration loader for HIL Scheduler."""
 
-import ipaddress
 import logging
 import os
 import re
@@ -12,6 +11,7 @@ import yaml
 
 from modbus.codec import format_meta
 from modbus.units import validate_point_unit
+from runtime.contracts import is_loopback_host
 from runtime.defaults import (
     DEFAULT_MEASUREMENT_COMPRESSION_MAX_KEPT_GAP_S,
     DEFAULT_MEASUREMENT_COMPRESSION_TOLERANCES,
@@ -155,25 +155,6 @@ def _parse_host(value, default, key_name):
         logging.warning("Invalid %s='%s'. Using default '%s'.", key_name, value, default)
         return default
     return host
-
-
-def _parse_loopback_host(value, default, key_name):
-    host = _parse_host(value, default, key_name)
-    if str(host).strip().lower() == "localhost":
-        return "localhost"
-    try:
-        parsed = ipaddress.ip_address(str(host).strip())
-    except ValueError as exc:
-        raise ValueError(
-            f"Invalid {key_name}='{host}'. Local emulator hosts must be loopback addresses such as "
-            "'localhost' or '127.0.0.1'."
-        ) from exc
-    if not parsed.is_loopback:
-        raise ValueError(
-            f"Invalid {key_name}='{host}'. Local emulator hosts must be loopback addresses such as "
-            "'localhost' or '127.0.0.1'."
-        )
-    return str(parsed)
 
 
 def _normalize_modbus_point(point_name, raw_point, prefix):
@@ -345,7 +326,7 @@ def _normalize_series(raw_series, prefix, defaults):
     return result
 
 
-def _normalize_transport_endpoint(raw_endpoint, prefix, default_host, default_port, *, require_loopback_host=False):
+def _normalize_transport_endpoint(raw_endpoint, prefix, default_host, default_port):
     if "registers" in raw_endpoint:
         raise ValueError(
             f"Config key '{prefix}.registers' is no longer supported. "
@@ -353,11 +334,7 @@ def _normalize_transport_endpoint(raw_endpoint, prefix, default_host, default_po
         )
 
     endpoint = {
-        "host": (
-            _parse_loopback_host(raw_endpoint.get("host", default_host), default_host, f"{prefix}.host")
-            if require_loopback_host
-            else _parse_host(raw_endpoint.get("host", default_host), default_host, f"{prefix}.host")
-        ),
+        "host": _parse_host(raw_endpoint.get("host", default_host), default_host, f"{prefix}.host"),
         "port": _parse_int(raw_endpoint.get("port", default_port), default_port, f"{prefix}.port", min_value=1),
         "byte_order": _parse_choice_required(raw_endpoint.get("byte_order"), MODBUS_BYTE_ORDERS, f"{prefix}.byte_order"),
         "word_order": _parse_choice_required(raw_endpoint.get("word_order"), MODBUS_WORD_ORDERS, f"{prefix}.word_order"),
@@ -445,6 +422,8 @@ def _validate_distinct_local_emulator_endpoints(plants):
     seen_by_bind = {}
     for plant_id, plant in plants.items():
         local_endpoint = dict(((plant or {}).get("modbus", {}) or {}).get("local", {}) or {})
+        if not is_loopback_host(local_endpoint.get("host")):
+            continue
         bind_key = (str(local_endpoint.get("host", "")).strip().lower(), int(local_endpoint.get("port", 0) or 0))
         other_plant_id = seen_by_bind.get(bind_key)
         if other_plant_id is not None:
@@ -477,7 +456,6 @@ def _normalize_plants_new_schema(yaml_config):
             f"plants.{plant_id}.modbus.local",
             "localhost",
             5020 if plant_id == "lib" else 5021,
-            require_loopback_host=True,
         )
         remote_endpoint = _normalize_transport_endpoint(
             modbus_raw.get("remote", {}),
@@ -527,7 +505,7 @@ def _build_legacy_plants(yaml_config):
     modbus_local = yaml_config.get("modbus_local", {})
     modbus_remote = yaml_config.get("modbus_remote", {})
 
-    local_ep = _normalize_transport_endpoint(modbus_local, "modbus_local", "localhost", 5020, require_loopback_host=True)
+    local_ep = _normalize_transport_endpoint(modbus_local, "modbus_local", "localhost", 5020)
     remote_ep = _normalize_transport_endpoint(modbus_remote, "modbus_remote", "10.117.133.21", 502)
 
     series_root = yaml_config.get("istentore_api", {}).get("measurement_series_by_plant", {})

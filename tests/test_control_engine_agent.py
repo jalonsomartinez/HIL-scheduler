@@ -211,6 +211,45 @@ class ControlEngineAgentTests(unittest.TestCase):
         self.assertEqual(calls[0], ("enable", "lib", 1))
         self.assertEqual(calls[1], ("setpoints", "lib", 12.5, -3.0))
 
+    def test_start_one_plant_skips_local_emulator_seed_for_non_loopback_local_host(self):
+        shared_data = _shared_data()
+        shared_data["transport_mode"] = "local"
+        calls = []
+        config = {
+            "STARTUP_INITIAL_SOC_PU": 0.5,
+            "PLANTS": {
+                "lib": {
+                    "modbus": {
+                        "local": {
+                            "host": "10.117.133.21",
+                            "port": 502,
+                        }
+                    }
+                }
+            },
+        }
+
+        result = _start_one_plant(
+            config,
+            shared_data,
+            "lib",
+            tz=timezone.utc,
+            reset_trigger_fn=lambda plant_id: {"state": "skipped"},
+            prepare_start_commands_fn=lambda plant_id: {"ok": True, "details": []},
+            set_enable_fn=lambda plant_id, value: True,
+            send_setpoints_fn=lambda plant_id, p_kw, q_kvar: True,
+            get_latest_schedule_setpoint_fn=lambda plant_id: (1.0, 2.0),
+            resolve_local_start_soc_seed_fn=lambda plant_id: calls.append(("resolve_seed", plant_id)) or {"soc_pu": 0.61, "source": "test"},
+            request_local_emulator_soc_seed_fn=lambda plant_id, soc_pu, source: calls.append(
+                ("request_seed", plant_id, soc_pu, source)
+            )
+            or {"status": "applied"},
+        )
+
+        self.assertEqual(result["state"], "succeeded")
+        self.assertIsNone(result["result"]["seed_result"])
+        self.assertEqual(calls, [])
+
     def test_start_one_plant_publishes_clamped_initial_setpoint_status(self):
         shared_data = _shared_data()
         calls = []

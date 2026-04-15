@@ -30,6 +30,7 @@ from modbus.grouped_reads import build_read_groups, read_points_internal_grouped
 from modbus.setpoint_io import q_control_mode_point_configured, voltage_control_mode_supported
 from runtime.contracts import (
     clamp_dispatch_setpoints,
+    local_endpoint_uses_emulator,
     resolve_modbus_endpoint,
     resolve_plant_power_limits,
     sanitize_plant_name,
@@ -622,12 +623,17 @@ def _start_one_plant(
 
     seed_result = None
     transport_mode = snapshot_locked(shared_data, lambda data: data.get("transport_mode", "local"))
-    if transport_mode == "local":
+    if transport_mode == "local" and local_endpoint_uses_emulator(config, plant_id):
         seed = resolve_local_start_soc_seed_fn(plant_id)
         seed_result = request_local_emulator_soc_seed_fn(
             plant_id,
             (seed or {}).get("soc_pu"),
             (seed or {}).get("source", "unknown"),
+        )
+    elif transport_mode == "local":
+        logging.info(
+            "ControlEngine: %s local start skipping emulator SoC seed because local host is non-loopback.",
+            plant_id.upper(),
         )
 
     trigger_reset_result = dict(reset_trigger_fn(plant_id) or {})

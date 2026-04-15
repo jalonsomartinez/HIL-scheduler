@@ -349,15 +349,16 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
         self.assertEqual(v_point["address"], 403)
         self.assertEqual(v_point["unit"], "v")
 
-    def test_rejects_non_loopback_local_emulator_host(self):
+    def test_accepts_non_loopback_local_host(self):
         payload = _load_yaml("config_test.yaml")
         payload["plants"]["lib"]["modbus"]["local"]["host"] = "10.117.133.21"
         path = _write_temp_yaml(payload)
         try:
-            with self.assertRaisesRegex(ValueError, "Local emulator hosts must be loopback addresses"):
-                load_config(path)
+            config = load_config(path)
         finally:
             os.unlink(path)
+
+        self.assertEqual(config["PLANTS"]["lib"]["modbus"]["local"]["host"], "10.117.133.21")
 
     def test_rejects_duplicate_local_emulator_bind_address(self):
         payload = _load_yaml("config_test.yaml")
@@ -370,6 +371,23 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
                 load_config(path)
         finally:
             os.unlink(path)
+
+    def test_accepts_duplicate_non_loopback_local_endpoints(self):
+        payload = _load_yaml("config_test.yaml")
+        payload["plants"]["lib"]["modbus"]["local"]["host"] = "10.117.133.21"
+        payload["plants"]["lib"]["modbus"]["local"]["port"] = 502
+        payload["plants"]["vrfb"]["modbus"]["local"]["host"] = "10.117.133.21"
+        payload["plants"]["vrfb"]["modbus"]["local"]["port"] = 502
+        path = _write_temp_yaml(payload)
+        try:
+            config = load_config(path)
+        finally:
+            os.unlink(path)
+
+        self.assertEqual(config["PLANTS"]["lib"]["modbus"]["local"]["host"], "10.117.133.21")
+        self.assertEqual(config["PLANTS"]["vrfb"]["modbus"]["local"]["host"], "10.117.133.21")
+        self.assertEqual(config["PLANTS"]["lib"]["modbus"]["local"]["port"], 502)
+        self.assertEqual(config["PLANTS"]["vrfb"]["modbus"]["local"]["port"], 502)
 
     def test_rejects_q_control_mode_without_v_setpoint(self):
         payload = _load_yaml("config.yaml")

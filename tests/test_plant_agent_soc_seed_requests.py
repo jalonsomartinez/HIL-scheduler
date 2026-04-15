@@ -320,6 +320,65 @@ class PlantAgentVoltageMirroringTests(unittest.TestCase):
                 thread.join(timeout=2)
 
 
+class PlantAgentEmulatorStartupModeTests(unittest.TestCase):
+    def setUp(self):
+        _FakeModbusRegistry.clear()
+
+    def test_non_loopback_local_hosts_skip_emulator_startup_without_crashing(self):
+        config = load_config("config_prod.yaml")
+        config["PLANT_PERIOD_S"] = 0.05
+        config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "10.117.133.21"
+        config["PLANTS"]["lib"]["modbus"]["local"]["port"] = 502
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["host"] = "10.117.133.12"
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["port"] = 502
+        shared_data = _build_shared_data(config)
+
+        thread = None
+        try:
+            from unittest.mock import patch
+
+            with patch("plant_agent.ModbusServer", _FakeModbusServer):
+                thread = threading.Thread(target=plant_agent, args=(config, shared_data), daemon=True)
+                thread.start()
+                time.sleep(0.2)
+
+                self.assertTrue(thread.is_alive())
+                self.assertIsNone(_FakeModbusRegistry.get("10.117.133.21", 502))
+                self.assertIsNone(_FakeModbusRegistry.get("10.117.133.12", 502))
+        finally:
+            shared_data["shutdown_event"].set()
+            if thread is not None:
+                thread.join(timeout=2)
+
+    def test_mixed_local_mode_starts_only_loopback_backed_emulator(self):
+        config = load_config("config_prod.yaml")
+        config["PLANT_PERIOD_S"] = 0.05
+        config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["lib"]["modbus"]["local"]["port"] = 5190
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["host"] = "10.117.133.12"
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["port"] = 502
+        shared_data = _build_shared_data(config)
+
+        thread = None
+        try:
+            from unittest.mock import patch
+
+            with patch("plant_agent.ModbusServer", _FakeModbusServer), patch(
+                "plant_agent.resolve_startup_soc_seed",
+                return_value={"soc_pu": 0.5, "source": "startup_fallback", "file_path": None, "timestamp": None},
+            ):
+                thread = threading.Thread(target=plant_agent, args=(config, shared_data), daemon=True)
+                thread.start()
+                time.sleep(0.2)
+
+                self.assertIsNotNone(_FakeModbusRegistry.get("127.0.0.1", 5190))
+                self.assertIsNone(_FakeModbusRegistry.get("10.117.133.12", 502))
+        finally:
+            shared_data["shutdown_event"].set()
+            if thread is not None:
+                thread.join(timeout=2)
+
+
 class PlantAgentPerPhaseSetpointTests(unittest.TestCase):
     def setUp(self):
         _FakeModbusRegistry.clear()

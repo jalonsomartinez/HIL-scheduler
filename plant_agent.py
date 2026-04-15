@@ -5,6 +5,7 @@ from pyModbusTCP.server import ModbusServer
 
 from modbus.codec import decode_engineering_value, encode_engineering_value
 from modbus.units import external_to_internal, internal_to_external
+from runtime.contracts import local_endpoint_uses_emulator
 from runtime.soc_estimation import clamp_soc_pu, resolve_startup_soc_seed
 from time_utils import get_config_tz
 
@@ -25,6 +26,7 @@ def plant_agent(config, shared_data):
 
     servers = {}
     states = {}
+    emulated_plant_ids = []
 
     def _ensure_seed_control_maps():
         lock = shared_data.get("lock")
@@ -138,14 +140,24 @@ def plant_agent(config, shared_data):
             local_cfg = (plant_cfg.get("modbus", {}) or {}).get("local", {})
             model = plant_cfg.get("model", {})
             power_limits = model.get("power_limits", {})
-            startup_soc_seed = resolve_startup_soc_seed(config, plant_id, tz, caller_file=__file__)
-            initial_soc_pu = float(startup_soc_seed["soc_pu"])
-
             host = local_cfg.get("host", "localhost")
             port = int(local_cfg.get("port", 5020 if plant_id == "lib" else 5021))
 
+            if not local_endpoint_uses_emulator(config, plant_id):
+                logging.info(
+                    "Plant agent: skipping local emulator for %s because local host %s is non-loopback (port=%s).",
+                    plant_id.upper(),
+                    host,
+                    port,
+                )
+                continue
+
+            startup_soc_seed = resolve_startup_soc_seed(config, plant_id, tz, caller_file=__file__)
+            initial_soc_pu = float(startup_soc_seed["soc_pu"])
+
             server = ModbusServer(host=host, port=port, no_block=True)
             server.start()
+            emulated_plant_ids.append(plant_id)
             servers[plant_id] = {
                 "server": server,
                 "endpoint": local_cfg,
@@ -188,10 +200,13 @@ def plant_agent(config, shared_data):
 
             logging.info("Plant emulator %s started on %s:%s", plant_id.upper(), host, port)
 
+        if not emulated_plant_ids:
+            logging.info("Plant agent: no loopback-backed local emulators configured; nothing to bind.")
+
         while not shared_data["shutdown_event"].is_set():
             loop_start = time.time()
 
-            for plant_id in plant_ids:
+            for plant_id in emulated_plant_ids:
                 try:
                     entry = servers[plant_id]
                     server = entry["server"]
