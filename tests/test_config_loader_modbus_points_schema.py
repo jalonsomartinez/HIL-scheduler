@@ -349,6 +349,28 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
         self.assertEqual(v_point["address"], 403)
         self.assertEqual(v_point["unit"], "v")
 
+    def test_rejects_non_loopback_local_emulator_host(self):
+        payload = _load_yaml("config_test.yaml")
+        payload["plants"]["lib"]["modbus"]["local"]["host"] = "10.117.133.21"
+        path = _write_temp_yaml(payload)
+        try:
+            with self.assertRaisesRegex(ValueError, "Local emulator hosts must be loopback addresses"):
+                load_config(path)
+        finally:
+            os.unlink(path)
+
+    def test_rejects_duplicate_local_emulator_bind_address(self):
+        payload = _load_yaml("config_test.yaml")
+        payload["plants"]["vrfb"]["modbus"]["local"]["host"] = "127.0.0.1"
+        payload["plants"]["vrfb"]["modbus"]["local"]["port"] = payload["plants"]["lib"]["modbus"]["local"]["port"]
+        payload["plants"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
+        path = _write_temp_yaml(payload)
+        try:
+            with self.assertRaisesRegex(ValueError, "distinct host/port pairs"):
+                load_config(path)
+        finally:
+            os.unlink(path)
+
     def test_rejects_q_control_mode_without_v_setpoint(self):
         payload = _load_yaml("config.yaml")
         payload["plants"]["lib"]["modbus"]["local"]["points"].pop("v_setpoint", None)

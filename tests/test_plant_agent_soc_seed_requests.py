@@ -4,6 +4,7 @@ import unittest
 
 import pandas as pd
 
+import plant_agent as plant_agent_module
 from config_loader import load_config
 from modbus.codec import read_point_internal, write_point_internal
 from plant_agent import plant_agent
@@ -317,6 +318,109 @@ class PlantAgentVoltageMirroringTests(unittest.TestCase):
             shared_data["shutdown_event"].set()
             if thread is not None:
                 thread.join(timeout=2)
+
+
+class PlantAgentPerPhaseSetpointTests(unittest.TestCase):
+    def setUp(self):
+        _FakeModbusRegistry.clear()
+
+    def _build_per_phase_local_config(self):
+        config = load_config("config_test.yaml")
+        config["PLANT_PERIOD_S"] = 0.05
+        config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["lib"]["modbus"]["local"]["port"] = 5180
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["port"] = 5181
+
+        points = config["PLANTS"]["vrfb"]["modbus"]["local"]["points"]
+        points.pop("p_setpoint", None)
+        points.pop("q_setpoint", None)
+        points["p_u_setpoint"] = {"name": "p_u_setpoint", "address": 101, "format": "float32", "word_count": 2, "byte_count": 4, "access": "rw", "unit": "w", "eng_per_count": 1.0}
+        points["p_v_setpoint"] = {"name": "p_v_setpoint", "address": 103, "format": "float32", "word_count": 2, "byte_count": 4, "access": "rw", "unit": "w", "eng_per_count": 1.0}
+        points["p_w_setpoint"] = {"name": "p_w_setpoint", "address": 105, "format": "float32", "word_count": 2, "byte_count": 4, "access": "rw", "unit": "w", "eng_per_count": 1.0}
+        points["q_u_setpoint"] = {"name": "q_u_setpoint", "address": 107, "format": "float32", "word_count": 2, "byte_count": 4, "access": "rw", "unit": "var", "eng_per_count": 1.0}
+        points["q_v_setpoint"] = {"name": "q_v_setpoint", "address": 109, "format": "float32", "word_count": 2, "byte_count": 4, "access": "rw", "unit": "var", "eng_per_count": 1.0}
+        points["q_w_setpoint"] = {"name": "q_w_setpoint", "address": 111, "format": "float32", "word_count": 2, "byte_count": 4, "access": "rw", "unit": "var", "eng_per_count": 1.0}
+        return config
+
+    def test_per_phase_local_setpoints_drive_aggregate_telemetry(self):
+        config = self._build_per_phase_local_config()
+        shared_data = _build_shared_data(config)
+
+        thread = None
+        original_server_cls = plant_agent_module.ModbusServer
+        original_seed_resolver = plant_agent_module.resolve_startup_soc_seed
+        try:
+            plant_agent_module.ModbusServer = _FakeModbusServer
+            plant_agent_module.resolve_startup_soc_seed = (
+                lambda *args, **kwargs: {"soc_pu": 0.5, "source": "startup_fallback", "file_path": None, "timestamp": None}
+            )
+            thread = threading.Thread(target=plant_agent, args=(config, shared_data), daemon=True)
+            thread.start()
+            time.sleep(0.3)
+
+            client = _FakeModbusClient("127.0.0.1", 5181)
+            self.assertTrue(client.open())
+            vrfb_endpoint = config["PLANTS"]["vrfb"]["modbus"]["local"]
+            self.assertTrue(write_point_internal(client, vrfb_endpoint, "enable", 1))
+            self.assertTrue(write_point_internal(client, vrfb_endpoint, "p_u_setpoint", 4.0))
+            self.assertTrue(write_point_internal(client, vrfb_endpoint, "p_v_setpoint", 5.0))
+            self.assertTrue(write_point_internal(client, vrfb_endpoint, "p_w_setpoint", 7.0))
+            self.assertTrue(write_point_internal(client, vrfb_endpoint, "q_u_setpoint", 0.25))
+            self.assertTrue(write_point_internal(client, vrfb_endpoint, "q_v_setpoint", 0.5))
+            self.assertTrue(write_point_internal(client, vrfb_endpoint, "q_w_setpoint", 0.75))
+
+            time.sleep(0.2)
+
+            p_poi_kw = read_point_internal(client, vrfb_endpoint, "p_poi")
+            q_poi_kvar = read_point_internal(client, vrfb_endpoint, "q_poi")
+            p_battery_kw = read_point_internal(client, vrfb_endpoint, "p_battery")
+            q_battery_kvar = read_point_internal(client, vrfb_endpoint, "q_battery")
+            self.assertAlmostEqual(float(p_poi_kw), 16.0, places=6)
+            self.assertAlmostEqual(float(q_poi_kvar), 1.5, places=6)
+            self.assertAlmostEqual(float(p_battery_kw), 16.0, places=6)
+            self.assertAlmostEqual(float(q_battery_kvar), 1.5, places=6)
+        finally:
+            shared_data["shutdown_event"].set()
+            if thread is not None:
+                thread.join(timeout=2)
+            plant_agent_module.ModbusServer = original_server_cls
+            plant_agent_module.resolve_startup_soc_seed = original_seed_resolver
+
+    def test_per_phase_local_seed_request_still_applies(self):
+        config = self._build_per_phase_local_config()
+        shared_data = _build_shared_data(config)
+
+        thread = None
+        original_server_cls = plant_agent_module.ModbusServer
+        original_seed_resolver = plant_agent_module.resolve_startup_soc_seed
+        try:
+            plant_agent_module.ModbusServer = _FakeModbusServer
+            plant_agent_module.resolve_startup_soc_seed = (
+                lambda *args, **kwargs: {"soc_pu": 0.5, "source": "startup_fallback", "file_path": None, "timestamp": None}
+            )
+            thread = threading.Thread(target=plant_agent, args=(config, shared_data), daemon=True)
+            thread.start()
+            time.sleep(0.3)
+
+            request_id = 104
+            with shared_data["lock"]:
+                shared_data["local_emulator_soc_seed_request_by_plant"]["vrfb"] = {
+                    "request_id": request_id,
+                    "soc_pu": 0.66,
+                    "source": "test",
+                }
+
+            result = _wait_for_seed_result(shared_data, "vrfb", request_id)
+            self.assertIsNotNone(result)
+            self.assertEqual(result["status"], "applied")
+            self.assertAlmostEqual(float(result["soc_pu"]), 0.66, places=6)
+        finally:
+            shared_data["shutdown_event"].set()
+            if thread is not None:
+                thread.join(timeout=2)
+            plant_agent_module.ModbusServer = original_server_cls
+            plant_agent_module.resolve_startup_soc_seed = original_seed_resolver
 
 
 if __name__ == "__main__":

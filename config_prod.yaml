@@ -57,7 +57,7 @@ grid_map:
       byte_order: big
       word_order: msw_first
       points:
-        v_poi_write: {address: 297, format: uint16, access: rw, unit: V, eng_per_count: 1.0}
+        v_poi_write: {address: 4, format: uint16, access: rw, unit: V, eng_per_count: 1.0}
     remote:
       host: "10.117.133.27"
       port: 502
@@ -93,8 +93,8 @@ plants:
       poi_voltage_kv: 20.0
     modbus:
       local:
-        host: "10.117.133.21"
-        port: 502
+        host: "127.0.0.1"
+        port: 5020
         byte_order: big
         word_order: lsw_first
         points:
@@ -146,8 +146,8 @@ plants:
       poi_voltage_kv: 0.40
     modbus:
       local:
-        host: "10.117.133.12"
-        port: 502
+        host: "127.0.0.1"
+        port: 5021
         byte_order: big
         word_order: msw_first
         points:

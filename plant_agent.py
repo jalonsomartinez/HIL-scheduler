@@ -8,6 +8,10 @@ from modbus.units import external_to_internal, internal_to_external
 from runtime.soc_estimation import clamp_soc_pu, resolve_startup_soc_seed
 from time_utils import get_config_tz
 
+AGGREGATE_SETPOINT_POINT_NAMES = ("p_setpoint", "q_setpoint")
+PER_PHASE_P_SETPOINT_POINT_NAMES = ("p_u_setpoint", "p_v_setpoint", "p_w_setpoint")
+PER_PHASE_Q_SETPOINT_POINT_NAMES = ("q_u_setpoint", "q_v_setpoint", "q_w_setpoint")
+
 
 def plant_agent(config, shared_data):
     """Run local emulation servers for LIB and VRFB simultaneously."""
@@ -67,6 +71,12 @@ def plant_agent(config, shared_data):
     def db_has_point(endpoint_cfg, point_name):
         return str(point_name) in dict(endpoint_cfg.get("points", {}) or {})
 
+    def db_uses_aggregate_setpoints(endpoint_cfg):
+        return all(db_has_point(endpoint_cfg, point_name) for point_name in AGGREGATE_SETPOINT_POINT_NAMES)
+
+    def db_uses_per_phase_setpoints(endpoint_cfg):
+        return all(db_has_point(endpoint_cfg, point_name) for point_name in PER_PHASE_P_SETPOINT_POINT_NAMES + PER_PHASE_Q_SETPOINT_POINT_NAMES)
+
     def db_read_point_eng(db, endpoint_cfg, point_name):
         if not db_has_point(endpoint_cfg, point_name):
             return None
@@ -89,6 +99,31 @@ def plant_agent(config, shared_data):
             return False
         db_write_point_eng(db, endpoint_cfg, point_name, eng_value)
         return True
+
+    def db_initialize_setpoints(db, endpoint_cfg):
+        if db_uses_aggregate_setpoints(endpoint_cfg):
+            db_write_point_eng(db, endpoint_cfg, "p_setpoint", 0.0)
+            db_write_point_eng(db, endpoint_cfg, "q_setpoint", 0.0)
+            return
+        if db_uses_per_phase_setpoints(endpoint_cfg):
+            for point_name in PER_PHASE_P_SETPOINT_POINT_NAMES + PER_PHASE_Q_SETPOINT_POINT_NAMES:
+                db_write_point_eng(db, endpoint_cfg, point_name, 0.0)
+            return
+        raise ValueError("Local emulator endpoint must define aggregate or full per-phase setpoints.")
+
+    def db_read_dispatch_setpoints_eng(db, endpoint_cfg):
+        if db_uses_aggregate_setpoints(endpoint_cfg):
+            return (
+                db_read_point_eng(db, endpoint_cfg, "p_setpoint"),
+                db_read_point_eng(db, endpoint_cfg, "q_setpoint"),
+            )
+        if db_uses_per_phase_setpoints(endpoint_cfg):
+            p_values = [db_read_point_eng(db, endpoint_cfg, point_name) for point_name in PER_PHASE_P_SETPOINT_POINT_NAMES]
+            q_values = [db_read_point_eng(db, endpoint_cfg, point_name) for point_name in PER_PHASE_Q_SETPOINT_POINT_NAMES]
+            if any(value is None for value in p_values + q_values):
+                return (None, None)
+            return (sum(float(value) for value in p_values), sum(float(value) for value in q_values))
+        return (None, None)
 
     def _resolve_local_v_poi_kv(db, endpoint_cfg, default_kv):
         points = dict(endpoint_cfg.get("points", {}) or {})
@@ -131,8 +166,7 @@ def plant_agent(config, shared_data):
             db = server.data_bank
             db_write_point_eng(db, local_cfg, "enable", 0)
             db_write_optional_point_eng(db, local_cfg, "soc", initial_soc_pu)
-            db_write_point_eng(db, local_cfg, "p_setpoint", 0.0)
-            db_write_point_eng(db, local_cfg, "q_setpoint", 0.0)
+            db_initialize_setpoints(db, local_cfg)
             db_write_point_eng(db, local_cfg, "p_battery", 0.0)
             db_write_point_eng(db, local_cfg, "q_battery", 0.0)
             db_write_point_eng(db, local_cfg, "p_poi", 0.0)
@@ -166,8 +200,7 @@ def plant_agent(config, shared_data):
 
                     db = server.data_bank
 
-                    p_sp_kw = db_read_point_eng(db, endpoint_cfg, "p_setpoint")
-                    q_sp_kvar = db_read_point_eng(db, endpoint_cfg, "q_setpoint")
+                    p_sp_kw, q_sp_kvar = db_read_dispatch_setpoints_eng(db, endpoint_cfg)
                     enable_value = db_read_point_eng(db, endpoint_cfg, "enable")
                     if p_sp_kw is None or q_sp_kvar is None or enable_value is None:
                         continue
