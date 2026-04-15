@@ -4,6 +4,7 @@ import logging
 import time
 
 from modbus.codec import encode_point_internal_words, read_point_words, write_point_internal
+from modbus.grouped_reads import build_read_groups
 from runtime.contracts import clamp_dispatch_setpoints, clamp_voltage_setpoint_pu
 
 AGGREGATE_SETPOINT_MODE = "aggregate"
@@ -167,6 +168,37 @@ def read_setpoint_target_words(client, endpoint_cfg, targets):
         str(target["point_name"]): read_point_words(client, endpoint_cfg, target["point_name"])
         for target in (targets or [])
     }
+
+
+def read_setpoint_target_words_grouped(client, endpoint_cfg, targets, *, read_groups=None):
+    point_names = [str(target["point_name"]) for target in (targets or [])]
+    result = {point_name: None for point_name in point_names}
+    if not point_names:
+        return result
+
+    groups = list(read_groups or build_read_groups(endpoint_cfg, point_names))
+    points_cfg = dict((endpoint_cfg or {}).get("points", {}) or {})
+    for group in groups:
+        group_addr = int(group["address"])
+        group_count = int(group["count"])
+        regs = client.read_holding_registers(group_addr, group_count)
+        if regs is None or len(regs) != group_count:
+            continue
+        for item in group.get("items", []):
+            point_name = str(item["point_name"])
+            if point_name not in result:
+                continue
+            point_spec = points_cfg.get(point_name)
+            if point_spec is None:
+                continue
+            point_addr = int(item["address"])
+            word_count = int(item["word_count"])
+            offset = point_addr - group_addr
+            point_words = regs[offset : offset + word_count]
+            if len(point_words) != word_count:
+                continue
+            result[point_name] = [int(word) & 0xFFFF for word in point_words]
+    return result
 
 
 def write_setpoint_targets(client, endpoint_cfg, targets):

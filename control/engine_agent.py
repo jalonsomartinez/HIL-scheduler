@@ -48,6 +48,21 @@ CONTROL_ENGINE_FAILED_RECENT_WINDOW = 20
 _OBSERVED_GROUPS_BY_SIGNATURE = {}
 
 
+def _observed_state_poll_period_s(config):
+    try:
+        return max(0.1, float(config.get("OBSERVED_STATE_POLL_PERIOD_S", CONTROL_ENGINE_LOOP_PERIOD_S)))
+    except (TypeError, ValueError):
+        return CONTROL_ENGINE_LOOP_PERIOD_S
+
+
+def _observed_state_stale_after_s(config):
+    default_value = max(OBSERVED_STATE_STALE_AFTER_S, _observed_state_poll_period_s(config) * 3.0)
+    try:
+        return max(0.1, float(config.get("OBSERVED_STATE_STALE_AFTER_S", default_value)))
+    except (TypeError, ValueError):
+        return default_value
+
+
 def _plant_name(config, plant_id):
     plants_cfg = config.get("PLANTS", {})
     return str((plants_cfg.get(plant_id, {}) or {}).get("name", plant_id.upper()))
@@ -350,16 +365,39 @@ def _refresh_all_observed_state(
     plant_ids,
     *,
     now_value=None,
+    stale_after_s=None,
     read_observed_points_fn=_read_observed_points,
 ):
     if now_value is None:
         now_value = now_tz(config)
+    if stale_after_s is None:
+        stale_after_s = _observed_state_stale_after_s(config)
     transport_mode = snapshot_locked(shared_data, lambda data: data.get("transport_mode", "local"))
     results = {}
     for plant_id in plant_ids:
         values, error = read_observed_points_fn(config, shared_data, plant_id, transport_mode=transport_mode)
-        results[plant_id] = _publish_observed_state(shared_data, plant_id, values, error=error, now_value=now_value)
+        results[plant_id] = _publish_observed_state(
+            shared_data,
+            plant_id,
+            values,
+            error=error,
+            now_value=now_value,
+            stale_after_s=stale_after_s,
+        )
     return results
+
+
+def _get_last_observed_refresh(shared_data):
+    return snapshot_locked(
+        shared_data,
+        lambda data: dict(data.get("_control_engine_runtime", {}) or {}).get("last_observed_refresh"),
+    )
+
+
+def _set_last_observed_refresh(shared_data, now_value):
+    with shared_data["lock"]:
+        runtime_state = shared_data.setdefault("_control_engine_runtime", {})
+        runtime_state["last_observed_refresh"] = now_value
 
 
 def _get_daily_recording_file_path(config, plant_id):
@@ -1023,9 +1061,17 @@ def _execute_command(config, shared_data, command, *, plant_ids, tz, now_fn=now_
 
 def _run_single_engine_cycle(config, shared_data, *, plant_ids, tz, deps=None, now_fn=now_tz):
     deps = dict(deps or {})
+    observed_stale_after_s = _observed_state_stale_after_s(config)
     refresh_fn = deps.get("refresh_all_observed_state_fn") or (
-        lambda: _refresh_all_observed_state(config, shared_data, plant_ids, now_value=now_fn(config))
+        lambda: _refresh_all_observed_state(
+            config,
+            shared_data,
+            plant_ids,
+            now_value=now_fn(config),
+            stale_after_s=observed_stale_after_s,
+        )
     )
+    observed_poll_period_s = _observed_state_poll_period_s(config)
     loop_now = now_fn(config)
     _update_control_engine_status(
         shared_data,
@@ -1034,13 +1080,24 @@ def _run_single_engine_cycle(config, shared_data, *, plant_ids, tz, deps=None, n
         last_loop_start=loop_now,
     )
 
-    refresh_fn()
-    _update_control_engine_status(
-        shared_data,
-        now_value=now_fn(config),
-        set_alive=True,
-        last_observed_refresh=now_fn(config),
-    )
+    last_observed_refresh = _get_last_observed_refresh(shared_data)
+    should_refresh_observed = True
+    if last_observed_refresh is not None:
+        try:
+            age_s = (pd.Timestamp(loop_now) - pd.Timestamp(last_observed_refresh)).total_seconds()
+            should_refresh_observed = age_s >= float(observed_poll_period_s)
+        except Exception:
+            should_refresh_observed = True
+    if should_refresh_observed:
+        refresh_time = now_fn(config)
+        refresh_fn()
+        _set_last_observed_refresh(shared_data, refresh_time)
+        _update_control_engine_status(
+            shared_data,
+            now_value=now_fn(config),
+            set_alive=True,
+            last_observed_refresh=refresh_time,
+        )
 
     queue_obj = snapshot_locked(shared_data, lambda data: data.get("control_command_queue"))
     if queue_obj is None:
@@ -1073,12 +1130,14 @@ def _run_single_engine_cycle(config, shared_data, *, plant_ids, tz, deps=None, n
         exception_log_prefix="ControlEngine",
     )
 
+    refresh_time = now_fn(config)
     refresh_fn()
+    _set_last_observed_refresh(shared_data, refresh_time)
     _update_control_engine_status(
         shared_data,
         now_value=now_fn(config),
         set_alive=True,
-        last_observed_refresh=now_fn(config),
+        last_observed_refresh=refresh_time,
         last_loop_end=now_fn(config),
     )
     return command_id

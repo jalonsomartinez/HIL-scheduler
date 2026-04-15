@@ -659,6 +659,19 @@ def load_config(config_path="config.yaml"):
     config["SCHEDULER_PERIOD_S"] = _parse_float(
         timing_cfg.get("scheduler_period_s", 1), 1, "timing.scheduler_period_s", min_value=0.1
     )
+    config["OBSERVED_STATE_POLL_PERIOD_S"] = _parse_float(
+        timing_cfg.get("observed_state_poll_period_s", 1),
+        1,
+        "timing.observed_state_poll_period_s",
+        min_value=0.1,
+    )
+    observed_state_stale_after_default = max(3.0, float(config["OBSERVED_STATE_POLL_PERIOD_S"]) * 3.0)
+    config["OBSERVED_STATE_STALE_AFTER_S"] = _parse_float(
+        timing_cfg.get("observed_state_stale_after_s", observed_state_stale_after_default),
+        observed_state_stale_after_default,
+        "timing.observed_state_stale_after_s",
+        min_value=0.1,
+    )
     config["PLANT_PERIOD_S"] = _parse_float(
         timing_cfg.get("plant_period_s", 1), 1, "timing.plant_period_s", min_value=0.1
     )
@@ -677,6 +690,26 @@ def load_config(config_path="config.yaml"):
         "timing.grid_map_period_s",
         min_value=0.1,
     )
+    config["SCHEDULER_FAILED_WRITE_RETRY_INITIAL_S"] = _parse_float(
+        timing_cfg.get("scheduler_failed_write_retry_initial_s", 5),
+        5,
+        "timing.scheduler_failed_write_retry_initial_s",
+        min_value=0.1,
+    )
+    config["SCHEDULER_FAILED_WRITE_RETRY_MAX_S"] = _parse_float(
+        timing_cfg.get("scheduler_failed_write_retry_max_s", 20),
+        20,
+        "timing.scheduler_failed_write_retry_max_s",
+        min_value=0.1,
+    )
+    config["SCHEDULER_FAILED_WRITE_RETRY_MULTIPLIER"] = _parse_float(
+        timing_cfg.get("scheduler_failed_write_retry_multiplier", 2),
+        2,
+        "timing.scheduler_failed_write_retry_multiplier",
+        min_value=1.0,
+    )
+    if config["SCHEDULER_FAILED_WRITE_RETRY_MAX_S"] < config["SCHEDULER_FAILED_WRITE_RETRY_INITIAL_S"]:
+        config["SCHEDULER_FAILED_WRITE_RETRY_MAX_S"] = config["SCHEDULER_FAILED_WRITE_RETRY_INITIAL_S"]
 
     dashboard_cfg = yaml_config.get("dashboard", {})
     dashboard_private_cfg = dashboard_cfg.get("private", {})

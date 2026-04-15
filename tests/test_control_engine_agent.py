@@ -807,6 +807,72 @@ class ControlEngineAgentTests(unittest.TestCase):
         self.assertEqual(engine_status["last_finished_command"]["id"], status["id"])
         self.assertEqual(engine_status["last_finished_command"]["state"], "succeeded")
 
+    def test_engine_cycle_refreshes_observed_state_on_configured_cadence(self):
+        shared_data = _shared_data()
+        refresh_calls = []
+        config = {
+            "PLANT_IDS": ("lib", "vrfb"),
+            "OBSERVED_STATE_POLL_PERIOD_S": 5.0,
+            "OBSERVED_STATE_STALE_AFTER_S": 15.0,
+        }
+
+        _run_single_engine_cycle(
+            config,
+            shared_data,
+            plant_ids=("lib", "vrfb"),
+            tz=timezone.utc,
+            now_fn=lambda _config: datetime(2026, 2, 25, 12, 0, 0, tzinfo=timezone.utc),
+            deps={"refresh_all_observed_state_fn": lambda: refresh_calls.append("refresh")},
+        )
+        _run_single_engine_cycle(
+            config,
+            shared_data,
+            plant_ids=("lib", "vrfb"),
+            tz=timezone.utc,
+            now_fn=lambda _config: datetime(2026, 2, 25, 12, 0, 3, tzinfo=timezone.utc),
+            deps={"refresh_all_observed_state_fn": lambda: refresh_calls.append("refresh")},
+        )
+        _run_single_engine_cycle(
+            config,
+            shared_data,
+            plant_ids=("lib", "vrfb"),
+            tz=timezone.utc,
+            now_fn=lambda _config: datetime(2026, 2, 25, 12, 0, 5, tzinfo=timezone.utc),
+            deps={"refresh_all_observed_state_fn": lambda: refresh_calls.append("refresh")},
+        )
+
+        self.assertEqual(len(refresh_calls), 2)
+
+    def test_engine_cycle_forces_observed_refresh_after_command_even_inside_poll_window(self):
+        shared_data = _shared_data()
+        refresh_calls = []
+        config = {
+            "PLANT_IDS": ("lib", "vrfb"),
+            "OBSERVED_STATE_POLL_PERIOD_S": 15.0,
+            "OBSERVED_STATE_STALE_AFTER_S": 15.0,
+        }
+        enqueue_control_command(
+            shared_data,
+            kind="plant.start",
+            payload={"plant_id": "lib"},
+            source="dashboard",
+            now_fn=lambda: datetime(2026, 2, 25, 12, 0, 0, tzinfo=timezone.utc),
+        )
+
+        _run_single_engine_cycle(
+            config,
+            shared_data,
+            plant_ids=("lib", "vrfb"),
+            tz=timezone.utc,
+            now_fn=lambda _config: datetime(2026, 2, 25, 12, 0, 0, tzinfo=timezone.utc),
+            deps={
+                "refresh_all_observed_state_fn": lambda: refresh_calls.append("refresh"),
+                "start_one_plant_fn": lambda plant_id: {"state": "succeeded", "message": None, "result": {"plant_id": plant_id}},
+            },
+        )
+
+        self.assertEqual(len(refresh_calls), 2)
+
     def test_publish_observed_state_preserves_values_on_failure_and_marks_stale(self):
         shared_data = _shared_data()
         t0 = datetime(2026, 2, 25, 12, 0, tzinfo=timezone.utc)
@@ -846,6 +912,39 @@ class ControlEngineAgentTests(unittest.TestCase):
         self.assertFalse(failed["stale"])
         self.assertTrue(stale["stale"])
         self.assertEqual(stale["consecutive_failures"], 2)
+
+    def test_publish_observed_state_uses_configured_stale_after_threshold(self):
+        shared_data = _shared_data()
+        t0 = datetime(2026, 2, 25, 12, 0, tzinfo=timezone.utc)
+        t1 = t0 + timedelta(seconds=10)
+        t2 = t0 + timedelta(seconds=16)
+
+        _publish_observed_state(
+            shared_data,
+            "lib",
+            {"enable_state": 1, "p_battery_kw": 4.0, "q_battery_kvar": -1.0},
+            now_value=t0,
+            stale_after_s=15.0,
+        )
+        fresh = _publish_observed_state(
+            shared_data,
+            "lib",
+            {"enable_state": None, "p_battery_kw": None, "q_battery_kvar": None},
+            error="connect_failed",
+            now_value=t1,
+            stale_after_s=15.0,
+        )
+        stale = _publish_observed_state(
+            shared_data,
+            "lib",
+            {"enable_state": None, "p_battery_kw": None, "q_battery_kvar": None},
+            error="still_failed",
+            now_value=t2,
+            stale_after_s=15.0,
+        )
+
+        self.assertFalse(fresh["stale"])
+        self.assertTrue(stale["stale"])
 
     def test_publish_observed_state_classifies_dict_error_and_resets_on_success(self):
         shared_data = _shared_data()

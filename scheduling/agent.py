@@ -10,7 +10,7 @@ import scheduling.manual_schedule_manager as msm
 from runtime.contracts import resolve_modbus_endpoint
 from modbus.setpoint_io import (
     build_setpoint_write_plan,
-    read_setpoint_target_words,
+    read_setpoint_target_words_grouped,
     resolve_reactive_power_request,
     voltage_control_mode_supported,
     write_setpoint_plan_with_optional_trigger,
@@ -46,8 +46,54 @@ def scheduler_agent(config, shared_data):
     previous_q = {plant_id: None for plant_id in plant_ids}
     previous_reactive_control_mode = {plant_id: None for plant_id in plant_ids}
     previous_api_stale = {plant_id: None for plant_id in plant_ids}
-    force_setpoint_retry = {plant_id: False for plant_id in plant_ids}
+    retry_state_by_plant = {
+        plant_id: {
+            "pending_retry": False,
+            "retry_signature": None,
+            "next_retry_monotonic": None,
+            "current_retry_delay_s": None,
+        }
+        for plant_id in plant_ids
+    }
     last_manual_prune_day = None
+    retry_initial_s = float(config.get("SCHEDULER_FAILED_WRITE_RETRY_INITIAL_S", 5.0) or 5.0)
+    retry_max_s = max(retry_initial_s, float(config.get("SCHEDULER_FAILED_WRITE_RETRY_MAX_S", 20.0) or 20.0))
+    retry_multiplier = max(1.0, float(config.get("SCHEDULER_FAILED_WRITE_RETRY_MULTIPLIER", 2.0) or 2.0))
+
+    def clear_retry_state(plant_id):
+        retry_state_by_plant[plant_id] = {
+            "pending_retry": False,
+            "retry_signature": None,
+            "next_retry_monotonic": None,
+            "current_retry_delay_s": None,
+        }
+
+    def schedule_retry(plant_id, signature, loop_mono):
+        state = retry_state_by_plant[plant_id]
+        if bool(state.get("pending_retry")) and state.get("retry_signature") == signature and state.get("current_retry_delay_s") is not None:
+            delay_s = min(float(state["current_retry_delay_s"]) * retry_multiplier, retry_max_s)
+        else:
+            delay_s = retry_initial_s
+        retry_state_by_plant[plant_id] = {
+            "pending_retry": True,
+            "retry_signature": signature,
+            "next_retry_monotonic": float(loop_mono) + float(delay_s),
+            "current_retry_delay_s": float(delay_s),
+        }
+
+    def build_retry_signature(write_plan, limit_result, voltage_setpoint_pu):
+        write_quantity_mode = str((write_plan or {}).get("write_quantity_mode") or "pq")
+        reactive_control_mode = (write_plan or {}).get("reactive_control_mode")
+        applied_p_kw = limit_result.get("applied_p_kw")
+        applied_q_kvar = None if write_quantity_mode == "pv" else limit_result.get("applied_q_kvar")
+        applied_v_pu = float(voltage_setpoint_pu) if write_quantity_mode == "pv" else None
+        return (
+            write_quantity_mode,
+            None if reactive_control_mode is None else int(reactive_control_mode),
+            None if applied_p_kw is None else round(float(applied_p_kw), 9),
+            None if applied_q_kvar is None else round(float(applied_q_kvar), 9),
+            None if applied_v_pu is None else round(float(applied_v_pu), 9),
+        )
 
     def ensure_client(plant_id, transport_mode):
         endpoint = resolve_modbus_endpoint(config, plant_id, transport_mode)
@@ -63,6 +109,10 @@ def scheduler_agent(config, shared_data):
 
             clients[plant_id] = ModbusClient(host=endpoint["host"], port=endpoint["port"])
             endpoints[plant_id] = endpoint_key
+            previous_p[plant_id] = None
+            previous_q[plant_id] = None
+            previous_reactive_control_mode[plant_id] = None
+            clear_retry_state(plant_id)
             logging.info(
                 "Scheduler: %s endpoint -> %s:%s (%s mode)",
                 plant_id.upper(),
@@ -74,8 +124,9 @@ def scheduler_agent(config, shared_data):
         return clients[plant_id], endpoint
 
     while not shared_data["shutdown_event"].is_set():
-        loop_start = time.time()
+        loop_start = time.monotonic()
         loop_now = now_tz(config)
+        loop_mono = time.monotonic()
 
         current_day = loop_now.date()
         if current_day != last_manual_prune_day:
@@ -130,7 +181,7 @@ def scheduler_agent(config, shared_data):
                     previous_q[plant_id] = None
                     previous_reactive_control_mode[plant_id] = None
                     previous_api_stale[plant_id] = None
-                    force_setpoint_retry[plant_id] = False
+                    clear_retry_state(plant_id)
                     continue
 
                 api_schedule_df = api_map.get(plant_id)
@@ -217,7 +268,7 @@ def scheduler_agent(config, shared_data):
                         "voltage" if voltage_mode_active else "q",
                         reactive_dispatch.get("error"),
                     )
-                    force_setpoint_retry[plant_id] = True
+                    clear_retry_state(plant_id)
                     continue
 
                 requested_q_for_plan = reactive_dispatch.get("requested_q_kvar", requested_q_setpoint)
@@ -233,39 +284,53 @@ def scheduler_agent(config, shared_data):
                 applied_p_setpoint = float(limit_result.get("applied_p_kw", requested_p_setpoint))
                 applied_q_raw = limit_result.get("applied_q_kvar", requested_q_for_plan)
                 applied_q_setpoint = None if applied_q_raw is None else float(applied_q_raw)
+                retry_signature = build_retry_signature(write_plan, limit_result, resolved_voltage_setpoint_pu)
+                retry_state = dict(retry_state_by_plant.get(plant_id, {}) or {})
+                if retry_state.get("retry_signature") != retry_signature:
+                    clear_retry_state(plant_id)
+                    retry_state = dict(retry_state_by_plant.get(plant_id, {}) or {})
+
+                if bool(retry_state.get("pending_retry")) and retry_state.get("retry_signature") == retry_signature:
+                    next_retry_monotonic = retry_state.get("next_retry_monotonic")
+                    if next_retry_monotonic is not None and float(loop_mono) < float(next_retry_monotonic):
+                        continue
 
                 control_mode_targets = list(write_plan.get("control_mode_targets") or [])
+                p_targets = list(write_plan.get("p_targets") or [])
+                q_targets = list(write_plan.get("q_targets") or [])
+                voltage_targets = list(write_plan.get("voltage_targets") or [])
+                all_readback_targets = control_mode_targets + p_targets + q_targets + voltage_targets
+                retry_due = bool(retry_state.get("pending_retry")) and retry_state.get("retry_signature") == retry_signature
                 try:
-                    reactive_control_mode_actual_words = read_setpoint_target_words(client, endpoint, control_mode_targets)
+                    all_actual_words = read_setpoint_target_words_grouped(client, endpoint, all_readback_targets)
                 except Exception as exc:
-                    logging.warning("Scheduler: %s reactive control mode readback failed: %s", plant_id.upper(), exc)
-                    reactive_control_mode_actual_words = {
-                        str(target["point_name"]): None for target in control_mode_targets
-                    }
+                    logging.warning("Scheduler: %s grouped setpoint readback failed: %s", plant_id.upper(), exc)
+                    all_actual_words = {str(target["point_name"]): None for target in all_readback_targets}
 
-                try:
-                    p_actual_words = read_setpoint_target_words(client, endpoint, write_plan["p_targets"])
-                except Exception as exc:
-                    logging.warning("Scheduler: %s P setpoint readback failed: %s", plant_id.upper(), exc)
-                    p_actual_words = {str(target["point_name"]): None for target in write_plan["p_targets"]}
-                try:
-                    q_actual_words = read_setpoint_target_words(client, endpoint, write_plan["q_targets"])
-                except Exception as exc:
-                    logging.warning("Scheduler: %s Q setpoint readback failed: %s", plant_id.upper(), exc)
-                    q_actual_words = {str(target["point_name"]): None for target in write_plan["q_targets"]}
-                try:
-                    v_actual_words = read_setpoint_target_words(client, endpoint, write_plan["voltage_targets"])
-                except Exception as exc:
-                    logging.warning("Scheduler: %s V setpoint readback failed: %s", plant_id.upper(), exc)
-                    v_actual_words = {str(target["point_name"]): None for target in write_plan["voltage_targets"]}
+                reactive_control_mode_actual_words = {
+                    str(target["point_name"]): all_actual_words.get(str(target["point_name"]))
+                    for target in control_mode_targets
+                }
+                p_actual_words = {
+                    str(target["point_name"]): all_actual_words.get(str(target["point_name"]))
+                    for target in p_targets
+                }
+                q_actual_words = {
+                    str(target["point_name"]): all_actual_words.get(str(target["point_name"]))
+                    for target in q_targets
+                }
+                v_actual_words = {
+                    str(target["point_name"]): all_actual_words.get(str(target["point_name"]))
+                    for target in voltage_targets
+                }
 
                 reactive_control_mode_readback_ok = all(
                     reactive_control_mode_actual_words.get(str(target["point_name"])) is not None
                     for target in control_mode_targets
                 )
-                p_readback_ok = all(p_actual_words.get(str(target["point_name"])) is not None for target in write_plan["p_targets"])
-                q_readback_ok = all(q_actual_words.get(str(target["point_name"])) is not None for target in write_plan["q_targets"])
-                v_readback_ok = all(v_actual_words.get(str(target["point_name"])) is not None for target in write_plan["voltage_targets"])
+                p_readback_ok = all(p_actual_words.get(str(target["point_name"])) is not None for target in p_targets)
+                q_readback_ok = all(q_actual_words.get(str(target["point_name"])) is not None for target in q_targets)
+                v_readback_ok = all(v_actual_words.get(str(target["point_name"])) is not None for target in voltage_targets)
 
                 reactive_control_mode_readback_mismatch = None
                 if control_mode_targets and reactive_control_mode_readback_ok:
@@ -277,19 +342,19 @@ def scheduler_agent(config, shared_data):
                 if p_readback_ok:
                     p_readback_mismatch = any(
                         list(p_actual_words.get(str(target["point_name"])) or []) != list(target["target_words"])
-                        for target in write_plan["p_targets"]
+                        for target in p_targets
                     )
                 q_readback_mismatch = None
                 if q_readback_ok:
                     q_readback_mismatch = any(
                         list(q_actual_words.get(str(target["point_name"])) or []) != list(target["target_words"])
-                        for target in write_plan["q_targets"]
+                        for target in q_targets
                     )
                 v_readback_mismatch = None
                 if v_readback_ok:
                     v_readback_mismatch = any(
                         list(v_actual_words.get(str(target["point_name"])) or []) != list(target["target_words"])
-                        for target in write_plan["voltage_targets"]
+                        for target in voltage_targets
                     )
 
                 if not p_readback_ok:
@@ -298,7 +363,7 @@ def scheduler_agent(config, shared_data):
                 else:
                     p_compare_source = "readback"
                     p_should_write = bool(p_readback_mismatch)
-                if write_plan["q_targets"]:
+                if q_targets:
                     if not q_readback_ok:
                         q_compare_source = "cache_fallback"
                         q_should_write = previous_q[plant_id] != applied_q_setpoint
@@ -309,10 +374,10 @@ def scheduler_agent(config, shared_data):
                     q_compare_source = "skipped_voltage_mode"
                     q_should_write = False
 
-                if write_plan["voltage_targets"]:
+                if voltage_targets:
                     if not v_readback_ok:
                         v_compare_source = "cache_fallback"
-                        v_should_write = force_setpoint_retry[plant_id] or True
+                        v_should_write = True
                     else:
                         v_compare_source = "readback"
                         v_should_write = bool(v_readback_mismatch)
@@ -333,8 +398,27 @@ def scheduler_agent(config, shared_data):
                     reactive_control_mode_compare_source = "not_configured"
                     reactive_control_mode_should_write = False
 
+                readback_targets_ok = (
+                    reactive_control_mode_readback_ok
+                    and p_readback_ok
+                    and q_readback_ok
+                    and v_readback_ok
+                )
+                readback_targets_mismatch = any(
+                    mismatch is True
+                    for mismatch in (
+                        reactive_control_mode_readback_mismatch,
+                        p_readback_mismatch,
+                        q_readback_mismatch,
+                        v_readback_mismatch,
+                    )
+                )
+                if retry_due and readback_targets_ok and not readback_targets_mismatch:
+                    clear_retry_state(plant_id)
+                    retry_due = False
+
                 should_apply = bool(
-                    force_setpoint_retry[plant_id]
+                    retry_due
                     or reactive_control_mode_should_write
                     or p_should_write
                     or q_should_write
@@ -371,9 +455,7 @@ def scheduler_agent(config, shared_data):
                         previous_p[plant_id] = applied_p_setpoint
                         previous_q[plant_id] = applied_q_setpoint
                         previous_reactive_control_mode[plant_id] = reactive_control_mode
-                        force_setpoint_retry[plant_id] = False
-                    else:
-                        force_setpoint_retry[plant_id] = True
+                        clear_retry_state(plant_id)
 
                 if attempted_any:
                     attempted_results = [
@@ -477,11 +559,15 @@ def scheduler_agent(config, shared_data):
                                 applied_p_setpoint,
                                 applied_q_setpoint,
                             )
+                    if attempt_status in {"failed", "partial"}:
+                        schedule_retry(plant_id, retry_signature, loop_mono)
+                    elif attempt_status == "ok":
+                        clear_retry_state(plant_id)
 
             except Exception as exc:
                 logging.error("Scheduler error for %s: %s", plant_id.upper(), exc)
 
-        elapsed = time.time() - loop_start
+        elapsed = time.monotonic() - loop_start
         time.sleep(max(0.0, float(config.get("SCHEDULER_PERIOD_S", 1)) - elapsed))
 
     for client in clients.values():

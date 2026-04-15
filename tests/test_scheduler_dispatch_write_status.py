@@ -57,12 +57,16 @@ class _BankClient:
 
 
 class _FlakyOnceModbusClient:
+    read_counts = {}
+    read_log = []
     write_counts = {}
     failed_once_keys = set()
     write_log = []
 
     @classmethod
     def reset(cls):
+        cls.read_counts = {}
+        cls.read_log = []
         cls.write_counts = {}
         cls.failed_once_keys = set()
         cls.write_log = []
@@ -82,6 +86,9 @@ class _FlakyOnceModbusClient:
     def read_holding_registers(self, address, count):
         if not self.is_open:
             return None
+        key = (self.host, self.port, int(address), int(count))
+        self.__class__.read_counts[key] = int(self.__class__.read_counts.get(key, 0)) + 1
+        self.__class__.read_log.append(key)
         bank = _Registry.get(self.host, self.port)
         if bank is None:
             return None
@@ -105,11 +112,15 @@ class _FlakyOnceModbusClient:
 
 
 class _CountingModbusClient:
+    read_counts = {}
+    read_log = []
     write_counts = {}
     write_log = []
 
     @classmethod
     def reset(cls):
+        cls.read_counts = {}
+        cls.read_log = []
         cls.write_counts = {}
         cls.write_log = []
 
@@ -128,6 +139,9 @@ class _CountingModbusClient:
     def read_holding_registers(self, address, count):
         if not self.is_open:
             return None
+        key = (self.host, self.port, int(address), int(count))
+        self.__class__.read_counts[key] = int(self.__class__.read_counts.get(key, 0)) + 1
+        self.__class__.read_log.append(key)
         bank = _Registry.get(self.host, self.port)
         if bank is None:
             return None
@@ -155,7 +169,11 @@ class _ReadbackFailingModbusClient(_CountingModbusClient):
         cls.failed_read_addresses = set()
 
     def read_holding_registers(self, address, count):
-        if int(address) in self.__class__.failed_read_addresses:
+        requested_addresses = set(range(int(address), int(address) + int(count)))
+        if requested_addresses & set(int(value) for value in self.__class__.failed_read_addresses):
+            key = (self.host, self.port, int(address), int(count))
+            self.__class__.read_counts[key] = int(self.__class__.read_counts.get(key, 0)) + 1
+            self.__class__.read_log.append(key)
             return None
         return super().read_holding_registers(address, count)
 
@@ -174,6 +192,23 @@ class _TriggerFlakyOnceModbusClient(_CountingModbusClient):
         key = (self.host, self.port, int(address))
         if int(address) in self.__class__.failed_once_addresses and key not in self.__class__.failed_once_keys:
             self.__class__.failed_once_keys.add(key)
+            self.__class__.write_counts[key] = int(self.__class__.write_counts.get(key, 0)) + 1
+            self.__class__.write_log.append((self.host, self.port, int(address), int(value)))
+            return False
+        return super().write_single_register(address, value)
+
+
+class _AddressFailingModbusClient(_CountingModbusClient):
+    failed_addresses = set()
+
+    @classmethod
+    def reset(cls):
+        super().reset()
+        cls.failed_addresses = set()
+
+    def write_single_register(self, address, value):
+        key = (self.host, self.port, int(address))
+        if int(address) in self.__class__.failed_addresses:
             self.__class__.write_counts[key] = int(self.__class__.write_counts.get(key, 0)) + 1
             self.__class__.write_log.append((self.host, self.port, int(address), int(value)))
             return False
@@ -583,6 +618,9 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
         _FlakyOnceModbusClient.reset()
         config = load_config("config.yaml")
         config["SCHEDULER_PERIOD_S"] = 0.1
+        config["SCHEDULER_FAILED_WRITE_RETRY_INITIAL_S"] = 0.1
+        config["SCHEDULER_FAILED_WRITE_RETRY_MAX_S"] = 0.1
+        config["SCHEDULER_FAILED_WRITE_RETRY_MULTIPLIER"] = 2.0
         config["ISTENTORE_SCHEDULE_PERIOD_MINUTES"] = 15
         config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
         config["PLANTS"]["lib"]["modbus"]["local"]["port"] = 5020
@@ -766,6 +804,9 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
         _TriggerFlakyOnceModbusClient.reset()
         config = load_config("config.yaml")
         config["SCHEDULER_PERIOD_S"] = 0.1
+        config["SCHEDULER_FAILED_WRITE_RETRY_INITIAL_S"] = 0.1
+        config["SCHEDULER_FAILED_WRITE_RETRY_MAX_S"] = 0.1
+        config["SCHEDULER_FAILED_WRITE_RETRY_MULTIPLIER"] = 2.0
         config["ISTENTORE_SCHEDULE_PERIOD_MINUTES"] = 15
         config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
         config["PLANTS"]["lib"]["modbus"]["local"]["port"] = 5020
@@ -1103,6 +1144,191 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
         for address in (86, 87, 88):
             self.assertGreaterEqual(_CountingModbusClient.write_counts.get(("127.0.0.1", 5020, address), 0), 1)
         self.assertAlmostEqual(_read_point_internal_from_bank(lib_bank, lib_endpoint, "p_v_setpoint"), 14.0, places=6)
+
+    def test_scheduler_groups_remote_phase_readbacks_into_single_block(self):
+        _Registry.clear()
+        _CountingModbusClient.reset()
+        config = load_config("config_test.yaml")
+        config["SCHEDULER_PERIOD_S"] = 0.1
+        config["transport_mode"] = "remote"
+        config["PLANTS"]["vrfb"]["modbus"]["remote"]["host"] = "127.0.0.1"
+        config["PLANTS"]["vrfb"]["modbus"]["remote"]["port"] = 5021
+
+        vrfb_endpoint = config["PLANTS"]["vrfb"]["modbus"]["remote"]
+        vrfb_bank = _FakeDataBank()
+        _Registry.register("127.0.0.1", 5021, vrfb_bank)
+
+        for point_name in ("p_u_setpoint", "p_v_setpoint", "p_w_setpoint"):
+            vrfb_bank.set_holding_registers(
+                vrfb_endpoint["points"][point_name]["address"],
+                encode_point_internal_words(vrfb_endpoint, point_name, 0.0),
+            )
+        for point_name in ("q_u_setpoint", "q_v_setpoint", "q_w_setpoint"):
+            vrfb_bank.set_holding_registers(
+                vrfb_endpoint["points"][point_name]["address"],
+                encode_point_internal_words(vrfb_endpoint, point_name, 0.0),
+            )
+
+        now = now_tz(config)
+        api_df = pd.DataFrame(
+            {"power_setpoint_kw": [0.0], "reactive_power_setpoint_kvar": [0.0]},
+            index=pd.DatetimeIndex([now - pd.Timedelta(minutes=1)]),
+        )
+        shared_data = _shared_data()
+        shared_data["transport_mode"] = "remote"
+        shared_data["scheduler_running_by_plant"] = {"lib": False, "vrfb": True}
+        with shared_data["lock"]:
+            shared_data["api_schedule_df_by_plant"]["vrfb"] = api_df
+
+        with patch("scheduling.agent.ModbusClient", _CountingModbusClient):
+            thread = threading.Thread(target=scheduler_agent, args=(config, shared_data), daemon=True)
+            thread.start()
+            try:
+                time.sleep(0.30)
+            finally:
+                shared_data["shutdown_event"].set()
+                thread.join(timeout=3)
+
+        self.assertGreaterEqual(_CountingModbusClient.read_counts.get(("127.0.0.1", 5021, 27758, 12), 0), 1)
+        self.assertEqual(set(_CountingModbusClient.read_counts.keys()), {("127.0.0.1", 5021, 27758, 12)})
+        self.assertEqual(sum(_CountingModbusClient.write_counts.values()), 0)
+
+    def test_scheduler_failed_write_retry_backoff_grows_and_caps(self):
+        _Registry.clear()
+        _AddressFailingModbusClient.reset()
+        config = load_config("config_test.yaml")
+        config["SCHEDULER_PERIOD_S"] = 0.05
+        config["SCHEDULER_FAILED_WRITE_RETRY_INITIAL_S"] = 0.2
+        config["SCHEDULER_FAILED_WRITE_RETRY_MAX_S"] = 0.4
+        config["SCHEDULER_FAILED_WRITE_RETRY_MULTIPLIER"] = 2.0
+        config["ISTENTORE_SCHEDULE_PERIOD_MINUTES"] = 15
+        config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["lib"]["modbus"]["local"]["port"] = 5020
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["port"] = 5021
+
+        lib_endpoint = config["PLANTS"]["lib"]["modbus"]["local"]
+        p_reg = int(lib_endpoint["points"]["p_setpoint"]["address"])
+        _AddressFailingModbusClient.failed_addresses = {p_reg}
+
+        lib_bank = _FakeDataBank()
+        vrfb_bank = _FakeDataBank()
+        _Registry.register("127.0.0.1", 5020, lib_bank)
+        _Registry.register("127.0.0.1", 5021, vrfb_bank)
+
+        now = now_tz(config)
+        api_df = pd.DataFrame(
+            {"power_setpoint_kw": [42.0], "reactive_power_setpoint_kvar": [5.0]},
+            index=pd.DatetimeIndex([now - pd.Timedelta(minutes=1)]),
+        )
+        shared_data = _shared_data()
+        with shared_data["lock"]:
+            shared_data["api_schedule_df_by_plant"]["lib"] = api_df
+
+        with patch("scheduling.agent.ModbusClient", _AddressFailingModbusClient):
+            thread = threading.Thread(target=scheduler_agent, args=(config, shared_data), daemon=True)
+            thread.start()
+            try:
+                time.sleep(1.15)
+            finally:
+                shared_data["shutdown_event"].set()
+                thread.join(timeout=3)
+
+        self.assertEqual(_AddressFailingModbusClient.write_counts.get(("127.0.0.1", 5020, p_reg), 0), 4)
+
+    def test_scheduler_retry_state_clears_after_success(self):
+        _Registry.clear()
+        _FlakyOnceModbusClient.reset()
+        config = load_config("config_test.yaml")
+        config["SCHEDULER_PERIOD_S"] = 0.05
+        config["SCHEDULER_FAILED_WRITE_RETRY_INITIAL_S"] = 0.2
+        config["SCHEDULER_FAILED_WRITE_RETRY_MAX_S"] = 0.4
+        config["SCHEDULER_FAILED_WRITE_RETRY_MULTIPLIER"] = 2.0
+        config["ISTENTORE_SCHEDULE_PERIOD_MINUTES"] = 15
+        config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["lib"]["modbus"]["local"]["port"] = 5020
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["port"] = 5021
+
+        lib_endpoint = config["PLANTS"]["lib"]["modbus"]["local"]
+        p_reg = int(lib_endpoint["points"]["p_setpoint"]["address"])
+
+        lib_bank = _FakeDataBank()
+        vrfb_bank = _FakeDataBank()
+        _Registry.register("127.0.0.1", 5020, lib_bank)
+        _Registry.register("127.0.0.1", 5021, vrfb_bank)
+
+        now = now_tz(config)
+        api_df = pd.DataFrame(
+            {"power_setpoint_kw": [42.0], "reactive_power_setpoint_kvar": [5.0]},
+            index=pd.DatetimeIndex([now - pd.Timedelta(minutes=1)]),
+        )
+        shared_data = _shared_data()
+        with shared_data["lock"]:
+            shared_data["api_schedule_df_by_plant"]["lib"] = api_df
+
+        with patch("scheduling.agent.ModbusClient", _FlakyOnceModbusClient):
+            thread = threading.Thread(target=scheduler_agent, args=(config, shared_data), daemon=True)
+            thread.start()
+            try:
+                time.sleep(0.45)
+            finally:
+                shared_data["shutdown_event"].set()
+                thread.join(timeout=3)
+
+        self.assertEqual(_FlakyOnceModbusClient.write_counts.get(("127.0.0.1", 5020, p_reg), 0), 2)
+        dispatch_state = dict(shared_data["dispatch_write_status_by_plant"]["lib"])
+        self.assertEqual(dispatch_state["last_attempt_status"], "ok")
+
+    def test_scheduler_retry_cooldown_is_bypassed_when_signature_changes(self):
+        _Registry.clear()
+        _AddressFailingModbusClient.reset()
+        config = load_config("config_test.yaml")
+        config["SCHEDULER_PERIOD_S"] = 0.05
+        config["SCHEDULER_FAILED_WRITE_RETRY_INITIAL_S"] = 0.5
+        config["SCHEDULER_FAILED_WRITE_RETRY_MAX_S"] = 0.5
+        config["SCHEDULER_FAILED_WRITE_RETRY_MULTIPLIER"] = 2.0
+        config["ISTENTORE_SCHEDULE_PERIOD_MINUTES"] = 15
+        config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["lib"]["modbus"]["local"]["port"] = 5020
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["host"] = "127.0.0.1"
+        config["PLANTS"]["vrfb"]["modbus"]["local"]["port"] = 5021
+
+        lib_endpoint = config["PLANTS"]["lib"]["modbus"]["local"]
+        p_reg = int(lib_endpoint["points"]["p_setpoint"]["address"])
+        _AddressFailingModbusClient.failed_addresses = {p_reg}
+
+        lib_bank = _FakeDataBank()
+        vrfb_bank = _FakeDataBank()
+        _Registry.register("127.0.0.1", 5020, lib_bank)
+        _Registry.register("127.0.0.1", 5021, vrfb_bank)
+
+        now = now_tz(config)
+        api_df = pd.DataFrame(
+            {"power_setpoint_kw": [42.0], "reactive_power_setpoint_kvar": [5.0]},
+            index=pd.DatetimeIndex([now - pd.Timedelta(minutes=1)]),
+        )
+        shared_data = _shared_data()
+        with shared_data["lock"]:
+            shared_data["api_schedule_df_by_plant"]["lib"] = api_df
+
+        with patch("scheduling.agent.ModbusClient", _AddressFailingModbusClient):
+            thread = threading.Thread(target=scheduler_agent, args=(config, shared_data), daemon=True)
+            thread.start()
+            try:
+                time.sleep(0.15)
+                updated_df = pd.DataFrame(
+                    {"power_setpoint_kw": [24.0], "reactive_power_setpoint_kvar": [5.0]},
+                    index=pd.DatetimeIndex([now_tz(config) - pd.Timedelta(minutes=1)]),
+                )
+                with shared_data["lock"]:
+                    shared_data["api_schedule_df_by_plant"]["lib"] = updated_df
+                time.sleep(0.20)
+            finally:
+                shared_data["shutdown_event"].set()
+                thread.join(timeout=3)
+
+        self.assertGreaterEqual(_AddressFailingModbusClient.write_counts.get(("127.0.0.1", 5020, p_reg), 0), 2)
 
 
 if __name__ == "__main__":

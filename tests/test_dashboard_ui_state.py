@@ -141,6 +141,23 @@ class DashboardUiStateTests(unittest.TestCase):
             )
         )
 
+    def test_observed_state_effective_stale_respects_configured_threshold(self):
+        now_ts = datetime(2026, 2, 26, 12, 0, 20, tzinfo=timezone.utc)
+        self.assertFalse(
+            is_observed_state_effectively_stale(
+                {"stale": False, "last_success": (now_ts - timedelta(seconds=10)).isoformat()},
+                now_ts=now_ts,
+                stale_after_s=15.0,
+            )
+        )
+        self.assertTrue(
+            is_observed_state_effectively_stale(
+                {"stale": False, "last_success": (now_ts - timedelta(seconds=16)).isoformat()},
+                now_ts=now_ts,
+                stale_after_s=15.0,
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -30,11 +30,16 @@ istentore_api:
 
 timing:
   data_fetcher_period_s: 120
-  scheduler_period_s: 2
+  scheduler_period_s: 5
+  observed_state_poll_period_s: 5
+  observed_state_stale_after_s: 15
   plant_period_s: 2
   measurement_period_s: 10
   measurements_write_period_s: 60
   grid_map_period_s: 10
+  scheduler_failed_write_retry_initial_s: 5
+  scheduler_failed_write_retry_max_s: 20
+  scheduler_failed_write_retry_multiplier: 2.0
 
 dashboard:
   grid_map:

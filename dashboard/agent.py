@@ -2217,6 +2217,7 @@ def dashboard_agent(config, shared_data):
             }
 
         status_now = now_tz(config)
+        observed_stale_after_s = float(config.get("OBSERVED_STATE_STALE_AFTER_S", 3.0))
         grid_map_runtime = snapshot_grid_map_runtime(shared_data)
         enable_state_by_plant = {}
         observed_effective_stale_by_plant = {}
@@ -2225,6 +2226,7 @@ def dashboard_agent(config, shared_data):
             effective_stale = is_observed_state_effectively_stale(
                 observed,
                 now_ts=status_now,
+                stale_after_s=observed_stale_after_s,
             )
             observed_effective_stale_by_plant[plant_id] = bool(effective_stale)
             if effective_stale:

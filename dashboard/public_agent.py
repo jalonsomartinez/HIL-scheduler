@@ -843,11 +843,16 @@ def build_public_readonly_app(config, shared_data):
         )
 
         status_now = now_tz(config)
+        observed_stale_after_s = float(config.get("OBSERVED_STATE_STALE_AFTER_S", 3.0))
         grid_map_runtime = snapshot_grid_map_runtime(shared_data)
         enable_state_by_plant = {}
         for plant_id in plant_ids:
             observed = dict(snapshot["observed_state_by_plant"].get(plant_id, {}) or {})
-            effective_stale = is_observed_state_effectively_stale(observed, now_ts=status_now)
+            effective_stale = is_observed_state_effectively_stale(
+                observed,
+                now_ts=status_now,
+                stale_after_s=observed_stale_after_s,
+            )
             enable_state_by_plant[plant_id] = None if effective_stale else observed.get("enable_state")
 
         runtime_state_by_plant = {}
@@ -951,7 +956,11 @@ def build_public_readonly_app(config, shared_data):
 
         def _is_q_control_mode_active(plant_id):
             observed = dict(snapshot["observed_state_by_plant"].get(plant_id, {}) or {})
-            effective_stale = is_observed_state_effectively_stale(observed, now_ts=status_now)
+            effective_stale = is_observed_state_effectively_stale(
+                observed,
+                now_ts=status_now,
+                stale_after_s=observed_stale_after_s,
+            )
             if not bool(effective_stale):
                 try:
                     return int(observed.get("q_control_mode_state")) == 1
