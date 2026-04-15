@@ -575,7 +575,7 @@ def build_public_readonly_app(config, shared_data):
 
         fig = go.Figure()
         color_by_plant = {"lib": trace_colors["api_lib"], "vrfb": trace_colors["api_vrfb"], "twin": trace_colors["history_twin"]}
-        label_by_plant = {"lib": plant_name("lib"), "vrfb": plant_name("vrfb"), "twin": "Grid Map / Digital Twin"}
+        label_by_plant = {"lib": plant_name("lib"), "vrfb": plant_name("vrfb"), "twin": "DT"}
 
         for plant_id in list(plant_ids) + ["twin"]:
             for item in (index_data.get("files_by_plant", {}) or {}).get(plant_id, []):
