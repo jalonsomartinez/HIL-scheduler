@@ -27,6 +27,8 @@ sudo apt-get install libopenblas-dev
 ```
 
 ## Configuration
+Create one or more repo-root config profiles matching `config*.yaml`. `config.yaml` remains the default profile.
+
 Edit `config.yaml` as needed:
 - `startup.schedule_source`: `manual` or `api`
 - `startup.transport_mode`: `local` or `remote`
@@ -63,6 +65,12 @@ source venv/bin/activate
 python3 hil_scheduler.py
 ```
 
+Startup config selection behavior:
+- `python3 hil_scheduler.py --config config_remote.yaml` uses the named profile directly.
+- If no `--config` is passed and only one repo-root `config*.yaml` file exists, startup uses it automatically.
+- If multiple repo-root `config*.yaml` files exist, startup shows a terminal picker and marks `config.yaml` as the default when present.
+- If multiple profiles exist but startup is non-interactive, pass `--config <filename-or-path>` explicitly.
+
 Or use startup scripts (activates `venv`, loads public dashboard credentials, runs app):
 
 Linux/macOS:
@@ -70,6 +78,7 @@ Linux/macOS:
 cp .env.public-dashboard.example .env.public-dashboard
 # edit .env.public-dashboard with real values
 ./scripts/start_hil_linux.sh
+./scripts/start_hil_linux.sh --config config_remote.yaml
 ```
 
 Windows PowerShell:
@@ -77,6 +86,7 @@ Windows PowerShell:
 Copy-Item .env.public-dashboard.ps1.example .env.public-dashboard.ps1
 # edit .env.public-dashboard.ps1 with real values
 .\scripts\start_hil_windows.ps1
+.\scripts\start_hil_windows.ps1 --config config_remote.yaml
 ```
 
 Windows `cmd.exe`:

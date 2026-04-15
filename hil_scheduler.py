@@ -1,5 +1,8 @@
+import argparse
 import logging
+from pathlib import Path
 import queue
+import sys
 import threading
 import time
 
@@ -20,8 +23,13 @@ from data_fetcher_agent import data_fetcher_agent
 from logger_config import setup_logging
 from measurement.agent import measurement_agent
 from plant_agent import plant_agent
+from runtime.paths import get_project_root
 from scheduling.agent import scheduler_agent
 from settings.engine_agent import settings_engine_agent
+
+
+DEFAULT_CONFIG_GLOB = "config*.yaml"
+DEFAULT_CONFIG_FILENAME = "config.yaml"
 
 
 def _empty_df_by_plant(plant_ids):
@@ -245,12 +253,111 @@ def build_agent_threads(config, shared_data):
     return threads
 
 
-def main():
+def parse_startup_args(argv=None):
+    parser = argparse.ArgumentParser(description="Run the HIL Scheduler runtime.")
+    parser.add_argument(
+        "--config",
+        help="Config file path or repo-root filename. Defaults to smart selection among config*.yaml.",
+    )
+    return parser.parse_args(argv)
+
+
+def discover_config_profiles(project_root):
+    root = Path(project_root)
+    return sorted(
+        path for path in root.glob(DEFAULT_CONFIG_GLOB) if path.is_file()
+    )
+
+
+def resolve_config_argument(config_arg, project_root):
+    candidate = Path(config_arg).expanduser()
+    if not candidate.is_absolute():
+        candidate = Path(project_root) / candidate
+    candidate = candidate.resolve(strict=False)
+    if not candidate.is_file():
+        raise FileNotFoundError(
+            f"Configuration file not found: {candidate}. "
+            f"Pass an existing path with --config."
+        )
+    return candidate
+
+
+def _default_config_index(config_paths):
+    for index, path in enumerate(config_paths):
+        if path.name == DEFAULT_CONFIG_FILENAME:
+            return index
+    return None
+
+
+def prompt_for_config_selection(config_paths, input_fn=input, output_stream=None):
+    if not config_paths:
+        raise RuntimeError("No configuration profiles were provided for selection.")
+
+    stream = output_stream or sys.stdout
+    default_index = _default_config_index(config_paths)
+
+    print("Multiple startup config profiles found:", file=stream)
+    for index, path in enumerate(config_paths, start=1):
+        label = path.name
+        if default_index is not None and index - 1 == default_index:
+            label = f"{label} [default]"
+        print(f"  {index}. {label}", file=stream)
+
+    if default_index is not None:
+        prompt = f"Select config profile [Enter={default_index + 1}]: "
+    else:
+        prompt = "Select config profile [1-{}]: ".format(len(config_paths))
+
+    while True:
+        choice = str(input_fn(prompt)).strip()
+        if not choice:
+            if default_index is not None:
+                return config_paths[default_index]
+            print("Please enter a profile number.", file=stream)
+            continue
+        if choice.isdigit():
+            selected_index = int(choice) - 1
+            if 0 <= selected_index < len(config_paths):
+                return config_paths[selected_index]
+        print(
+            f"Invalid selection '{choice}'. Enter a number between 1 and {len(config_paths)}.",
+            file=stream,
+        )
+
+
+def select_startup_config_path(argv=None, project_root=None, stdin_isatty=None, input_fn=input, output_stream=None):
+    args = parse_startup_args(argv)
+    root = Path(project_root) if project_root is not None else Path(get_project_root(__file__))
+
+    if args.config:
+        return resolve_config_argument(args.config, root)
+
+    config_paths = discover_config_profiles(root)
+    if not config_paths:
+        raise FileNotFoundError(
+            f"No configuration profiles matching {DEFAULT_CONFIG_GLOB!r} were found in {root}."
+        )
+    if len(config_paths) == 1:
+        return config_paths[0]
+
+    interactive = bool(stdin_isatty) if stdin_isatty is not None else sys.stdin.isatty()
+    if not interactive:
+        available = ", ".join(path.name for path in config_paths)
+        raise RuntimeError(
+            "Multiple configuration profiles were found in "
+            f"{root}: {available}. Pass --config <filename> to select one."
+        )
+    return prompt_for_config_selection(config_paths, input_fn=input_fn, output_stream=output_stream)
+
+
+def main(argv=None):
     """Director agent: load config, initialize shared runtime, and start agents."""
-    config = load_config("config.yaml")
+    config_path = select_startup_config_path(argv)
+    config = load_config(str(config_path))
     shared_data = build_initial_shared_data(config)
 
     setup_logging(config, shared_data)
+    logging.info("Selected startup config: %s", config_path)
     logging.info("Director agent starting the application.")
 
     threads = []

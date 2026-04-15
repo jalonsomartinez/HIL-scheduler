@@ -21,4 +21,4 @@ if (-not (Test-Path $activateScript)) {
 }
 
 . $activateScript
-python $appFile
+python $appFile @args

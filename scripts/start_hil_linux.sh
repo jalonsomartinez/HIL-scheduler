@@ -28,4 +28,4 @@ fi
 
 # shellcheck disable=SC1090
 source "${VENV_ACTIVATE}"
-exec python3 "${REPO_ROOT}/hil_scheduler.py"
+exec python3 "${REPO_ROOT}/hil_scheduler.py" "$@"
