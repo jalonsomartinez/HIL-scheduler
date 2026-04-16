@@ -336,6 +336,30 @@ def _normalize_transport_endpoint(raw_endpoint, prefix, default_host, default_po
     endpoint = {
         "host": _parse_host(raw_endpoint.get("host", default_host), default_host, f"{prefix}.host"),
         "port": _parse_int(raw_endpoint.get("port", default_port), default_port, f"{prefix}.port", min_value=1),
+        "timeout_s": _parse_float(
+            raw_endpoint.get("timeout_s", 30.0),
+            30.0,
+            f"{prefix}.timeout_s",
+            min_value=0.1,
+        ),
+        "reset_after_consecutive_failures": _parse_int(
+            raw_endpoint.get("reset_after_consecutive_failures", 0),
+            0,
+            f"{prefix}.reset_after_consecutive_failures",
+            min_value=0,
+        ),
+        "reset_after_stale_seconds": _parse_float(
+            raw_endpoint.get("reset_after_stale_seconds", 0),
+            0,
+            f"{prefix}.reset_after_stale_seconds",
+            min_value=0.0,
+        ),
+        "inter_write_delay_s": _parse_float(
+            raw_endpoint.get("inter_write_delay_s", 0),
+            0,
+            f"{prefix}.inter_write_delay_s",
+            min_value=0.0,
+        ),
         "byte_order": _parse_choice_required(raw_endpoint.get("byte_order"), MODBUS_BYTE_ORDERS, f"{prefix}.byte_order"),
         "word_order": _parse_choice_required(raw_endpoint.get("word_order"), MODBUS_WORD_ORDERS, f"{prefix}.word_order"),
         "points": _normalize_points(raw_endpoint.get("points"), prefix),
@@ -520,6 +544,10 @@ def _build_legacy_plants(yaml_config):
     vrfb_local = {
         "host": local_ep["host"],
         "port": local_ep["port"] + 1 if local_ep["port"] == 5020 else local_ep["port"],
+        "timeout_s": local_ep.get("timeout_s", 30.0),
+        "reset_after_consecutive_failures": local_ep.get("reset_after_consecutive_failures", 0),
+        "reset_after_stale_seconds": local_ep.get("reset_after_stale_seconds", 0),
+        "inter_write_delay_s": local_ep.get("inter_write_delay_s", 0),
         "byte_order": local_ep["byte_order"],
         "word_order": local_ep["word_order"],
         "points": dict(local_ep["points"]),
@@ -527,6 +555,10 @@ def _build_legacy_plants(yaml_config):
     vrfb_remote = {
         "host": remote_ep["host"],
         "port": remote_ep["port"],
+        "timeout_s": remote_ep.get("timeout_s", 30.0),
+        "reset_after_consecutive_failures": remote_ep.get("reset_after_consecutive_failures", 0),
+        "reset_after_stale_seconds": remote_ep.get("reset_after_stale_seconds", 0),
+        "inter_write_delay_s": remote_ep.get("inter_write_delay_s", 0),
         "byte_order": remote_ep["byte_order"],
         "word_order": remote_ep["word_order"],
         "points": dict(remote_ep["points"]),
@@ -659,11 +691,23 @@ def load_config(config_path="config.yaml"):
     config["SCHEDULER_PERIOD_S"] = _parse_float(
         timing_cfg.get("scheduler_period_s", 1), 1, "timing.scheduler_period_s", min_value=0.1
     )
+    config["SCHEDULER_PHASE_OFFSET_S"] = _parse_float(
+        timing_cfg.get("scheduler_phase_offset_s", 0),
+        0,
+        "timing.scheduler_phase_offset_s",
+        min_value=0.0,
+    )
     config["OBSERVED_STATE_POLL_PERIOD_S"] = _parse_float(
         timing_cfg.get("observed_state_poll_period_s", 1),
         1,
         "timing.observed_state_poll_period_s",
         min_value=0.1,
+    )
+    config["OBSERVED_STATE_PHASE_OFFSET_S"] = _parse_float(
+        timing_cfg.get("observed_state_phase_offset_s", 0),
+        0,
+        "timing.observed_state_phase_offset_s",
+        min_value=0.0,
     )
     observed_state_stale_after_default = max(3.0, float(config["OBSERVED_STATE_POLL_PERIOD_S"]) * 3.0)
     config["OBSERVED_STATE_STALE_AFTER_S"] = _parse_float(
@@ -678,6 +722,12 @@ def load_config(config_path="config.yaml"):
     config["MEASUREMENT_PERIOD_S"] = _parse_float(
         timing_cfg.get("measurement_period_s", 5), 5, "timing.measurement_period_s", min_value=0.1
     )
+    config["MEASUREMENT_PHASE_OFFSET_S"] = _parse_float(
+        timing_cfg.get("measurement_phase_offset_s", 0),
+        0,
+        "timing.measurement_phase_offset_s",
+        min_value=0.0,
+    )
     config["MEASUREMENTS_WRITE_PERIOD_S"] = _parse_float(
         timing_cfg.get("measurements_write_period_s", 60),
         60,
@@ -689,6 +739,12 @@ def load_config(config_path="config.yaml"):
         10,
         "timing.grid_map_period_s",
         min_value=0.1,
+    )
+    config["GRID_MAP_PHASE_OFFSET_S"] = _parse_float(
+        timing_cfg.get("grid_map_phase_offset_s", 0),
+        0,
+        "timing.grid_map_phase_offset_s",
+        min_value=0.0,
     )
     config["SCHEDULER_FAILED_WRITE_RETRY_INITIAL_S"] = _parse_float(
         timing_cfg.get("scheduler_failed_write_retry_initial_s", 5),

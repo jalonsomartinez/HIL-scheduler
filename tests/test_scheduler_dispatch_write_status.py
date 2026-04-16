@@ -1,6 +1,7 @@
 import threading
 import time
 import unittest
+import os
 from unittest.mock import patch
 
 import pandas as pd
@@ -10,6 +11,9 @@ from modbus.codec import encode_point_internal_words, read_point_internal
 import scheduling.manual_schedule_manager as msm
 from scheduling.agent import scheduler_agent
 from time_utils import now_tz
+
+
+BASE_CONFIG_PATH = "config.yaml" if os.path.exists("config.yaml") else "config_prod.yaml"
 from modbus.legacy_scaling import hw_to_kw, uint16_to_int
 
 
@@ -259,7 +263,7 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
     def test_scheduler_writes_equal_phase_split_for_per_phase_endpoint(self):
         _Registry.clear()
         _CountingModbusClient.reset()
-        config = load_config("config.yaml")
+        config = load_config(BASE_CONFIG_PATH)
         config["SCHEDULER_PERIOD_S"] = 0.1
         config["ISTENTORE_SCHEDULE_PERIOD_MINUTES"] = 15
         config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
@@ -313,7 +317,7 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
     def test_scheduler_clamps_aggregate_setpoints_before_write_and_records_metadata(self):
         _Registry.clear()
         _CountingModbusClient.reset()
-        config = load_config("config.yaml")
+        config = load_config(BASE_CONFIG_PATH)
         config["SCHEDULER_PERIOD_S"] = 0.1
         config["ISTENTORE_SCHEDULE_PERIOD_MINUTES"] = 15
         config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
@@ -372,7 +376,7 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
     def test_scheduler_writes_q_control_mode_one_when_voltage_mode_inactive(self):
         _Registry.clear()
         _CountingModbusClient.reset()
-        config = load_config("config.yaml")
+        config = load_config(BASE_CONFIG_PATH)
         config["SCHEDULER_PERIOD_S"] = 0.1
         config["ISTENTORE_SCHEDULE_PERIOD_MINUTES"] = 15
         config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
@@ -424,7 +428,7 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
     def test_scheduler_voltage_mode_writes_v_setpoint_and_skips_q_write(self):
         _Registry.clear()
         _CountingModbusClient.reset()
-        config = load_config("config.yaml")
+        config = load_config(BASE_CONFIG_PATH)
         config["SCHEDULER_PERIOD_S"] = 0.1
         config["ISTENTORE_SCHEDULE_PERIOD_MINUTES"] = 15
         config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
@@ -486,7 +490,7 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
     def test_scheduler_uses_digital_twin_voltage_setpoint_when_manual_voltage_is_missing(self):
         _Registry.clear()
         _CountingModbusClient.reset()
-        config = load_config("config.yaml")
+        config = load_config(BASE_CONFIG_PATH)
         config["SCHEDULER_PERIOD_S"] = 0.1
         config["ISTENTORE_SCHEDULE_PERIOD_MINUTES"] = 15
         config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
@@ -552,7 +556,7 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
     def test_scheduler_clamps_total_before_per_phase_split(self):
         _Registry.clear()
         _CountingModbusClient.reset()
-        config = load_config("config.yaml")
+        config = load_config(BASE_CONFIG_PATH)
         config["SCHEDULER_PERIOD_S"] = 0.1
         config["ISTENTORE_SCHEDULE_PERIOD_MINUTES"] = 15
         config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
@@ -616,7 +620,7 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
     def test_scheduler_retries_failed_write_and_publishes_dispatch_status(self):
         _Registry.clear()
         _FlakyOnceModbusClient.reset()
-        config = load_config("config.yaml")
+        config = load_config(BASE_CONFIG_PATH)
         config["SCHEDULER_PERIOD_S"] = 0.1
         config["SCHEDULER_FAILED_WRITE_RETRY_INITIAL_S"] = 0.1
         config["SCHEDULER_FAILED_WRITE_RETRY_MAX_S"] = 0.1
@@ -680,7 +684,7 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
     def test_scheduler_pulses_trigger_after_setpoint_write_when_configured(self, sleep_mock):
         _Registry.clear()
         _CountingModbusClient.reset()
-        config = load_config("config.yaml")
+        config = load_config(BASE_CONFIG_PATH)
         config["SCHEDULER_PERIOD_S"] = 0.1
         config["ISTENTORE_SCHEDULE_PERIOD_MINUTES"] = 15
         config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
@@ -740,7 +744,7 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
     def test_scheduler_skips_trigger_when_readback_already_matches_target(self, sleep_mock):
         _Registry.clear()
         _CountingModbusClient.reset()
-        config = load_config("config.yaml")
+        config = load_config(BASE_CONFIG_PATH)
         config["SCHEDULER_PERIOD_S"] = 0.1
         config["ISTENTORE_SCHEDULE_PERIOD_MINUTES"] = 15
         config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
@@ -802,7 +806,7 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
     def test_scheduler_retries_after_trigger_failure_even_when_registers_match(self, sleep_mock):
         _Registry.clear()
         _TriggerFlakyOnceModbusClient.reset()
-        config = load_config("config.yaml")
+        config = load_config(BASE_CONFIG_PATH)
         config["SCHEDULER_PERIOD_S"] = 0.1
         config["SCHEDULER_FAILED_WRITE_RETRY_INITIAL_S"] = 0.1
         config["SCHEDULER_FAILED_WRITE_RETRY_MAX_S"] = 0.1
@@ -868,7 +872,7 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
     def test_scheduler_skips_write_when_plant_readback_already_matches_target(self):
         _Registry.clear()
         _CountingModbusClient.reset()
-        config = load_config("config.yaml")
+        config = load_config(BASE_CONFIG_PATH)
         config["SCHEDULER_PERIOD_S"] = 0.1
         config["ISTENTORE_SCHEDULE_PERIOD_MINUTES"] = 15
         config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
@@ -919,7 +923,7 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
     def test_scheduler_rewrites_when_plant_readback_drifted_but_target_unchanged(self):
         _Registry.clear()
         _CountingModbusClient.reset()
-        config = load_config("config.yaml")
+        config = load_config(BASE_CONFIG_PATH)
         config["SCHEDULER_PERIOD_S"] = 0.1
         config["ISTENTORE_SCHEDULE_PERIOD_MINUTES"] = 15
         config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
@@ -968,7 +972,7 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
     def test_scheduler_readback_failure_falls_back_to_cache_dedupe(self):
         _Registry.clear()
         _ReadbackFailingModbusClient.reset()
-        config = load_config("config.yaml")
+        config = load_config(BASE_CONFIG_PATH)
         config["SCHEDULER_PERIOD_S"] = 0.1
         config["ISTENTORE_SCHEDULE_PERIOD_MINUTES"] = 15
         config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
@@ -1024,7 +1028,7 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
     def test_scheduler_skips_write_when_all_phase_registers_match_target(self):
         _Registry.clear()
         _CountingModbusClient.reset()
-        config = load_config("config.yaml")
+        config = load_config(BASE_CONFIG_PATH)
         config["SCHEDULER_PERIOD_S"] = 0.1
         config["ISTENTORE_SCHEDULE_PERIOD_MINUTES"] = 15
         config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"
@@ -1084,7 +1088,7 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
     def test_scheduler_rewrites_all_phase_registers_when_one_phase_drifted(self):
         _Registry.clear()
         _CountingModbusClient.reset()
-        config = load_config("config.yaml")
+        config = load_config(BASE_CONFIG_PATH)
         config["SCHEDULER_PERIOD_S"] = 0.1
         config["ISTENTORE_SCHEDULE_PERIOD_MINUTES"] = 15
         config["PLANTS"]["lib"]["modbus"]["local"]["host"] = "127.0.0.1"

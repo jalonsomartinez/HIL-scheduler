@@ -2,10 +2,11 @@ import logging
 import time
 
 import pandas as pd
-from modbus.client import ModbusClient
+from modbus.client import ModbusClient, instantiate_modbus_client
 
 from grid_map_runtime import snapshot_grid_map_runtime
 from runtime.dispatch_write_runtime import publish_dispatch_write_status, set_dispatch_sending_enabled
+from runtime.modbus_health_runtime import refresh_modbus_link_health
 import scheduling.manual_schedule_manager as msm
 from runtime.contracts import resolve_modbus_endpoint
 from modbus.setpoint_io import (
@@ -18,6 +19,13 @@ from modbus.setpoint_io import (
 from scheduling.runtime import resolve_dispatch_bundle_from_sources
 from runtime.shared_state import snapshot_locked
 from time_utils import get_config_tz, now_tz
+
+
+def _wait_initial_phase_offset(shared_data, phase_offset_s):
+    delay_s = max(0.0, float(phase_offset_s or 0.0))
+    if delay_s <= 0.0:
+        return True
+    return not bool(shared_data["shutdown_event"].wait(delay_s))
 
 
 def scheduler_agent(config, shared_data):
@@ -52,6 +60,7 @@ def scheduler_agent(config, shared_data):
             "retry_signature": None,
             "next_retry_monotonic": None,
             "current_retry_delay_s": None,
+            "retry_reason": None,
         }
         for plant_id in plant_ids
     }
@@ -59,6 +68,8 @@ def scheduler_agent(config, shared_data):
     retry_initial_s = float(config.get("SCHEDULER_FAILED_WRITE_RETRY_INITIAL_S", 5.0) or 5.0)
     retry_max_s = max(retry_initial_s, float(config.get("SCHEDULER_FAILED_WRITE_RETRY_MAX_S", 20.0) or 20.0))
     retry_multiplier = max(1.0, float(config.get("SCHEDULER_FAILED_WRITE_RETRY_MULTIPLIER", 2.0) or 2.0))
+    modbus_health_stale_after_s = float(config.get("OBSERVED_STATE_STALE_AFTER_S", 3.0) or 3.0)
+    scheduler_phase_offset_s = float(config.get("SCHEDULER_PHASE_OFFSET_S", 0.0) or 0.0)
 
     def clear_retry_state(plant_id):
         retry_state_by_plant[plant_id] = {
@@ -66,9 +77,10 @@ def scheduler_agent(config, shared_data):
             "retry_signature": None,
             "next_retry_monotonic": None,
             "current_retry_delay_s": None,
+            "retry_reason": None,
         }
 
-    def schedule_retry(plant_id, signature, loop_mono):
+    def schedule_retry(plant_id, signature, loop_mono, *, reason="write"):
         state = retry_state_by_plant[plant_id]
         if bool(state.get("pending_retry")) and state.get("retry_signature") == signature and state.get("current_retry_delay_s") is not None:
             delay_s = min(float(state["current_retry_delay_s"]) * retry_multiplier, retry_max_s)
@@ -79,6 +91,7 @@ def scheduler_agent(config, shared_data):
             "retry_signature": signature,
             "next_retry_monotonic": float(loop_mono) + float(delay_s),
             "current_retry_delay_s": float(delay_s),
+            "retry_reason": str(reason or "write"),
         }
 
     def build_retry_signature(write_plan, limit_result, voltage_setpoint_pu):
@@ -107,7 +120,7 @@ def scheduler_agent(config, shared_data):
                 except Exception:
                     pass
 
-            clients[plant_id] = ModbusClient(host=endpoint["host"], port=endpoint["port"])
+            clients[plant_id] = instantiate_modbus_client(ModbusClient, endpoint)
             endpoints[plant_id] = endpoint_key
             previous_p[plant_id] = None
             previous_q[plant_id] = None
@@ -122,6 +135,10 @@ def scheduler_agent(config, shared_data):
             )
 
         return clients[plant_id], endpoint
+
+    if not _wait_initial_phase_offset(shared_data, scheduler_phase_offset_s):
+        logging.info("Scheduler agent stopped before first cycle.")
+        return
 
     while not shared_data["shutdown_event"].is_set():
         loop_start = time.monotonic()
@@ -166,12 +183,24 @@ def scheduler_agent(config, shared_data):
         for plant_id in plant_ids:
             try:
                 client, endpoint = ensure_client(plant_id, transport_mode)
+                refresh_modbus_link_health(
+                    shared_data,
+                    plant_id,
+                    endpoint,
+                    stale_after_s=modbus_health_stale_after_s,
+                )
                 if client is None:
                     continue
 
                 if not client.is_open:
                     if not client.open():
                         logging.warning("Scheduler: could not connect to %s plant endpoint.", plant_id.upper())
+                        refresh_modbus_link_health(
+                            shared_data,
+                            plant_id,
+                            endpoint,
+                            stale_after_s=modbus_health_stale_after_s,
+                        )
                         continue
 
                 is_running = bool(scheduler_running.get(plant_id, False))
@@ -414,8 +443,10 @@ def scheduler_agent(config, shared_data):
                     )
                 )
                 if retry_due and readback_targets_ok and not readback_targets_mismatch:
-                    clear_retry_state(plant_id)
-                    retry_due = False
+                    retry_reason = str(retry_state.get("retry_reason") or "write")
+                    if retry_reason != "trigger":
+                        clear_retry_state(plant_id)
+                        retry_due = False
 
                 should_apply = bool(
                     retry_due
@@ -560,9 +591,17 @@ def scheduler_agent(config, shared_data):
                                 applied_q_setpoint,
                             )
                     if attempt_status in {"failed", "partial"}:
-                        schedule_retry(plant_id, retry_signature, loop_mono)
+                        retry_reason = "trigger" if fail_count == 0 and trigger_write_ok is False else "write"
+                        schedule_retry(plant_id, retry_signature, loop_mono, reason=retry_reason)
                     elif attempt_status == "ok":
                         clear_retry_state(plant_id)
+
+                refresh_modbus_link_health(
+                    shared_data,
+                    plant_id,
+                    endpoint,
+                    stale_after_s=modbus_health_stale_after_s,
+                )
 
             except Exception as exc:
                 logging.error("Scheduler error for %s: %s", plant_id.upper(), exc)

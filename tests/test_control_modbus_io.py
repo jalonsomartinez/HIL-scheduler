@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from control.modbus_io import send_setpoints, send_setpoints_detailed, wait_until_battery_power_below_threshold
 from modbus.codec import read_point_internal
+from modbus.setpoint_io import write_setpoint_targets
 
 
 class _MemoryModbusClient:
@@ -39,6 +40,31 @@ class _FailingWriteMemoryModbusClient(_MemoryModbusClient):
 
 
 class ControlModbusIoTests(unittest.TestCase):
+    @patch("modbus.setpoint_io._sleep")
+    def test_write_setpoint_targets_does_not_sleep_for_single_write(self, sleep_mock):
+        client = _MemoryModbusClient("127.0.0.1", 502)
+        endpoint_cfg = {
+            "host": "127.0.0.1",
+            "port": 502,
+            "inter_write_delay_s": 0.5,
+            "byte_order": "big",
+            "word_order": "msw_first",
+            "points": {
+                "p_setpoint": {"name": "p_setpoint", "address": 10, "format": "int16", "word_count": 1, "unit": "kW", "eng_per_count": 0.1},
+            },
+        }
+
+        result = write_setpoint_targets(
+            client,
+            endpoint_cfg,
+            [{"point_name": "p_setpoint", "internal_value": 25.0}],
+            inter_write_delay_s=0.5,
+            has_more_after=False,
+        )
+
+        self.assertTrue(result["ok"])
+        sleep_mock.assert_not_called()
+
     @patch("control.modbus_io.ModbusClient")
     def test_send_setpoints_writes_equal_phase_split_when_endpoint_uses_per_phase_points(self, client_cls):
         client = _MemoryModbusClient("127.0.0.1", 502)
@@ -94,6 +120,30 @@ class ControlModbusIoTests(unittest.TestCase):
         self.assertAlmostEqual(read_point_internal(client, endpoint_cfg, "q_setpoint"), 30.0, places=6)
         self.assertEqual(client.registers[12], 0)
         self.assertEqual(sleep_mock.call_count, 2)
+
+    @patch("modbus.setpoint_io._sleep")
+    @patch("control.modbus_io.ModbusClient")
+    def test_send_setpoints_with_inter_write_delay_sleeps_between_writes_only(self, client_cls, sleep_mock):
+        client = _MemoryModbusClient("127.0.0.1", 502)
+        client_cls.return_value = client
+        endpoint_cfg = {
+            "host": "127.0.0.1",
+            "port": 502,
+            "mode": "remote",
+            "inter_write_delay_s": 0.5,
+            "byte_order": "big",
+            "word_order": "msw_first",
+            "points": {
+                "p_setpoint": {"name": "p_setpoint", "address": 10, "format": "int16", "word_count": 1, "unit": "kW", "eng_per_count": 0.1},
+                "q_setpoint": {"name": "q_setpoint", "address": 11, "format": "int16", "word_count": 1, "unit": "kvar", "eng_per_count": 0.1},
+                "trigger": {"name": "trigger", "address": 12, "format": "uint16", "word_count": 1, "unit": "raw", "eng_per_count": 1.0},
+            },
+        }
+
+        result = send_setpoints(endpoint_cfg, "LIB", 90.0, 30.0)
+
+        self.assertTrue(result)
+        self.assertEqual([call.args[0] for call in sleep_mock.call_args_list], [0.5, 1.0, 1.0])
 
     @patch("control.modbus_io.ModbusClient")
     def test_send_setpoints_clamps_to_configured_power_limits_before_write(self, client_cls):

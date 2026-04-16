@@ -1,6 +1,7 @@
 import queue
 import threading
 import unittest
+import os
 
 import pandas as pd
 
@@ -8,9 +9,12 @@ from config_loader import load_config
 from hil_scheduler import build_initial_shared_data
 
 
+BASE_CONFIG_PATH = "config.yaml" if os.path.exists("config.yaml") else "config_prod.yaml"
+
+
 class SharedStateContractTests(unittest.TestCase):
     def test_build_initial_shared_data_contains_required_runtime_keys(self):
-        config = load_config("config.yaml")
+        config = load_config(BASE_CONFIG_PATH)
         shared_data = build_initial_shared_data(config)
         plant_ids = tuple(config.get("PLANT_IDS", ("lib", "vrfb")))
 
@@ -56,6 +60,7 @@ class SharedStateContractTests(unittest.TestCase):
             "control_command_next_id",
             "plant_observed_state_by_plant",
             "plant_operating_state_by_plant",
+            "modbus_link_health_by_plant",
             "reactive_control_mode_by_plant",
             "reactive_control_mode_runtime_by_plant",
             "dispatch_write_status_by_plant",
@@ -91,6 +96,7 @@ class SharedStateContractTests(unittest.TestCase):
         self.assertEqual(set(shared_data["local_emulator_soc_seed_result_by_plant"].keys()), set(plant_ids))
         self.assertEqual(set(shared_data["plant_observed_state_by_plant"].keys()), set(plant_ids))
         self.assertEqual(set(shared_data["plant_operating_state_by_plant"].keys()), set(plant_ids))
+        self.assertEqual(set(shared_data["modbus_link_health_by_plant"].keys()), set(plant_ids))
         self.assertEqual(set(shared_data["reactive_control_mode_by_plant"].keys()), set(plant_ids))
         self.assertEqual(set(shared_data["reactive_control_mode_runtime_by_plant"].keys()), set(plant_ids))
         self.assertEqual(set(shared_data["dispatch_write_status_by_plant"].keys()), set(plant_ids))
@@ -169,6 +175,28 @@ class SharedStateContractTests(unittest.TestCase):
         self.assertTrue(all("start_command_state" in state for state in shared_data["plant_observed_state_by_plant"].values()))
         self.assertTrue(all("stop_command_state" in state for state in shared_data["plant_observed_state_by_plant"].values()))
         self.assertTrue(all("q_control_mode_state" in state for state in shared_data["plant_observed_state_by_plant"].values()))
+        self.assertTrue(
+            all(
+                {
+                    "state",
+                    "last_success_at",
+                    "last_attempt_at",
+                    "consecutive_failures",
+                    "last_error",
+                    "reconnect_count",
+                    "active_operation",
+                    "active_operation_age_s",
+                    "waiting_count",
+                    "timeout_s",
+                    "reset_after_consecutive_failures",
+                    "reset_after_stale_seconds",
+                    "last_reset_reason",
+                    "last_reset_at",
+                    "stale_reset_count",
+                }.issubset(entry.keys())
+                for entry in shared_data["modbus_link_health_by_plant"].values()
+            )
+        )
         self.assertTrue(all(mode == 1 for mode in shared_data["reactive_control_mode_by_plant"].values()))
         self.assertTrue(
             all(int((entry or {}).get("selected_mode", 0)) == 1 for entry in shared_data["reactive_control_mode_runtime_by_plant"].values())

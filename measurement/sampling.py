@@ -2,7 +2,7 @@
 
 import logging
 
-from modbus.client import ModbusClient
+from modbus.client import ModbusClient, instantiate_modbus_client
 
 from modbus.grouped_reads import build_read_groups, read_points_internal_grouped
 from runtime.contracts import resolve_modbus_endpoint
@@ -63,7 +63,7 @@ def ensure_client(state, endpoint, plant_id, transport_mode):
             except Exception:
                 pass
 
-        state["client"] = ModbusClient(host=endpoint["host"], port=endpoint["port"])
+        state["client"] = instantiate_modbus_client(ModbusClient, endpoint)
         state["endpoint_key"] = endpoint_key
         logging.info(
             "Measurement: %s endpoint -> %s:%s (%s mode)",

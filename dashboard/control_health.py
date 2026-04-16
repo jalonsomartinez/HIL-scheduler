@@ -107,28 +107,67 @@ def summarize_control_queue_status(engine_status, backlog_high_threshold=5) -> s
     return text
 
 
-def summarize_plant_modbus_health(plant_observed_state, now_ts):
+def summarize_plant_modbus_health(modbus_link_state, plant_observed_state, now_ts):
+    link_state = dict(modbus_link_state or {})
     observed = dict(plant_observed_state or {})
     read_status = str(observed.get("read_status") or "unknown").upper()
-    age_text = format_age_seconds(observed.get("last_success"), now_ts)
+    observed_age_text = format_age_seconds(observed.get("last_success"), now_ts)
     stale = bool(observed.get("stale", True))
+    link_health = str(link_state.get("state") or "unknown").upper()
+    link_age_text = format_age_seconds(link_state.get("last_success_at"), now_ts)
     if stale:
-        age_display = f"stale ({age_text})"
+        observed_age_display = f"stale ({observed_age_text})"
     else:
-        age_display = age_text
+        observed_age_display = observed_age_text
 
     failures = int(observed.get("consecutive_failures", 0) or 0)
-    line = f"Modbus link: {read_status} | Obs age: {age_display}"
-    if failures > 0:
-        line += f" | Failures: {failures}"
+    waiters = int(link_state.get("waiting_count", 0) or 0)
+    link_failures = int(link_state.get("consecutive_failures", 0) or 0)
+    link_freshness = "n/a" if link_age_text == "n/a" else (f"stale ({link_age_text})" if link_health in {"DEGRADED", "DOWN"} else link_age_text)
+
+    line = f"Modbus link: {link_health} | Link freshness: {link_freshness}"
+    if link_failures > 0:
+        line += f" | Failures: {link_failures}"
+    if waiters > 0:
+        line += f" | Waiters: {waiters}"
 
     lines = [line]
+    tx_line = (
+        f"Last successful Modbus tx: {_format_datetime(link_state.get('last_success_at'))} | "
+        f"Reconnects: {int(link_state.get('reconnect_count', 0) or 0)}"
+    )
+    active_operation = str(link_state.get("active_operation") or "").strip()
+    active_age_s = link_state.get("active_operation_age_s")
+    if active_operation:
+        if active_age_s is None:
+            tx_line += f" | Active: {active_operation}"
+        else:
+            tx_line += f" | Active: {active_operation} ({float(active_age_s):.1f}s)"
+    lines.append(tx_line)
+    reset_reason = str(link_state.get("last_reset_reason") or "").strip()
+    reset_at = link_state.get("last_reset_at")
+    stale_reset_count = int(link_state.get("stale_reset_count", 0) or 0)
+    stale_reset_threshold = link_state.get("reset_after_stale_seconds")
+    reset_line = f"Last reset: {reset_reason or 'n/a'} @ {_format_datetime(reset_at)} | Stale resets: {stale_reset_count}"
+    if stale_reset_threshold not in (None, "", 0, 0.0):
+        reset_line += f" | Stale threshold: {float(stale_reset_threshold):.1f}s"
+    lines.append(reset_line)
+    observed_line = f"Last observed read result: {read_status} | Obs age: {observed_age_display}"
+    if failures > 0:
+        observed_line += f" | Read failures: {failures}"
+    lines.append(observed_line)
     lines.append(
         "Commands: "
         f"enable={_format_optional_int(observed.get('enable_state'))} | "
         f"start_command={_format_optional_int(observed.get('start_command_state'))} | "
         f"stop_command={_format_optional_int(observed.get('stop_command_state'))}"
     )
+    link_error = dict(link_state.get("last_error") or {})
+    if link_error.get("message"):
+        lines.append(
+            f"Link error (@ {_format_datetime(link_error.get('timestamp'))}): "
+            f"{_truncate(link_error.get('message'), max_chars=120)}"
+        )
     last_error = dict(observed.get("last_error") or {})
     error_message = last_error.get("message") or observed.get("error")
     if error_message:

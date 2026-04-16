@@ -6,7 +6,7 @@ import queue
 import time
 
 import pandas as pd
-from modbus.client import ModbusClient
+from modbus.client import ModbusClient, instantiate_modbus_client
 
 import scheduling.manual_schedule_manager as msm
 from grid_map_runtime import snapshot_grid_map_runtime
@@ -26,6 +26,7 @@ from control.modbus_io import (
 )
 from runtime.engine_command_cycle_runtime import run_command_with_lifecycle
 from runtime.engine_status_runtime import default_engine_status, update_engine_status
+from runtime.modbus_health_runtime import refresh_modbus_link_health
 from modbus.grouped_reads import build_read_groups, read_points_internal_grouped
 from modbus.setpoint_io import q_control_mode_point_configured, voltage_control_mode_supported
 from runtime.contracts import (
@@ -75,6 +76,8 @@ def _get_plant_modbus_config(config, shared_data, plant_id, transport_mode=None)
         "mode": mode,
         "host": endpoint.get("host", "localhost"),
         "port": int(endpoint.get("port", 5020 if plant_id == "lib" else 5021)),
+        "timeout_s": endpoint.get("timeout_s"),
+        "reset_after_consecutive_failures": endpoint.get("reset_after_consecutive_failures"),
         "byte_order": endpoint.get("byte_order"),
         "word_order": endpoint.get("word_order"),
         "power_limits": endpoint.get("power_limits", {}),
@@ -173,7 +176,7 @@ def _wait_until_battery_power_below_threshold(
 
 def _read_observed_points(config, shared_data, plant_id, transport_mode=None):
     cfg = _get_plant_modbus_config(config, shared_data, plant_id, transport_mode=transport_mode)
-    client = ModbusClient(host=cfg["host"], port=cfg["port"])
+    client = instantiate_modbus_client(ModbusClient, cfg)
     points = dict(cfg.get("points", {}) or {})
     values = {
         "enable_state": None,
@@ -230,6 +233,8 @@ def _read_observed_points(config, shared_data, plant_id, transport_mode=None):
         if "q_control_mode" in points:
             q_control_mode_value = grouped.get("q_control_mode")
             values["q_control_mode_state"] = None if q_control_mode_value is None else int(q_control_mode_value)
+        if not any(value is not None for value in values.values()):
+            error = {"code": "read_error", "message": f"No observed points available from {plant_id.upper()} endpoint."}
     except Exception as exc:
         error = {"code": "read_error", "message": str(exc)}
     finally:
@@ -384,6 +389,12 @@ def _refresh_all_observed_state(
             now_value=now_value,
             stale_after_s=stale_after_s,
         )
+        refresh_modbus_link_health(
+            shared_data,
+            plant_id,
+            _get_plant_modbus_config(config, shared_data, plant_id, transport_mode=transport_mode),
+            stale_after_s=stale_after_s,
+        )
     return results
 
 
@@ -398,6 +409,19 @@ def _set_last_observed_refresh(shared_data, now_value):
     with shared_data["lock"]:
         runtime_state = shared_data.setdefault("_control_engine_runtime", {})
         runtime_state["last_observed_refresh"] = now_value
+
+
+def _get_next_observed_refresh_monotonic(shared_data):
+    return snapshot_locked(
+        shared_data,
+        lambda data: dict(data.get("_control_engine_runtime", {}) or {}).get("next_observed_refresh_monotonic"),
+    )
+
+
+def _set_next_observed_refresh_monotonic(shared_data, mono_value):
+    with shared_data["lock"]:
+        runtime_state = shared_data.setdefault("_control_engine_runtime", {})
+        runtime_state["next_observed_refresh_monotonic"] = None if mono_value is None else float(mono_value)
 
 
 def _get_daily_recording_file_path(config, plant_id):
@@ -1073,6 +1097,7 @@ def _run_single_engine_cycle(config, shared_data, *, plant_ids, tz, deps=None, n
     )
     observed_poll_period_s = _observed_state_poll_period_s(config)
     loop_now = now_fn(config)
+    loop_mono = time.monotonic()
     _update_control_engine_status(
         shared_data,
         now_value=loop_now,
@@ -1081,17 +1106,24 @@ def _run_single_engine_cycle(config, shared_data, *, plant_ids, tz, deps=None, n
     )
 
     last_observed_refresh = _get_last_observed_refresh(shared_data)
-    should_refresh_observed = True
-    if last_observed_refresh is not None:
-        try:
-            age_s = (pd.Timestamp(loop_now) - pd.Timestamp(last_observed_refresh)).total_seconds()
-            should_refresh_observed = age_s >= float(observed_poll_period_s)
-        except Exception:
-            should_refresh_observed = True
+    next_observed_refresh_mono = _get_next_observed_refresh_monotonic(shared_data)
+    phase_gate_active = next_observed_refresh_mono is not None
+    if next_observed_refresh_mono is not None:
+        should_refresh_observed = float(loop_mono) >= float(next_observed_refresh_mono)
+    else:
+        should_refresh_observed = True
+        if last_observed_refresh is not None:
+            try:
+                age_s = (pd.Timestamp(loop_now) - pd.Timestamp(last_observed_refresh)).total_seconds()
+                should_refresh_observed = age_s >= float(observed_poll_period_s)
+            except Exception:
+                should_refresh_observed = True
     if should_refresh_observed:
         refresh_time = now_fn(config)
         refresh_fn()
         _set_last_observed_refresh(shared_data, refresh_time)
+        if phase_gate_active:
+            _set_next_observed_refresh_monotonic(shared_data, time.monotonic() + float(observed_poll_period_s))
         _update_control_engine_status(
             shared_data,
             now_value=now_fn(config),
@@ -1133,6 +1165,8 @@ def _run_single_engine_cycle(config, shared_data, *, plant_ids, tz, deps=None, n
     refresh_time = now_fn(config)
     refresh_fn()
     _set_last_observed_refresh(shared_data, refresh_time)
+    if phase_gate_active:
+        _set_next_observed_refresh_monotonic(shared_data, time.monotonic() + float(observed_poll_period_s))
     _update_control_engine_status(
         shared_data,
         now_value=now_fn(config),
@@ -1148,6 +1182,10 @@ def control_engine_agent(config, shared_data):
     logging.info("Control engine agent started.")
     plant_ids = tuple(config.get("PLANT_IDS", ("lib", "vrfb")))
     tz = get_config_tz(config)
+    observed_phase_offset_s = max(0.0, float(config.get("OBSERVED_STATE_PHASE_OFFSET_S", 0.0) or 0.0))
+
+    if _get_next_observed_refresh_monotonic(shared_data) is None:
+        _set_next_observed_refresh_monotonic(shared_data, time.monotonic() + observed_phase_offset_s)
 
     while not shared_data["shutdown_event"].is_set():
         loop_start = time.monotonic()

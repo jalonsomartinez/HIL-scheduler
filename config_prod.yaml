@@ -31,12 +31,16 @@ istentore_api:
 timing:
   data_fetcher_period_s: 120
   scheduler_period_s: 5
+  scheduler_phase_offset_s: 1.0
   observed_state_poll_period_s: 5
+  observed_state_phase_offset_s: 0.0
   observed_state_stale_after_s: 15
   plant_period_s: 2
   measurement_period_s: 10
+  measurement_phase_offset_s: 2.5
   measurements_write_period_s: 60
   grid_map_period_s: 10
+  grid_map_phase_offset_s: 4.0
   scheduler_failed_write_retry_initial_s: 5
   scheduler_failed_write_retry_max_s: 20
   scheduler_failed_write_retry_multiplier: 2.0
@@ -100,6 +104,10 @@ plants:
       local:
         host: "10.117.133.21"
         port: 502
+        timeout_s: 30.0
+        reset_after_consecutive_failures: 0
+        reset_after_stale_seconds: 15.0
+        inter_write_delay_s: 0.5
         byte_order: big
         word_order: lsw_first
         points:
@@ -118,6 +126,10 @@ plants:
       remote:
         host: "10.117.133.21"
         port: 502
+        timeout_s: 30.0
+        reset_after_consecutive_failures: 0
+        reset_after_stale_seconds: 15.0
+        inter_write_delay_s: 0.5
         byte_order: big
         word_order: lsw_first
         points:
@@ -153,6 +165,10 @@ plants:
       local:
         host: "10.117.133.12"
         port: 502
+        timeout_s: 30.0
+        reset_after_consecutive_failures: 0
+        reset_after_stale_seconds: 15.0
+        inter_write_delay_s: 0.5
         byte_order: big
         word_order: msw_first
         points:
@@ -174,6 +190,10 @@ plants:
       remote:
         host: "7c30070c1f50.sn.mynetname.net"
         port: 502
+        timeout_s: 3.0
+        reset_after_consecutive_failures: 2
+        reset_after_stale_seconds: 15.0
+        inter_write_delay_s: 0.5
         byte_order: big
         word_order: msw_first
         points:

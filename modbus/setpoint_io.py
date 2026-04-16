@@ -23,6 +23,14 @@ PER_PHASE_P_POINT_NAMES = ("p_u_setpoint", "p_v_setpoint", "p_w_setpoint")
 PER_PHASE_Q_POINT_NAMES = ("q_u_setpoint", "q_v_setpoint", "q_w_setpoint")
 
 
+def _resolve_inter_write_delay_s(endpoint_cfg):
+    try:
+        value = float((endpoint_cfg or {}).get("inter_write_delay_s", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, float(value))
+
+
 def resolve_setpoint_mode(endpoint_cfg):
     points = dict((endpoint_cfg or {}).get("points", {}) or {})
     if "p_setpoint" in points or "q_setpoint" in points:
@@ -201,9 +209,11 @@ def read_setpoint_target_words_grouped(client, endpoint_cfg, targets, *, read_gr
     return result
 
 
-def write_setpoint_targets(client, endpoint_cfg, targets):
+def write_setpoint_targets(client, endpoint_cfg, targets, *, inter_write_delay_s=0.0, has_more_after=False):
     results = []
-    for target in (targets or []):
+    target_list = list(targets or [])
+    delay_s = max(0.0, float(inter_write_delay_s or 0.0))
+    for index, target in enumerate(target_list):
         ok = bool(write_point_internal(client, endpoint_cfg, target["point_name"], target["internal_value"]))
         results.append(
             {
@@ -212,6 +222,9 @@ def write_setpoint_targets(client, endpoint_cfg, targets):
                 "ok": bool(ok),
             }
         )
+        more_writes_pending = index < len(target_list) - 1 or bool(has_more_after)
+        if delay_s > 0.0 and more_writes_pending:
+            _sleep(delay_s)
     return {
         "ok": all(result["ok"] for result in results),
         "results": results,
@@ -284,12 +297,41 @@ def pulse_trigger(client, endpoint_cfg, *, delay_s=TRIGGER_APPLY_DELAY_S):
 
 
 def write_setpoint_plan_with_optional_trigger(client, endpoint_cfg, write_plan, *, delay_s=TRIGGER_APPLY_DELAY_S):
-    control_mode_result = write_setpoint_targets(client, endpoint_cfg, (write_plan or {}).get("control_mode_targets"))
+    inter_write_delay_s = _resolve_inter_write_delay_s(endpoint_cfg)
+    p_targets = list((write_plan or {}).get("p_targets") or [])
+    q_targets = list((write_plan or {}).get("q_targets") or [])
+    voltage_targets = list((write_plan or {}).get("voltage_targets") or [])
+    remaining_after_control_mode = bool(p_targets or q_targets or voltage_targets)
+    control_mode_result = write_setpoint_targets(
+        client,
+        endpoint_cfg,
+        (write_plan or {}).get("control_mode_targets"),
+        inter_write_delay_s=inter_write_delay_s,
+        has_more_after=remaining_after_control_mode,
+    )
     control_mode_ok = bool(control_mode_result["ok"])
     if control_mode_ok:
-        p_result = write_setpoint_targets(client, endpoint_cfg, (write_plan or {}).get("p_targets"))
-        q_result = write_setpoint_targets(client, endpoint_cfg, (write_plan or {}).get("q_targets"))
-        voltage_result = write_setpoint_targets(client, endpoint_cfg, (write_plan or {}).get("voltage_targets"))
+        p_result = write_setpoint_targets(
+            client,
+            endpoint_cfg,
+            p_targets,
+            inter_write_delay_s=inter_write_delay_s,
+            has_more_after=bool(q_targets or voltage_targets),
+        )
+        q_result = write_setpoint_targets(
+            client,
+            endpoint_cfg,
+            q_targets,
+            inter_write_delay_s=inter_write_delay_s,
+            has_more_after=bool(voltage_targets),
+        )
+        voltage_result = write_setpoint_targets(
+            client,
+            endpoint_cfg,
+            voltage_targets,
+            inter_write_delay_s=inter_write_delay_s,
+            has_more_after=False,
+        )
     else:
         p_result = {"ok": False, "results": []}
         q_result = {"ok": False, "results": []}

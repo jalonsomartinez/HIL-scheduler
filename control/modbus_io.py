@@ -4,6 +4,7 @@ import logging
 import time
 
 from modbus.client import ModbusClient
+from modbus.client import instantiate_modbus_client
 
 from modbus.codec import read_point_internal, write_point_internal
 from modbus.setpoint_io import (
@@ -25,7 +26,7 @@ def write_optional_command_point(endpoint_cfg, plant_label, point_name, value):
             "message": "point_not_configured",
         }
 
-    client = ModbusClient(host=endpoint_cfg["host"], port=endpoint_cfg["port"])
+    client = instantiate_modbus_client(ModbusClient, endpoint_cfg)
     try:
         if not client.open():
             logging.warning(
@@ -64,7 +65,7 @@ def write_optional_command_point(endpoint_cfg, plant_label, point_name, value):
 
 
 def set_enable(endpoint_cfg, plant_label, value):
-    client = ModbusClient(host=endpoint_cfg["host"], port=endpoint_cfg["port"])
+    client = instantiate_modbus_client(ModbusClient, endpoint_cfg)
     try:
         if not client.open():
             logging.warning(
@@ -93,7 +94,7 @@ def send_setpoints_detailed(
     voltage_mode_active=False,
     voltage_setpoint_pu=1.0,
 ):
-    client = ModbusClient(host=endpoint_cfg["host"], port=endpoint_cfg["port"])
+    client = instantiate_modbus_client(ModbusClient, endpoint_cfg)
     try:
         if not client.open():
             logging.warning(
@@ -175,7 +176,7 @@ def send_setpoints(endpoint_cfg, plant_label, p_kw, q_kvar):
 
 
 def read_enable_state(endpoint_cfg):
-    client = ModbusClient(host=endpoint_cfg["host"], port=endpoint_cfg["port"])
+    client = instantiate_modbus_client(ModbusClient, endpoint_cfg)
     try:
         if not client.open():
             return None
@@ -202,7 +203,7 @@ def wait_until_battery_power_below_threshold(
     started_at = time.monotonic()
     deadline = time.time() + timeout_s
     while time.time() < deadline:
-        client = ModbusClient(host=endpoint_cfg["host"], port=endpoint_cfg["port"])
+        client = instantiate_modbus_client(ModbusClient, endpoint_cfg)
         try:
             if not client.open():
                 if fail_fast_on_connect_failure:

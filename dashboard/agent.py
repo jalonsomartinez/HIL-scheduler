@@ -2193,6 +2193,7 @@ def dashboard_agent(config, shared_data):
             plant_operating_state_by_plant = dict(shared_data.get("plant_operating_state_by_plant", {}))
             recording_files = dict(shared_data.get("measurements_filename_by_plant", {}))
             observed_state_by_plant = dict(shared_data.get("plant_observed_state_by_plant", {}))
+            modbus_link_health_by_plant = dict(shared_data.get("modbus_link_health_by_plant", {}))
             dispatch_write_status_by_plant = dict(shared_data.get("dispatch_write_status_by_plant", {}))
             control_engine_status = dict(shared_data.get("control_engine_status", {}))
             status = shared_data.get("data_fetcher_status", {}).copy()
@@ -2453,8 +2454,9 @@ def dashboard_agent(config, shared_data):
             rec_text = f"Recording: On ({os.path.basename(recording)})" if recording else "Recording: Off"
             observed = dict(observed_state_by_plant.get(plant_id, {}) or {})
             observed["stale"] = effective_stale
+            modbus_link_state = dict(modbus_link_health_by_plant.get(plant_id, {}) or {})
             dispatch_write_state = dict(dispatch_write_status_by_plant.get(plant_id, {}) or {})
-            health_lines = summarize_plant_modbus_health(observed, status_now)
+            health_lines = summarize_plant_modbus_health(modbus_link_state, observed, status_now)
             dispatch_lines = summarize_dispatch_write_status(dispatch_write_state, dispatch_enabled=dispatch_enabled)
             rows = [
                 html.Div(

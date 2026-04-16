@@ -873,6 +873,40 @@ class ControlEngineAgentTests(unittest.TestCase):
 
         self.assertEqual(len(refresh_calls), 2)
 
+    @patch("control.engine_agent.time.monotonic", side_effect=[100.0, 105.0, 111.0])
+    def test_engine_cycle_honors_monotonic_observed_phase_gate(self, _monotonic_mock):
+        shared_data = _shared_data()
+        shared_data["_control_engine_runtime"] = {"next_observed_refresh_monotonic": 104.0}
+        refresh_calls = []
+        config = {
+            "PLANT_IDS": ("lib", "vrfb"),
+            "OBSERVED_STATE_POLL_PERIOD_S": 5.0,
+            "OBSERVED_STATE_STALE_AFTER_S": 15.0,
+        }
+
+        _run_single_engine_cycle(
+            config,
+            shared_data,
+            plant_ids=("lib", "vrfb"),
+            tz=timezone.utc,
+            now_fn=lambda _config: datetime(2026, 2, 25, 12, 0, 0, tzinfo=timezone.utc),
+            deps={"refresh_all_observed_state_fn": lambda: refresh_calls.append("refresh")},
+        )
+        _run_single_engine_cycle(
+            config,
+            shared_data,
+            plant_ids=("lib", "vrfb"),
+            tz=timezone.utc,
+            now_fn=lambda _config: datetime(2026, 2, 25, 12, 0, 5, tzinfo=timezone.utc),
+            deps={"refresh_all_observed_state_fn": lambda: refresh_calls.append("refresh")},
+        )
+
+        self.assertEqual(refresh_calls, ["refresh"])
+        self.assertEqual(
+            float(shared_data["_control_engine_runtime"]["next_observed_refresh_monotonic"]),
+            116.0,
+        )
+
     def test_publish_observed_state_preserves_values_on_failure_and_marks_stale(self):
         shared_data = _shared_data()
         t0 = datetime(2026, 2, 25, 12, 0, tzinfo=timezone.utc)

@@ -111,6 +111,12 @@ def _build_twin_summary_row(timestamp, grid_map_runtime, scenario_key, tz):
     return row
 
 
+def _resolve_measurement_phase_anchor(startup_wall_ts, startup_mono, phase_offset_s):
+    anchor_wall = startup_wall_ts.ceil("s") + pd.Timedelta(seconds=max(0.0, float(phase_offset_s or 0.0)))
+    anchor_mono = float(startup_mono) + max(0.0, (anchor_wall - startup_wall_ts).total_seconds())
+    return anchor_wall, anchor_mono
+
+
 def measurement_agent(config, shared_data):
     """Measurement, recording, cache, and API posting for LIB/VRFB."""
     logging.info("Measurement agent started.")
@@ -182,16 +188,17 @@ def measurement_agent(config, shared_data):
     post_queue_maxlen = int(config.get("ISTENTORE_MEASUREMENT_POST_QUEUE_MAXLEN", 2000))
     post_retry_initial_s = float(config.get("ISTENTORE_MEASUREMENT_POST_RETRY_INITIAL_S", 2))
     post_retry_max_s = float(config.get("ISTENTORE_MEASUREMENT_POST_RETRY_MAX_S", 60))
+    measurement_phase_offset_s = float(config.get("MEASUREMENT_PHASE_OFFSET_S", 0.0) or 0.0)
 
     startup_wall_ts = normalize_timestamp_value(pd.Timestamp(now_tz(config)), tz)
-    measurement_anchor_wall = startup_wall_ts.ceil("s")
-    measurement_anchor_mono = time.monotonic() + max(
-        0.0,
-        (measurement_anchor_wall - startup_wall_ts).total_seconds(),
+    measurement_anchor_wall, measurement_anchor_mono = _resolve_measurement_phase_anchor(
+        startup_wall_ts,
+        time.monotonic(),
+        measurement_phase_offset_s,
     )
     last_executed_trigger_step = -1
 
-    post_anchor_mono = measurement_anchor_mono
+    _, post_anchor_mono = _resolve_measurement_phase_anchor(startup_wall_ts, time.monotonic(), 0.0)
     last_executed_post_step = -1
 
     api_poster = None

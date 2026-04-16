@@ -24,11 +24,19 @@ from grid_map_runtime import (
 from time_utils import now_tz
 
 
+def _wait_initial_phase_offset(shared_data, phase_offset_s):
+    delay_s = max(0.0, float(phase_offset_s or 0.0))
+    if delay_s <= 0.0:
+        return True
+    return not bool(shared_data["shutdown_event"].wait(delay_s))
+
+
 def grid_map_agent(config, shared_data):
     """Run periodic power-flow updates for the grid-map page."""
     logging.info("Grid map agent started.")
 
     period_s = float(config.get("GRID_MAP_PERIOD_S", 5.0) or 5.0)
+    phase_offset_s = float(config.get("GRID_MAP_PHASE_OFFSET_S", 0.0) or 0.0)
     ensure_grid_map_runtime(shared_data, period_s)
 
     try:
@@ -44,6 +52,10 @@ def grid_map_agent(config, shared_data):
         logging.error("Grid map: failed to build topology cache: %s", exc)
         publish_grid_map_topology_error(shared_data, error_text=str(exc))
         topology_cache = None
+
+    if not _wait_initial_phase_offset(shared_data, phase_offset_s):
+        logging.info("Grid map agent stopped before first cycle.")
+        return
 
     while not shared_data["shutdown_event"].is_set():
         loop_start = time.monotonic()

@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from measurement.agent import measurement_agent
+from measurement.agent import _resolve_measurement_phase_anchor, measurement_agent
 from measurement.storage import MEASUREMENT_COLUMNS, TWIN_MEASUREMENT_COLUMNS
 from modbus.codec import encode_point_internal_words
 
@@ -127,6 +127,14 @@ class _MappedSamplingModbusClient:
 
 
 class MeasurementAgentRecordingTests(unittest.TestCase):
+    def test_resolve_measurement_phase_anchor_shifts_sampling_anchor_only(self):
+        startup_wall_ts = pd.Timestamp("2026-02-21T14:04:49.200000+01:00")
+
+        anchor_wall, anchor_mono = _resolve_measurement_phase_anchor(startup_wall_ts, 100.0, 2.5)
+
+        self.assertEqual(str(anchor_wall), "2026-02-21 14:04:52.500000+01:00")
+        self.assertAlmostEqual(anchor_mono, 103.3, places=6)
+
     def test_record_start_path_does_not_crash_and_appends_boundary(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             with chdir(tmpdir):

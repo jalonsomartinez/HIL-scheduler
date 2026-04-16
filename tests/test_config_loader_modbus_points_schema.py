@@ -7,6 +7,9 @@ import yaml
 from config_loader import load_config
 
 
+BASE_CONFIG_PATH = "config.yaml" if os.path.exists("config.yaml") else "config_prod.yaml"
+
+
 def _load_yaml(path):
     with open(path, "r", encoding="utf-8") as handle:
         return yaml.safe_load(handle) or {}
@@ -23,7 +26,7 @@ def _write_temp_yaml(data):
 
 class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
     def test_accepts_full_per_phase_setpoint_endpoint(self):
-        payload = _load_yaml("config.yaml")
+        payload = _load_yaml(BASE_CONFIG_PATH)
         points = payload["plants"]["lib"]["modbus"]["local"]["points"]
         points.pop("p_setpoint", None)
         points.pop("q_setpoint", None)
@@ -46,10 +49,14 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
         self.assertIn("q_w_setpoint", point_map)
 
     def test_load_config_normalizes_endpoint_ordering_and_point_specs(self):
-        payload = _load_yaml("config.yaml")
+        payload = _load_yaml(BASE_CONFIG_PATH)
         lib_remote_payload = payload["plants"]["lib"]["modbus"]["remote"]
         lib_remote_payload["byte_order"] = "BIG"
         lib_remote_payload["word_order"] = "MSW_FIRST"
+        lib_remote_payload["timeout_s"] = 3
+        lib_remote_payload["reset_after_consecutive_failures"] = 2
+        lib_remote_payload["reset_after_stale_seconds"] = 15
+        lib_remote_payload["inter_write_delay_s"] = 0.5
         p_setpoint_payload = lib_remote_payload["points"]["p_setpoint"]
         p_setpoint_payload["format"] = "INT16"
         p_setpoint_payload["access"] = "RW"
@@ -62,6 +69,10 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
         lib_remote = config["PLANTS"]["lib"]["modbus"]["remote"]
         self.assertEqual(lib_remote["byte_order"], "big")
         self.assertEqual(lib_remote["word_order"], "msw_first")
+        self.assertEqual(float(lib_remote["timeout_s"]), 3.0)
+        self.assertEqual(int(lib_remote["reset_after_consecutive_failures"]), 2)
+        self.assertEqual(float(lib_remote["reset_after_stale_seconds"]), 15.0)
+        self.assertEqual(float(lib_remote["inter_write_delay_s"]), 0.5)
 
         p_setpoint = lib_remote["points"]["p_setpoint"]
         self.assertEqual(p_setpoint["address"], 86)
@@ -75,7 +86,7 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
         self.assertIn("start_command", config["PLANTS"]["vrfb"]["modbus"]["remote"]["points"])
 
     def test_rejects_missing_endpoint_byte_order(self):
-        payload = _load_yaml("config.yaml")
+        payload = _load_yaml(BASE_CONFIG_PATH)
         payload["plants"]["lib"]["modbus"]["local"].pop("byte_order", None)
         path = _write_temp_yaml(payload)
         try:
@@ -85,7 +96,7 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
             os.unlink(path)
 
     def test_rejects_legacy_registers_schema(self):
-        payload = _load_yaml("config.yaml")
+        payload = _load_yaml(BASE_CONFIG_PATH)
         endpoint = payload["plants"]["lib"]["modbus"]["local"]
         points = endpoint.pop("points")
         endpoint.pop("byte_order", None)
@@ -99,7 +110,7 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
             os.unlink(path)
 
     def test_rejects_mixed_aggregate_and_per_phase_setpoint_points(self):
-        payload = _load_yaml("config.yaml")
+        payload = _load_yaml(BASE_CONFIG_PATH)
         payload["plants"]["lib"]["modbus"]["local"]["points"]["p_u_setpoint"] = {
             "address": 400,
             "format": "int16",
@@ -150,7 +161,7 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
             os.unlink(path)
 
     def test_rejects_partial_per_phase_setpoint_definition(self):
-        payload = _load_yaml("config.yaml")
+        payload = _load_yaml(BASE_CONFIG_PATH)
         points = payload["plants"]["lib"]["modbus"]["local"]["points"]
         points.pop("p_setpoint", None)
         points.pop("q_setpoint", None)
@@ -165,7 +176,7 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
             os.unlink(path)
 
     def test_normalizes_unit_tokens_case_insensitively(self):
-        payload = _load_yaml("config.yaml")
+        payload = _load_yaml(BASE_CONFIG_PATH)
         endpoint = payload["plants"]["lib"]["modbus"]["local"]["points"]
         endpoint["p_setpoint"]["unit"] = "MW"
         endpoint["q_setpoint"]["unit"] = "Mvar"
@@ -184,7 +195,7 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
         self.assertEqual(points["soc"]["unit"], "pc")
 
     def test_accepts_grid_map_voltage_write_modbus_local_endpoint(self):
-        payload = _load_yaml("config.yaml")
+        payload = _load_yaml(BASE_CONFIG_PATH)
         payload.setdefault("grid_map", {}).setdefault("voltage_write_modbus", {})["local"] = {
             "host": "127.0.0.1",
             "port": 15020,
@@ -215,7 +226,7 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
         self.assertEqual(remote_point["address"], 4)
 
     def test_accepts_missing_grid_map_voltage_write_modbus_remote_endpoint(self):
-        payload = _load_yaml("config.yaml")
+        payload = _load_yaml(BASE_CONFIG_PATH)
         payload.setdefault("grid_map", {}).setdefault("voltage_write_modbus", {}).pop("remote", None)
         path = _write_temp_yaml(payload)
         try:
@@ -228,7 +239,7 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
         self.assertIsNone(config["GRID_MAP_VOLTAGE_WRITE_MODBUS"]["remote"])
 
     def test_rejects_plant_level_v_poi_write_point(self):
-        payload = _load_yaml("config.yaml")
+        payload = _load_yaml(BASE_CONFIG_PATH)
         payload["plants"]["lib"]["modbus"]["local"]["points"]["v_poi_write"] = {
             "address": 400,
             "format": "uint16",
@@ -244,7 +255,7 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
             os.unlink(path)
 
     def test_rejects_grid_map_voltage_write_modbus_without_v_poi_write(self):
-        payload = _load_yaml("config.yaml")
+        payload = _load_yaml(BASE_CONFIG_PATH)
         payload.setdefault("grid_map", {}).setdefault("voltage_write_modbus", {})["local"] = {
             "host": "127.0.0.1",
             "port": 15020,
@@ -268,7 +279,7 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
             os.unlink(path)
 
     def test_rejects_grid_map_voltage_write_modbus_with_extra_points(self):
-        payload = _load_yaml("config.yaml")
+        payload = _load_yaml(BASE_CONFIG_PATH)
         payload.setdefault("grid_map", {}).setdefault("voltage_write_modbus", {})["local"] = {
             "host": "127.0.0.1",
             "port": 15020,
@@ -299,7 +310,7 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
             os.unlink(path)
 
     def test_accepts_optional_trigger_point(self):
-        payload = _load_yaml("config.yaml")
+        payload = _load_yaml(BASE_CONFIG_PATH)
         payload["plants"]["lib"]["modbus"]["local"]["points"]["trigger"] = {
             "address": 401,
             "format": "uint16",
@@ -320,7 +331,7 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
         self.assertEqual(point["word_count"], 1)
 
     def test_accepts_optional_q_control_mode_when_v_setpoint_is_present(self):
-        payload = _load_yaml("config.yaml")
+        payload = _load_yaml(BASE_CONFIG_PATH)
         payload["plants"]["lib"]["modbus"]["local"]["points"]["q_control_mode"] = {
             "address": 402,
             "format": "uint16",
@@ -390,7 +401,7 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
         self.assertEqual(config["PLANTS"]["vrfb"]["modbus"]["local"]["port"], 502)
 
     def test_rejects_q_control_mode_without_v_setpoint(self):
-        payload = _load_yaml("config.yaml")
+        payload = _load_yaml(BASE_CONFIG_PATH)
         payload["plants"]["lib"]["modbus"]["local"]["points"].pop("v_setpoint", None)
         payload["plants"]["lib"]["modbus"]["local"]["points"]["q_control_mode"] = {
             "address": 402,
@@ -407,7 +418,7 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
             os.unlink(path)
 
     def test_rejects_inverted_power_limits(self):
-        payload = _load_yaml("config.yaml")
+        payload = _load_yaml(BASE_CONFIG_PATH)
         payload["plants"]["lib"]["model"]["power_limits"]["p_min_kw"] = 10.0
         payload["plants"]["lib"]["model"]["power_limits"]["p_max_kw"] = 5.0
         path = _write_temp_yaml(payload)
@@ -418,7 +429,7 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
             os.unlink(path)
 
     def test_accepts_missing_soc_point_for_one_endpoint(self):
-        payload = _load_yaml("config.yaml")
+        payload = _load_yaml(BASE_CONFIG_PATH)
         payload["plants"]["lib"]["modbus"]["remote"]["points"].pop("soc", None)
         path = _write_temp_yaml(payload)
         try:
@@ -431,7 +442,7 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
         self.assertNotIn("PLANT_REMOTE_SOC_REGISTER", config)
 
     def test_rejects_invalid_point_unit_for_quantity(self):
-        payload = _load_yaml("config.yaml")
+        payload = _load_yaml(BASE_CONFIG_PATH)
         payload["plants"]["lib"]["modbus"]["local"]["points"]["p_setpoint"]["unit"] = "kV"
         path = _write_temp_yaml(payload)
         try:
@@ -441,7 +452,7 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
             os.unlink(path)
 
     def test_rejects_legacy_model_voltage_key(self):
-        payload = _load_yaml("config.yaml")
+        payload = _load_yaml(BASE_CONFIG_PATH)
         model = payload["plants"]["lib"]["model"]
         model["poi_voltage_v"] = 20000.0
         path = _write_temp_yaml(payload)
@@ -452,7 +463,7 @@ class ConfigLoaderModbusPointsSchemaTests(unittest.TestCase):
             os.unlink(path)
 
     def test_rejects_legacy_voltage_tolerance_key(self):
-        payload = _load_yaml("config.yaml")
+        payload = _load_yaml(BASE_CONFIG_PATH)
         tol = payload.setdefault("recording", {}).setdefault("compression", {}).setdefault("tolerances", {})
         tol["v_poi_pu"] = 0.001
         path = _write_temp_yaml(payload)

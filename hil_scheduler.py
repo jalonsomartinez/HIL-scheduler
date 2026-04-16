@@ -12,6 +12,7 @@ from runtime.api_runtime_state import default_api_connection_runtime
 from runtime.defaults import default_measurement_post_status_by_plant
 from runtime.dispatch_write_runtime import default_dispatch_write_status_by_plant
 from runtime.engine_status_runtime import default_engine_status
+from runtime.modbus_health_runtime import default_modbus_link_health_by_plant
 from grid_map_agent import grid_map_agent
 from grid_map_runtime import default_grid_map_runtime
 import scheduling.manual_schedule_manager as msm
@@ -220,6 +221,7 @@ def build_initial_shared_data(config):
         "control_command_next_id": 1,
         "plant_observed_state_by_plant": _default_plant_observed_state_by_plant(plant_ids),
         "plant_operating_state_by_plant": _default_plant_operating_state_by_plant(plant_ids),
+        "modbus_link_health_by_plant": default_modbus_link_health_by_plant(plant_ids),
         "reactive_control_mode_by_plant": _default_reactive_control_mode_by_plant(plant_ids),
         "reactive_control_mode_runtime_by_plant": _default_reactive_control_mode_runtime_by_plant(plant_ids),
         "dispatch_write_status_by_plant": default_dispatch_write_status_by_plant(plant_ids),
