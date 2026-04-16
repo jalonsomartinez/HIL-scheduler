@@ -190,7 +190,7 @@ plants:
       remote:
         host: "7c30070c1f50.sn.mynetname.net"
         port: 502
-        timeout_s: 3.0
+        timeout_s: 5.0
         reset_after_consecutive_failures: 2
         reset_after_stale_seconds: 15.0
         inter_write_delay_s: 0.5
