@@ -530,9 +530,8 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
             shared_data["grid_map_runtime"] = {
                 "stale": False,
                 "summary": {
-                    "battery_voltage_pu": 0.05,
-                    "min_voltage_pu": 0.97,
-                    "max_voltage_pu": 1.01,
+                    "battery_voltage_pu": 0.96,
+                    "min_voltage_pu": 0.90,
                 },
             }
 
@@ -547,9 +546,9 @@ class SchedulerDispatchWriteStatusTests(unittest.TestCase):
 
         self.assertEqual(lib_bank.get_holding_registers(96, 1)[0], 3)
         self.assertAlmostEqual(_read_kw(lib_bank, q_reg), 5.0, places=1)
-        self.assertAlmostEqual(_read_point_internal_from_bank(lib_bank, lib_endpoint, "v_setpoint"), 18.0, places=6)
+        self.assertAlmostEqual(_read_point_internal_from_bank(lib_bank, lib_endpoint, "v_setpoint"), 19.7, places=6)
         scheduler_ctx = dict(shared_data["dispatch_write_status_by_plant"]["lib"].get("last_scheduler_context") or {})
-        self.assertAlmostEqual(float(scheduler_ctx.get("voltage_setpoint_pu")), 0.9, places=6)
+        self.assertAlmostEqual(float(scheduler_ctx.get("voltage_setpoint_pu")), 0.985, places=6)
         self.assertEqual(scheduler_ctx.get("write_quantity_mode"), "pv")
         self.assertIsNone(shared_data["dispatch_write_status_by_plant"]["lib"].get("last_success_q_kvar"))
 

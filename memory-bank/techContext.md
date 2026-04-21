@@ -116,6 +116,7 @@ Plant measurement/history schema excludes those `grid_map_*` columns going forwa
   - voltage-mode flag,
   - resolved `v_setpoint_pu`.
 - Twin-derived voltage references do not add a separate logging stream; they are visible through the resolved `v_setpoint_pu` carried in dispatch status, measurements, and dashboards.
+- The digital-twin voltage fallback now depends on `battery_voltage_pu` and `min_voltage_pu`; `max_voltage_pu` remains part of the summary contract for UI/history but is no longer used by the control-law fallback.
 - No-battery digital-twin runs are observational only; they affect maps/history/plots but not control writes.
 - Grid-map voltage-write logging now references the standalone endpoint selected by active transport instead of plant IDs.
 - Control-path failures for voltage dispatch are surfaced explicitly instead of silently degrading to classic `Q` control.

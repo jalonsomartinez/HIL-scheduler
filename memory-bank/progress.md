@@ -4,7 +4,7 @@
 - Validating direct plant voltage control on top of the existing heterogeneous Modbus dispatch stack.
 - Confirming `q_control_mode` + `v_setpoint` behavior on the currently configured LIB endpoint set.
 - Validating the standalone grid-map `v_poi_write` endpoint migration, including the newly configured remote transport target.
-- Verifying `v_setpoint_pu` continuity through measurement, cache, CSV, status summaries, and digital-twin fallback.
+- Verifying `v_setpoint_pu` continuity through measurement, cache, CSV, status summaries, and the new deadbanded digital-twin fallback.
 - Validating the dedicated twin-history files, no-battery scenario files, and shared historical Grid Map plots against real recorded sessions.
 - Keeping trigger-aware apply and SoC fallback behavior stable after the dispatch expansion.
 
@@ -27,7 +27,8 @@
 4. Voltage-reference source expansion
   - manual voltage override remains highest priority
   - digital-twin voltage reference feeds eligible plants when manual voltage is absent
-  - corrected twin formula uses battery voltage plus average of global min/max voltage
+  - deadbanded twin formula uses `battery_voltage_pu` directly when `min_voltage_pu >= 0.925`
+  - below the deadband it adds the low-voltage deficit: `battery_voltage_pu + 0.925 - min_voltage_pu`
 5. Grid-map Modbus hardening
   - `v_poi_write` moved to standalone `grid_map.voltage_write_modbus.{local,remote}`
   - plant point maps now reject `v_poi_write`
@@ -40,7 +41,7 @@
 ## Next
 1. Field-test voltage mode on LIB local and remote endpoints that now expose `q_control_mode`.
 2. Confirm actual plant `v_setpoint` register addresses and field response under realistic voltage excursions with twin-derived `V ref`.
-3. Confirm the corrected twin formula and clamp produce acceptable field behavior before adding more voltage-reference sources.
+3. Confirm the `0.925 pu` deadband and clamp produce acceptable field behavior before adding more voltage-reference sources.
 4. Confirm that the shared digital-twin history plots stay coherent across day rollover and start/stop boundaries in `*_twin.csv` and `*_twin_nobat.csv`.
 5. Continue remote Modbus reliability hardening and pooled-client smoke-test adaptation.
 6. Confirm with the technical team whether transformer-header lines `841-848` should keep the current investigative geometry-based values.
@@ -59,4 +60,4 @@
 11. Historical twin plots remain empty until new `*_twin.csv` / `*_twin_nobat.csv` rows exist for the selected range.
 
 ## Current Project Phase
-Heterogeneous Modbus dispatch hardening with voltage-regulation rollout, alongside SoC continuity support, dual-scenario digital-twin observability, and grid-map audit follow-up.
+Heterogeneous Modbus dispatch hardening with voltage-regulation rollout, deadbanded digital-twin voltage fallback validation, SoC continuity support, dual-scenario digital-twin observability, and grid-map audit follow-up.

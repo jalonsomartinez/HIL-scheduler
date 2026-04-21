@@ -11,7 +11,7 @@ Increase operational confidence by stabilizing heterogeneous Modbus dispatch, in
 
 2. Operational hardening
 - Confirm direct plant voltage-control behavior on real LIB endpoints with `q_control_mode` + `v_setpoint`.
-- Confirm digital-twin-derived voltage reference behaves sensibly under realistic min/max/battery voltage combinations.
+- Confirm the deadbanded digital-twin-derived voltage reference behaves sensibly under realistic battery-voltage and low-voltage combinations around the `0.925 pu` threshold.
 - Decide whether trigger pulse timing should remain fixed or become configurable.
 - Continue remote endpoint stability checks after pooled-session rollout.
 - Extend non-dispatch runtime paths if per-phase-only telemetry becomes a production requirement.

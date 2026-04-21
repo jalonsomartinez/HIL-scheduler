@@ -5,7 +5,7 @@
 - Confirm `q_control_mode` + `v_setpoint` writes behave correctly on LIB local and remote endpoints.
 - Validate the new standalone grid-map `v_poi_write` Modbus endpoint on both local and newly configured remote transport.
 - Verify dashboard-selected `Q mode` / `V mode` behavior is usable and clearly communicates reactive-mode intent.
-- Validate the new digital-twin voltage-reference fallback and its clamp behavior on realistic network states.
+- Validate the deadbanded digital-twin voltage-reference fallback and its clamp behavior on realistic network states.
 - Preserve telemetry/history compatibility while recording `v_setpoint_pu` in plant files and dual digital-twin summaries in dedicated `twin` / `twin_nobat` files.
 - Validate the new Grid Map scenario toggle and the three shared digital-twin historical plots in both private and public dashboards against real recorded data.
 - Keep the current grid-map digital-twin audit trail intact during unrelated runtime work.
@@ -20,9 +20,16 @@
 - Legacy plant CSVs can still contain embedded `grid_map_*` columns from the brief duplicated-history design, but shared twin plots now ignore them and trust only `*_twin.csv` / `*_twin_nobat.csv`.
 - Historical twin plots remain empty until enough fresh twin rows have been recorded for the selected range.
 - The no-battery scenario is display/history only; any future control coupling must continue using the with-battery scenario unless intentionally redesigned.
+- The digital-twin voltage fallback now keys only off `battery_voltage_pu` and `min_voltage_pu`; the `0.925 pu` deadband still needs field confirmation against real network behavior.
 - The April 2026 local pandapower edits for lines `841-848` remain investigative until technical-team review.
 
 ## Rolling Change Log (Compressed, 30-Day Window)
+- 2026-04-21:
+  - Changed the digital-twin voltage-reference fallback to a min-voltage deadband rule:
+    - if `min_voltage_pu >= 0.925`, use `battery_voltage_pu`,
+    - else use `battery_voltage_pu + 0.925 - min_voltage_pu`,
+    - then clamp to `[0.9, 1.1]`.
+  - Added runtime tests for both deadband branches and updated scheduler voltage-mode expectations to the new computed `v_setpoint`.
 - 2026-04-14:
   - Added plant-level voltage-regulation dispatch support behind optional Modbus point `q_control_mode`.
   - Moved `v_poi_write` out of plant Modbus point maps into standalone `grid_map.voltage_write_modbus.{local,remote}` config.
@@ -41,7 +48,7 @@
   - Measurement rows/CSV/cache now record `v_setpoint_pu`.
   - Private/public status summaries now show `V ref`.
   - Reactive-mode selection is now owned by the dashboard `Q mode` / `V mode` toggle instead of manual-voltage activation.
-  - Added digital-twin voltage-reference fallback for plants with `q_control_mode`, using `battery_voltage_pu + 1.0 - (max_voltage_pu + min_voltage_pu) / 2`, with final clamp to `[0.9, 1.1]`.
+  - Added digital-twin voltage-reference fallback for plants with `q_control_mode`; the initial average-of-min/max control law has since been replaced by the 2026-04-21 min-voltage deadband rule.
   - Grid Map summary cards now show battery voltage from the digital twin summary.
   - Verified targeted regression suites in the repo `venv`, covering config validation, schedule runtime, scheduler dispatch, measurement recording, dashboard intent wiring, shared-state contract, and control paths.
 - 2026-04-15:

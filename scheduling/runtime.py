@@ -126,10 +126,11 @@ def resolve_digital_twin_voltage_setpoint_pu(grid_map_runtime, *, enabled):
     summary = dict(grid_map_runtime.get("summary", {}) or {})
     battery_voltage_pu = _coerce_float(summary.get("battery_voltage_pu"))
     min_voltage_pu = _coerce_float(summary.get("min_voltage_pu"))
-    max_voltage_pu = _coerce_float(summary.get("max_voltage_pu"))
-    if battery_voltage_pu is None or min_voltage_pu is None or max_voltage_pu is None:
+    if battery_voltage_pu is None or min_voltage_pu is None:
         return None
-    return float(battery_voltage_pu + 1.0 - ((max_voltage_pu + min_voltage_pu) / 2.0))
+    if min_voltage_pu >= 0.925:
+        return float(battery_voltage_pu)
+    return float(battery_voltage_pu + 0.925 - min_voltage_pu)
 
 
 def _resolve_manual_voltage_setpoint(series_df, now_value, tz, *, manual_v_enabled):

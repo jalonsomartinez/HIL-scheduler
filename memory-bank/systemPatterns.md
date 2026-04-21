@@ -95,7 +95,9 @@ Important maps:
   1. selected reactive mode `3` -> voltage mode,
   2. require active endpoint `q_control_mode` and `v_setpoint`,
   3. resolve `v_setpoint_pu` from manual voltage, else digital twin, else `1.0 pu`,
-  4. digital twin formula is `battery_voltage_pu + 1.0 - (max_voltage_pu + min_voltage_pu) / 2`,
+  4. digital twin fallback uses a min-voltage deadband:
+     - if `min_voltage_pu >= 0.925`, use `battery_voltage_pu`,
+     - else use `battery_voltage_pu + 0.925 - min_voltage_pu`,
   5. clamp the resolved voltage reference to `[0.9, 1.1]`,
   6. convert `v_setpoint_pu` to plant physical voltage using configured `poi_voltage_kv`,
   7. write mode `3`, `P`, and plant `v_setpoint`,
