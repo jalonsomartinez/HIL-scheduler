@@ -156,8 +156,8 @@ plants:
     model:
       capacity_kwh: 400
       power_limits:
-        p_max_kw: 50
-        p_min_kw: -50
+        p_max_kw: 40
+        p_min_kw: -40
         q_max_kvar: 5
         q_min_kvar: -5
       poi_voltage_kv: 0.40
