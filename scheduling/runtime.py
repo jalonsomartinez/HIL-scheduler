@@ -130,7 +130,7 @@ def resolve_digital_twin_voltage_setpoint_pu(grid_map_runtime, *, enabled):
         return None
     if min_voltage_pu >= 0.925:
         return float(battery_voltage_pu)
-    return float(battery_voltage_pu + 0.925 - min_voltage_pu)
+    return float(battery_voltage_pu + 2*(0.925 - min_voltage_pu))
 
 
 def _resolve_manual_voltage_setpoint(series_df, now_value, tz, *, manual_v_enabled):
