@@ -97,8 +97,8 @@ plants:
       power_limits:
         p_max_kw: 1000.0
         p_min_kw: -1000.0
-        q_max_kvar: 600.0
-        q_min_kvar: -600.0
+        q_max_kvar: 750.0
+        q_min_kvar: -750.0
       poi_voltage_kv: 20.0
     modbus:
       local:
